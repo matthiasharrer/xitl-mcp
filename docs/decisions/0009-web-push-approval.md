@@ -16,6 +16,9 @@
 - **Both users are on Android** (Matthias, 2026-10-04), so the action buttons
   are the primary path; tapping the notification body opens the approval page
   as the fallback (and the only path on iOS).
+- **Approve from the lock screen for every tool, destructive ones included**
+  (Matthias, 2026-10-04), although the notification summary is built from
+  agent-controlled arguments. The full arguments are one tap away.
 
 ## Consequences
 

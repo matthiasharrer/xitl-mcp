@@ -43,11 +43,13 @@ and must allow responses up to 300 s on `/mcp/*`. Never set
 - **Dev server proxies only `/api`:** `/mcp`, `/oauth`, `/.well-known` are
   reachable on :3002 only, not via the Coder URL, so Claude.ai can't be tested
   against the workspace. Add Vite proxy entries if that's wanted.
-- **Rug pull vs explicit ALLOW** (question to Matthias): a changed tool with an
-  explicit tool/client ALLOW is still forwarded. Recommendation: drop to ASK
-  until acknowledged. Also: `inputSchema` changes aren't detected (not stored).
-- **Lock-screen "Erlauben" decides on an agent-controlled 120-char summary**
-  (question to Matthias): consider no approve action for destructive tools.
+- **Decided 2026-10-04 (Matthias), to build:** a changed tool with an explicit
+  tool- or client-level ALLOW is ASK until acknowledged ("Geändert"); explicit
+  ASK/DENY unchanged. Precedence change in `lib/policy.ts` + TC-24/36 update.
+- **Decided 2026-10-04 (Matthias), no change:** lock-screen "Erlauben" stays
+  for all tools, destructive ones included (summary is agent-controlled;
+  accepted).
+- `inputSchema` changes aren't detected (not stored).
 - **No caps** on held calls per user or SSE streams per user.
 - Boot sweep labels an ALLOW call that crashed mid-forward `DENIED +restart`,
   though it may have reached the upstream.
