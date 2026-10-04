@@ -44,6 +44,8 @@ export interface ToolRow {
   effectivePolicy: Policy;
   path: string;
   isNew: boolean;
+  /** Acknowledged once, then its description/annotations changed (TC-36). */
+  isChanged: boolean;
   lastSeenAt: string;
   clientPolicies: { mcpClientId: number; policy: Policy }[];
 }
@@ -59,6 +61,62 @@ export interface McpClient {
   name: string;
   createdAt: string;
   lastUsedAt: string | null;
+}
+
+export interface PendingApproval {
+  id: string;
+  state: 'pending';
+  clientName: string;
+  upstream: { id: number; slug: string; name: string };
+  tool: string;
+  arguments: unknown;
+  rulePath: string;
+  receivedAt: string;
+  expiresAt: string;
+  /** Time left when the server answered; the countdown runs from this. */
+  remainingMs: number;
+  /** false for new/changed tools: only "Erlauben" once, no snooze. */
+  snoozable: boolean;
+}
+
+export type Outcome = 'PENDING' | 'FORWARDED' | 'DENIED' | 'TIMED_OUT' | 'UPSTREAM_ERROR';
+
+export interface ResolvedApproval {
+  id: string;
+  state: 'resolved';
+  auditId: number;
+  outcome: Outcome;
+  decisionPath: string;
+  clientName: string | null;
+  upstream: { id: number; slug: string; name: string } | null;
+  tool: string;
+  arguments: unknown;
+  receivedAt: string;
+  decidedAt: string | null;
+}
+
+export type ApprovalDecision =
+  | { decision: 'deny' }
+  | { decision: 'approve'; snoozeMinutes?: number; snoozeUntilMidnight?: boolean };
+
+export interface AuditRow {
+  id: number;
+  tool: string;
+  upstream: { id: number; slug: string; name: string } | null;
+  clientName: string | null;
+  outcome: Outcome;
+  decisionPath: string;
+  isError: boolean | null;
+  receivedAt: string;
+}
+
+export interface AuditDetail extends AuditRow {
+  endpoint: string;
+  policy: Policy;
+  arguments: unknown;
+  resultText: string | null;
+  decidedAt: string | null;
+  finishedAt: string | null;
 }
 
 /** An API failure with a message that is safe to show to the user. */
@@ -122,6 +180,21 @@ export const api = {
     request<ToolsView>('PUT', `/api/upstreams/${id}/tools/${toolId}/clients/${clientId}`, { policy }),
   clearClientPolicy: (id: number, toolId: number, clientId: number) =>
     request<ToolsView>('DELETE', `/api/upstreams/${id}/tools/${toolId}/clients/${clientId}`),
+  listApprovals: () => request<PendingApproval[]>('GET', '/api/approvals'),
+  getApproval: (id: string) => request<PendingApproval | ResolvedApproval>('GET', `/api/approvals/${encodeURIComponent(id)}`),
+  decideApproval: (id: string, d: ApprovalDecision) =>
+    request<{ id: string; state: 'approved' | 'denied'; snoozeUntil: string | null }>('POST', `/api/approvals/${encodeURIComponent(id)}`, {
+      ...d,
+      via: 'page',
+    }),
+  listAudit: (before?: number) =>
+    request<{ entries: AuditRow[]; nextBefore: number | null }>('GET', `/api/audit${before ? `?before=${before}` : ''}`),
+  getAudit: (id: number) => request<AuditDetail>('GET', `/api/audit/${id}`),
+  getPushConfig: () => request<{ publicKey: string }>('GET', '/api/push/config'),
+  savePushSubscription: (sub: { endpoint: string; keys: { p256dh: string; auth: string } }) =>
+    request<unknown>('POST', '/api/push/subscriptions', sub),
+  deletePushSubscription: (endpoint: string) => request<void>('DELETE', '/api/push/subscriptions', { endpoint }),
+  sendPushTest: (endpoint: string) => request<void>('POST', '/api/push/test', { endpoint }),
 };
 
 export const messageOf = (e: unknown) =>
@@ -136,3 +209,36 @@ export const STATUS_LABEL: Record<UpstreamStatus, string> = {
   CONNECTED: 'Verbunden',
   NEEDS_RECONNECT: 'Neu verbinden nötig',
 };
+
+export const OUTCOME_LABEL: Record<Outcome, string> = {
+  PENDING: 'Offen',
+  FORWARDED: 'Weitergeleitet',
+  DENIED: 'Abgelehnt',
+  TIMED_OUT: 'Zeit abgelaufen',
+  UPSTREAM_ERROR: 'Fehler',
+};
+
+const PATH_PART: Record<string, string> = {
+  'policy:upstream-default': 'Standardregel',
+  'policy:tool': 'Regel des Tools',
+  'policy:client': 'Regel für diesen Client',
+  'new-tool': 'neues oder geändertes Tool',
+  'unknown-tool': 'unbekanntes Tool',
+  snooze: 'pausiert, ohne Nachfrage',
+  'approved:page': 'erlaubt in der App',
+  'approved:push': 'erlaubt per Benachrichtigung',
+  'denied:page': 'abgelehnt in der App',
+  'denied:push': 'abgelehnt per Benachrichtigung',
+  timeout: 'Zeit abgelaufen',
+  aborted: 'Verbindung abgebrochen',
+  shutdown: 'Server neu gestartet',
+  'ask:no-channel': 'Freigabe noch nicht verfügbar',
+};
+
+/** "policy:upstream-default+approved:page" -> "Standardregel → erlaubt in der App". */
+export function decisionPathText(path: string): string {
+  return path
+    .split('+')
+    .map((p) => PATH_PART[p] ?? p)
+    .join(' → ');
+}

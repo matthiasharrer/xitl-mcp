@@ -1,10 +1,10 @@
 # Architecture
 
 > How the system fits together **right now**. Target design lives in the ADRs;
-> this file describes what exists. _Last updated: 2026-10-04 (upstream OAuth
-> client, proxy core, policy engine, Regeln view)._
+> this file describes what exists. _Last updated: 2026-10-04 (slice 6:
+> approval, snooze, Web Push, Verlauf, rug-pull re-flag)._
 
-## Current state: proxy with allow/deny, no approval channel yet
+## Current state: proxy with allow / deny / ask (held for approval on page or push)
 
 Copied and adapted from `haushalts-todos` (ADR-0002, ADR-0012):
 
@@ -20,6 +20,9 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
     /api/upstreams/:id/tools…  routes/upstreamTools.ts: policy UI API
     /api/mcp/config      { configured } (is MCP_TOKEN set)
     /api/mcp/clients     routes/mcpClients.ts: list/rename/revoke own clients
+    /api/approvals       routes/approvals.ts: my held calls, SSE stream, decide
+    /api/audit           routes/audit.ts: my call history (Verlauf)
+    /api/push            routes/push.ts: VAPID key, subscriptions, test push
   /mcp/register, /mcp/token, /oauth/authorize, /.well-known/*
                          mcp/oauthRoutes.ts: DCR, PKCE, consent page
   /mcp/<slug>            mcp/mount.ts: bearer gate -> slug resolved among the
@@ -34,19 +37,33 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
   upstream/connection.ts withUpstream(): one short-lived MCP client connection
                          per request, credentials injected by our fetch wrapper
   upstream/tools.ts      KnownTool sync from tools/list
+  approval/pending.ts    ApprovalHub: in-memory held calls + EventEmitter
+  approval/budget.ts     300 s budget, approval deadline, snooze ends,
+                         push summary (pure, budget.test.ts)
+  approval/snooze.ts     Snooze rows (user-scoped queries)
+  approval/notify.ts     hub -> Web Push (approval / resolved messages)
+  approval/message.ts    the approval push payload (pure)
+  lib/push.ts            Web Push sender, VAPID (AppSetting "vapid"),
+                         PUSH_OUTBOX transport (copied from Haushalt)
   lib/clock.ts           injectable Clock (ADR-0003)
   lib/mcpOAuth.ts        signed-blob codes/tokens (HMAC with MCP_TOKEN), PKCE
   lib/externalOrigin.ts  the one definition of "our public origin"
   lib/slugs.ts           slug pattern + reserved words (register, token)
-apps/web/   Svelte 5 SPA (Vite), German UI, mobile-first. Views in the URL hash:
-            Start, Einstellungen (#/einstellungen: upstreams with status,
-            Verbinden/Neu verbinden, Regeln link, endpoint URL + copy; MCP
-            clients) and Regeln (#/regeln/<id>, routes/Rules.svelte).
+apps/web/   Svelte 5 SPA (Vite), German UI, mobile-first, installable PWA
+            (manifest + icons + public/sw.js, push only). Tab bar:
+            Freigaben (#/, live list of held calls; #/freigabe/<id> one call,
+            the push deep link), Verlauf (#/verlauf, #/verlauf/<id>),
+            Einstellungen (#/einstellungen: Benachrichtigungen, upstreams with
+            status, Verbinden/Neu verbinden, Regeln link, endpoint URL + copy;
+            MCP clients) and Regeln (#/regeln/<id>, routes/Rules.svelte).
             "#/einstellungen?verbunden=<id>" / "?verbindung=…" carry the OAuth
             callback's result once (toast, then dropped from the URL).
 e2e/        Playwright against the built server on :3202 with .e2e/e2e.db
             (output in .e2e/api.log) plus the fake upstream on :3210
-            (e2e/support/fakeUpstream.ts). TC-01…TC-26.
+            (e2e/support/fakeUpstream.ts). TC-01…TC-36 (TC-37 unit). The
+            server runs with APPROVAL_TIMEOUT_MS=5000 and PUSH_OUTBOX.
+scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
+            (Playwright Chromium; rerun after changing the SVG).
 ```
 
 ### Upstream registry (ADR-0010, ADR-0013)
@@ -125,24 +142,120 @@ e2e/        Playwright against the built server on :3202 with .e2e/e2e.db
   without contacting the upstream; otherwise fetch, `syncKnownTools`, evaluate
   per tool for this client: DENY dropped, ASK description + stamp, ALLOW
   unchanged. Upstream failure -> JSON-RPC error with a generic message.
-- `tools/call`: KnownTool + client override + upstream default read fresh ->
-  `evaluatePolicy` -> AuditEntry `PENDING` written first (full arguments,
-  `receivedAt` via Clock, endpoint) -> DENY: `isError` (German + English),
-  `DENIED`; ASK: `DENIED`, decisionPath `<rule>+ask:no-channel` (**slice 6
-  replaces this**, marked in server.ts); ALLOW: forwarded, result returned
-  unchanged except that our own upstream credentials are scrubbed if the
-  upstream echoes them (`scrubSecrets`), audit `FORWARDED` + `isError` +
-  `resultText` (≤ 2000 chars). Failure -> `UPSTREAM_ERROR`, generic message.
+- `tools/call`: KnownTool + client override + upstream default + live snooze
+  read fresh -> `evaluatePolicy` -> AuditEntry `PENDING` written first (full
+  arguments, `receivedAt` via Clock, endpoint, `approvalId` for ASK) -> DENY:
+  `isError` (German + English), `DENIED`; ALLOW (rule or `snooze`): forwarded,
+  result returned unchanged except that our own upstream credentials are
+  scrubbed if the upstream echoes them (`scrubSecrets`), audit `FORWARDED` +
+  `isError` + `resultText` (≤ 2000 chars), failure -> `UPSTREAM_ERROR`,
+  generic message; ASK: held (next section). `forward()` in server.ts is the
+  only place a call leaves xitl.
 - No `notifications/tools/list_changed` on policy changes: the endpoint has no
   sessions; the next `tools/list` sees the change.
 
-### Policy engine (ADR-0004, TC-24)
+### Approval: held calls (ADR-0004, ADR-0009, TC-27…31, TC-37)
 
-`lib/policy.ts` `evaluatePolicy({ upstreamDefault, tool, clientOverride })`:
-unknown tool (no KnownTool) -> DENY `unknown-tool`; client override ->
-`policy:client`; tool policy -> `policy:tool`; unacknowledged -> ASK
-`new-tool`; else default -> `policy:upstream-default`. Non-Policy values fail
-closed to DENY. The snooze seam (slice 6) is a commented spot in the function.
+- `approval/pending.ts` `ApprovalHub` (one per process, `approvals`): a Map of
+  held calls keyed by a 128-bit random id (base64url, 22 chars) with userId,
+  client, upstream, tool, args, audit id, rule path, `receivedAt`,
+  `deadline`, `snoozable`. `hold()` returns a promise that settles **exactly
+  once**: the first of `decide()` (owner only; another user's id = not found),
+  the deadline timer (`setTimeout` from the Clock's delta), `abort()` (the MCP
+  request's `ctx.mcpReq.signal`: the client hung up) or `shutdown()` (SIGTERM
+  in index.ts). The entry leaves the Map synchronously when it settles. Events
+  `pending` / `resolved` / `shutdown` feed the channels (SSE, push);
+  listener errors are swallowed so a channel can't break a decision.
+- Budget (`approval/budget.ts`): 300 s from `receivedAt` for wait + upstream.
+  Deadline = `receivedAt + min(APPROVAL_TIMEOUT_MS, 300 s − 5 s)`
+  (`APPROVAL_TIMEOUT_MS` env, default 300 000; e2e 5000). After an approval
+  the upstream timeout = what is left, capped at 120 s; under 5 s left ->
+  `TIMED_OUT` without forwarding.
+- Outcomes (audit `decisionPath` = `<rule>+…`, `decidedAt` = decision time):
+  approve -> forward, `FORWARDED` `+approved:page|push` (snooze row written if
+  asked); deny -> `DENIED` `+denied:page|push`, agent text names the user;
+  timeout -> `TIMED_OUT` `+timeout` ("nicht innerhalb von 5 Minuten
+  freigegeben … später erneut versuchen"); client abort -> `DENIED`
+  `+aborted`; shutdown -> `DENIED` `+shutdown`. At boot, any audit row still
+  `PENDING` (crash/kill) becomes `DENIED` `+restart` (index.ts).
+- `/api/approvals` (routes/approvals.ts, behind identity, all user-scoped):
+  `GET /` (my held calls, with `remainingMs` so the client's countdown doesn't
+  depend on clock agreement), `GET /stream` (SSE via Hono `streamSSE`:
+  `snapshot` on connect, then `pending` / `resolved` for the caller's calls
+  only; keepalive comment every 25 s; ends on shutdown), `GET /:id` (pending,
+  or `{state:'resolved', outcome, decisionPath, …}` from the audit row by
+  `approvalId`), `POST /:id` `{decision, via:'page'|'push', snoozeMinutes? |
+  snoozeUntilMidnight?}` (strict zod; 404 unknown/foreign id, 409 "Diese
+  Freigabe ist nicht mehr offen." when the audit row is the caller's; snooze
+  on deny or on a non-snoozable call -> 400). The Sec-Fetch-Site guard
+  applies (the service worker's fetch is same-origin).
+- The MCP response for a held call: the SDK's legacy (2025-06-18) stateless
+  leg answers over SSE and sends `: keepalive` comments every 15 s while the
+  handler waits, so idle proxies see traffic.
+
+### Snooze (ADR-0004, TC-30)
+
+`Snooze` rows (user, upstream, tool name, client, `until`). Created when an
+approval carries `snoozeMinutes` (1…1440; UI: 15, 60) or
+`snoozeUntilMidnight` (next 00:00 Europe/Berlin, DST-safe). `evaluatePolicy`
+gets `snoozedUntil` (latest live row) + `now` and upgrades **only ASK, never
+the `new-tool` path** to ALLOW `snooze`; DENY and unknown tools never.
+tools/list applies it too (no stamp while snoozed). A rug-pull re-flag deletes
+the tool's snoozes. Expired rows are pruned when a new one is written.
+
+### Rug pull (TC-36)
+
+`syncKnownTools` compares each known tool's stored description and annotations
+(annotations as canonical JSON, key order ignored) with the new list. A change
+on an **acknowledged** tool clears `acknowledgedAt`, sets `changedAt` (UI
+"Geändert" instead of "Neu"; `isChanged` in the tools API) and deletes its
+snoozes. Acknowledge / set policy clears `changedAt`. `inputSchema` is not
+compared (not stored). Explicit tool / client policies still win over the
+re-flag (precedence unchanged).
+
+### Web Push (ADR-0009, TC-32…34)
+
+- Copied from Haushalt: VAPID pair generated on first use in `AppSetting`
+  "vapid"; `PushSubscription` per device (upsert by endpoint, moves to the
+  caller); 404/410 deletes; `PUSH_OUTBOX=<file>` swaps the transport for a
+  JSONL file. `web-push` sends with `urgency` + `TTL`.
+- `approval/notify.ts` listens on the hub: each new held call ->
+  `{type:'approval', id, upstream, tool, summary, expiresAt}` (summary = tool +
+  first argument values, one line, ≤ 120 chars; no client name, no full args,
+  no credential; payload checked ≤ 4000 bytes) to **the owner's**
+  subscriptions, urgency high, TTL = seconds to the deadline. Decided on the
+  page or expired -> `{type:'resolved', id, outcome}` so the worker replaces
+  the stale notification (not after a decision from the notification itself,
+  not on abort/shutdown).
+- `apps/web/public/sw.js` (no fetch handler, no caching): `approval` ->
+  notification (tag `approval-<id>`, `requireInteraction`, actions
+  Erlauben/Ablehnen, data.url `/#/freigabe/<id>`); action -> `fetch POST
+  /api/approvals/<id> {decision, via:'push'}` with `credentials: 'include'`,
+  `redirect: 'manual'` (an expired Authelia session's redirect is not
+  followed), then the notification is replaced by the outcome (Erlaubt /
+  Abgelehnt / Nicht mehr offen / bitte in der App anmelden); body tap ->
+  focus/open `/#/freigabe/<id>` (iPhones show no actions: that is the whole
+  path there). `resolved` -> replace by tag, silent. `test` -> plain.
+- Web: `lib/push.ts` (subscribe/unsubscribe/test, and on every app start
+  re-registers an existing subscription with the server), Einstellungen
+  "Benachrichtigungen" card. `index.html` links the manifest with
+  `crossorigin="use-credentials"` (Authelia) and the apple-touch-icon.
+
+### Audit API (ADR-0008, TC-35)
+
+`GET /api/audit?before=<id>` (newest first by id, 50 per page, `nextBefore`),
+`GET /api/audit/:id` (arguments parsed, result excerpt, times). User-scoped;
+another user's id is 404. The UI renders `decisionPath` in German
+(`decisionPathText` in web `lib/api.ts`).
+
+### Policy engine (ADR-0004, TC-24, TC-30)
+
+`lib/policy.ts` `evaluatePolicy({ upstreamDefault, tool, clientOverride,
+snoozedUntil?, now? })`: unknown tool (no KnownTool) -> DENY `unknown-tool`;
+client override -> `policy:client`; tool policy -> `policy:tool`;
+unacknowledged (new or changed) -> ASK `new-tool`; else default ->
+`policy:upstream-default`; then a live snooze turns ASK (not `new-tool`) into
+ALLOW `snooze`. Non-Policy values fail closed to DENY.
 
 KnownTool rows come from every upstream `tools/list` (proxy or "Tools
 aktualisieren"). The **first** list ever seen for an upstream is recorded as
@@ -154,9 +267,11 @@ rule is for tools the upstream adds later. Any later new tool is `acknowledgedAt
 
 `GET /api/upstreams/:id/tools` (tools with hint from annotations —
 readOnlyHint -> Lesen, destructiveHint true -> Destruktiv, else Schreiben —,
-own policy, effective policy without client override, path, `isNew`, the
+own policy, effective policy without client override, path, `isNew`,
+`isChanged`, the
 caller's client overrides; plus the caller's clients), `POST …/tools/refresh`,
-`PATCH …/tools/:toolId` `{ policy | null }` (sets `acknowledgedAt`),
+`PATCH …/tools/:toolId` `{ policy | null }` (sets `acknowledgedAt`, clears
+`changedAt`),
 `POST …/tools/:toolId/acknowledge`, `PUT/DELETE
 …/tools/:toolId/clients/:mcpClientId`. The upstream is resolved among the
 caller's, the tool through that upstream, the client among the caller's: 404
@@ -197,7 +312,8 @@ SameSite cookie is the first line; this covers body-less POSTs like
 rotating refresh, configurable TTL, refresh rejection), a hand-rolled
 Streamable-HTTP MCP server (JSON responses; bearer or `X-Fake-Key`), tools
 `list_items`/`add_item`/`delete_all` (+ added ones; `leak_token` echoes its
-credential), and `/control/t/<tenant>/…` (config, add tool, expire all access
+credential), and `/control/t/<tenant>/…` (config, add or replace a tool by
+name (rug pull), expire all access
 tokens, state: calls, refresh count, issued tokens). Hand-rolled rather than
 built on `@modelcontextprotocol/server` because that package is installed
 under `apps/api/node_modules` only and e2e must not reach into a workspace.

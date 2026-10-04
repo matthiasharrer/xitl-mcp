@@ -4,6 +4,7 @@ import { test, expect, type APIRequestContext } from '@playwright/test';
 import { ANNA, MATTHIAS, createUpstream, dbAll, uniq } from '../support/db.js';
 import { INITIALIZE, runOAuthFlow } from '../support/mcpClient.js';
 import { callTool, connectedUpstream, fakeControl, fakeMcpUrl, fakeState, listTools, mcp, newTenant } from '../support/upstream.js';
+import { decide, waitPending } from '../support/approval.js';
 
 test.use({ extraHTTPHeaders: {} });
 
@@ -103,15 +104,21 @@ test('TC-21 deny-Tool (versteckt, trotzdem per Name gerufen) -> isError, Upstrea
   expect(Object.keys((await fakeState(request, up.tenant)).calls)).toEqual([]);
 });
 
-test('TC-22 ask-Tool bis zur Freigabe-Funktion: verweigert ("Freigabe ist noch nicht verfügbar"), Audit DENIED ask:no-channel', async ({ request }) => {
+// TC-22 was "ASK is denied until approval exists (ask:no-channel)". Slice 6
+// replaced that spot: an ASK call is now held for the user (TC-27…29). Kept as
+// the regression that ASK never forwards by itself.
+test('TC-22 (abgelöst durch TC-27…29) ask-Tool wird gehalten, nicht weitergeleitet; Ablehnen -> DENIED', async ({ request }) => {
   const { up, token } = await policyUpstream(request, 'tc22');
-  const result = await callTool(request, up.slug, token, 'add_item', { item: 'Eier' });
+  const held = callTool(request, up.slug, token, 'add_item', { item: 'Eier' });
+  const p = await waitPending(request, up.id, 'add_item');
+  expect((await fakeState(request, up.tenant)).calls.add_item ?? 0).toBe(0);
+  expect(lastAudit(up.id)).toMatchObject({ toolName: 'add_item', outcome: 'PENDING', policy: 'ASK' });
+  expect((await decide(request, p.id, { decision: 'deny' })).status()).toBe(200);
+  const result = await held;
   expect(result.isError).toBe(true);
-  expect(result.content[0]!.text).toContain('Freigabe ist noch nicht verfügbar');
   expect((await fakeState(request, up.tenant)).calls.add_item ?? 0).toBe(0);
   const a = lastAudit(up.id);
-  expect(a).toMatchObject({ toolName: 'add_item', outcome: 'DENIED', policy: 'ASK' });
-  expect(a.decisionPath).toContain('ask:no-channel');
+  expect(a).toMatchObject({ toolName: 'add_item', outcome: 'DENIED', policy: 'ASK', decisionPath: 'policy:upstream-default+denied:page' });
   expect(JSON.parse(a.arguments)).toEqual({ item: 'Eier' });
 });
 
@@ -130,9 +137,11 @@ test.describe('im Browser', () => {
     const second = await listTools(request, up.slug, m.accessToken);
     const sneaky = second.find((t) => t.name === 'sneaky_tool')!;
     expect(sneaky.description).toContain(STAMP);
-    const denied = await callTool(request, up.slug, m.accessToken, 'sneaky_tool');
-    expect(denied.isError).toBe(true);
-    expect(lastAudit(up.id).decisionPath).toBe('new-tool+ask:no-channel');
+    const held = callTool(request, up.slug, m.accessToken, 'sneaky_tool');
+    const p = await waitPending(request, up.id, 'sneaky_tool');
+    expect((await decide(request, p.id, { decision: 'deny' })).status()).toBe(200);
+    expect((await held).isError).toBe(true);
+    expect(lastAudit(up.id).decisionPath).toBe('new-tool+denied:page');
     expect((await fakeState(request, up.tenant)).calls.sneaky_tool ?? 0).toBe(0);
 
     // the policy UI marks it "Neu"

@@ -4,7 +4,7 @@
 // server is already up).
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import { DATABASE_URL, DB_PATH, E2E_DIR, ROOT } from './support/paths.js';
+import { DATABASE_URL, DB_PATH, E2E_DIR, PUSH_OUTBOX, ROOT } from './support/paths.js';
 
 fs.mkdirSync(E2E_DIR, { recursive: true });
 
@@ -21,6 +21,7 @@ if (process.env.E2E_SKIP_BUILD === '1') {
 for (const suffix of ['', '-wal', '-shm']) {
   fs.rmSync(DB_PATH + suffix, { force: true });
 }
+fs.rmSync(PUSH_OUTBOX, { force: true });
 
 console.error('[e2e] Applying migrations to the e2e DB…');
 execFileSync('npx', ['prisma', 'migrate', 'deploy', '--config', 'apps/api/prisma.config.ts'], {

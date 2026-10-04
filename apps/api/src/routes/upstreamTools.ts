@@ -79,7 +79,10 @@ async function toolsView(upstreamId: number, userId: number) {
         policy: t.policy,
         effectivePolicy: base.policy,
         path: base.path,
-        isNew: t.acknowledgedAt === null,
+        // Not yet looked at: "Neu" (never acknowledged) or "Geändert" (its
+        // definition changed after it was acknowledged, TC-36).
+        isNew: t.acknowledgedAt === null && t.changedAt === null,
+        isChanged: t.acknowledgedAt === null && t.changedAt !== null,
         lastSeenAt: t.lastSeenAt.toISOString(),
         clientPolicies: t.clientPolicies.map((cp) => ({ mcpClientId: cp.mcpClientId, policy: cp.policy })),
       };
@@ -124,7 +127,7 @@ upstreamTools.patch('/:id/tools/:toolId', async (c) => {
   if (!parsed.success) return c.json({ error: 'Die Regel ist ungültig.' }, 400);
   await prisma.knownTool.updateMany({
     where: { id: tool.id, upstreamId: upstream.id },
-    data: { policy: parsed.data.policy, acknowledgedAt: clock.now() },
+    data: { policy: parsed.data.policy, acknowledgedAt: clock.now(), changedAt: null },
   });
   return c.json(await toolsView(upstream.id, userId));
 });
@@ -136,7 +139,7 @@ upstreamTools.post('/:id/tools/:toolId/acknowledge', async (c) => {
   if (!upstream) return c.json(NOT_FOUND, 404);
   const tool = await ownTool(upstream.id, parseId(c.req.param('toolId')));
   if (!tool) return c.json(NOT_FOUND, 404);
-  await prisma.knownTool.updateMany({ where: { id: tool.id, upstreamId: upstream.id }, data: { acknowledgedAt: clock.now() } });
+  await prisma.knownTool.updateMany({ where: { id: tool.id, upstreamId: upstream.id }, data: { acknowledgedAt: clock.now(), changedAt: null } });
   return c.json(await toolsView(upstream.id, userId));
 });
 

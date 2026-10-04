@@ -5,6 +5,11 @@ import { upstreams } from './routes/upstreams.js';
 import { upstreamTools } from './routes/upstreamTools.js';
 import { mcpClients } from './routes/mcpClients.js';
 import { mcpConfig } from './routes/mcpConfig.js';
+import { approvalRoutes } from './routes/approvals.js';
+import { audit } from './routes/audit.js';
+import { push } from './routes/push.js';
+import { approvals } from './approval/pending.js';
+import { wireApprovalPush } from './approval/notify.js';
 import { mountMcp } from './mcp/mount.js';
 import { mountStatic } from './static.js';
 
@@ -36,6 +41,12 @@ app.route('/api/upstreams', upstreams);
 app.route('/api/upstreams', upstreamTools);
 app.route('/api/mcp', mcpConfig);
 app.route('/api/mcp/clients', mcpClients);
+app.route('/api/approvals', approvalRoutes);
+app.route('/api/audit', audit);
+app.route('/api/push', push);
+
+// Every new held call is pushed to its user's devices (ADR-0009).
+wireApprovalPush(approvals);
 
 app.onError((err, c) => {
   console.error(err);

@@ -7,11 +7,13 @@
 import { defineConfig } from '@playwright/test';
 import {
   API_LOG,
+  APPROVAL_TIMEOUT_MS,
   BASE_URL,
   FAKE_UPSTREAM,
   DATABASE_URL,
   MCP_TOKEN,
   PORT,
+  PUSH_OUTBOX,
   REPORT_DIR,
   SERVER_ENTRY,
   TEST_RESULTS_DIR,
@@ -45,7 +47,7 @@ export default defineConfig({
       url: `${BASE_URL}/api/health`,
       reuseExistingServer: false,
       timeout: 180_000,
-      env: { DATABASE_URL, PORT: String(PORT), WEB_DIST, MCP_TOKEN },
+      env: { DATABASE_URL, PORT: String(PORT), WEB_DIST, MCP_TOKEN, PUSH_OUTBOX, APPROVAL_TIMEOUT_MS: String(APPROVAL_TIMEOUT_MS) },
     },
     {
       // OAuth AS + MCP server standing in for real upstreams (docs/testing.md).

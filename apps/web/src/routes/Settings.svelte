@@ -2,8 +2,16 @@
   import Spinner from '../lib/Spinner.svelte';
   import ConfirmDialog from '../lib/ConfirmDialog.svelte';
   import UpstreamSheet from '../lib/UpstreamSheet.svelte';
-  import { api, messageOf, STATUS_LABEL, type McpClient, type Upstream, type UpstreamInput } from '../lib/api';
+  import { api, ApiError, messageOf, STATUS_LABEL, type McpClient, type Upstream, type UpstreamInput } from '../lib/api';
   import { showToast } from '../lib/store.svelte';
+  import {
+    currentSubscription,
+    pushPermission,
+    pushSupported,
+    sendTestPush,
+    subscribeThisDevice,
+    unsubscribeThisDevice,
+  } from '../lib/push';
 
   let upstreams = $state<Upstream[]>([]);
   let clients = $state<McpClient[]>([]);
@@ -127,6 +135,57 @@
     await load();
   }
 
+  // ---- Benachrichtigungen (ADR-0009, copied from haushalts-todos) ----
+  const supported = pushSupported();
+  let permission = $state<NotificationPermission>(pushPermission());
+  let deviceOn = $state(false);
+  let deviceBusy = $state(false);
+  let testing = $state(false);
+
+  async function loadDevice() {
+    if (!supported) return;
+    try {
+      deviceOn = pushPermission() === 'granted' && (await currentSubscription()) !== null;
+    } catch {
+      deviceOn = false;
+    }
+  }
+  loadDevice();
+
+  async function toggleDevice(on: boolean) {
+    deviceBusy = true;
+    try {
+      if (on) {
+        await subscribeThisDevice();
+        deviceOn = true;
+        showToast('Benachrichtigungen auf diesem Gerät aktiv');
+      } else {
+        await unsubscribeThisDevice();
+        deviceOn = false;
+      }
+    } catch (e) {
+      deviceOn = !on;
+      if (!(e instanceof Error && e.message === 'permission-denied')) {
+        showToast(e instanceof ApiError ? e.message : 'Anmelden beim Push-Dienst hat nicht geklappt.', { error: true });
+      }
+    } finally {
+      permission = pushPermission();
+      deviceBusy = false;
+    }
+  }
+
+  async function testPush() {
+    testing = true;
+    try {
+      await sendTestPush();
+      showToast('Test gesendet');
+    } catch (e) {
+      showToast(messageOf(e), { error: true });
+    } finally {
+      testing = false;
+    }
+  }
+
   const date = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium' });
   const dateTime = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -143,6 +202,43 @@
 </script>
 
 <div class="settings">
+  <section aria-labelledby="notif-title">
+    <h2 id="notif-title">Benachrichtigungen</h2>
+    <div class="card">
+      {#if !supported}
+        <p class="hint">
+          Dieser Browser kann keine Push-Nachrichten empfangen. Auf dem Android-Handy geht es in
+          Chrome; auf dem iPhone muss xitl erst zum Home-Bildschirm hinzugefügt werden (Teilen →
+          „Zum Home-Bildschirm“) und von dort geöffnet werden.
+        </p>
+      {:else}
+        <label class="switch-row">
+          <input
+            type="checkbox"
+            checked={deviceOn}
+            disabled={deviceBusy || permission === 'denied'}
+            onchange={(e) => toggleDevice(e.currentTarget.checked)}
+          />
+          <span>Benachrichtigungen auf diesem Gerät</span>
+        </label>
+        {#if permission === 'denied'}
+          <p class="hint">
+            Benachrichtigungen sind für diese Seite blockiert. In Chrome: Schloss-Symbol neben der
+            Adresse → Berechtigungen → Benachrichtigungen → Zulassen. Danach diese Seite neu laden.
+          </p>
+        {:else if deviceOn}
+          <div class="notif-actions">
+            <button type="button" class="btn" disabled={testing} onclick={testPush}>Test-Push senden</button>
+          </div>
+        {/if}
+        <p class="hint">
+          Jede Freigabe kommt sofort als Benachrichtigung. Auf Android lässt sie sich direkt dort
+          erlauben oder ablehnen; auf dem iPhone öffnet ein Tippen die Freigabe in der App.
+        </p>
+      {/if}
+    </div>
+  </section>
+
   <section aria-labelledby="upstreams-title">
     <h2 id="upstreams-title">Upstreams</h2>
     {#if !loaded}

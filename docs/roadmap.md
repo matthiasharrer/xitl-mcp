@@ -13,15 +13,19 @@ behind Authelia, `edge` image)_
 Slices (lead's plan; each verifiable on its own, app working in between;
 numbers are stable, done ones moved to `roadmap-archive.md`):
 
-6. **Approval:** replace the `ask:no-channel` spot in `mcp/server.ts`; pending map + approval page (phone) + Web Push with
-   approve/deny actions, copied from Haushalt's push (ADR-0009); 5 min auto-deny;
-   snooze.
-7. **Audit** (ADR-0008) and its list in the UI.
 8. **Malicious-client suite**, first cases: cross-user access, forged tokens,
    upstream token leakage, approval of another user's call.
 
-Release to the cluster when 1–6 work end to end in the workspace; the ingress
-then needs Haushalt's `/mcp` + `/.well-known` exemptions (GitOps, Matthias).
+Slices 1–7 are done. Remaining: slice 8, then a release (Matthias's call) and
+the manual gates MG-01…05 (`testing.md`).
+
+**Deploy checklist (GitOps, Matthias):** `MCP_TOKEN` secret ✅ (2026-10-04);
+Authelia exemptions for `/mcp*` ✅ — confirm `/.well-known/*` too, and that
+`/oauth/authorize` + `/api/*` stay behind Authelia; `PUBLIC_URL=https://<xitl>`
+(OAuth redirect and VAPID subject); egress 443 to the siblings' public URLs and
+to `fcm.googleapis.com`; ingress must not buffer `/api/approvals/stream` (SSE)
+and must allow responses up to 300 s on `/mcp/*`. Never set
+`APPROVAL_TIMEOUT_MS` or `PUSH_OUTBOX` in production.
 
 ## After milestone 1
 
@@ -39,12 +43,14 @@ then needs Haushalt's `/mcp` + `/.well-known` exemptions (GitOps, Matthias).
 - **Dev server proxies only `/api`:** `/mcp`, `/oauth`, `/.well-known` are
   reachable on :3002 only, not via the Coder URL, so Claude.ai can't be tested
   against the workspace. Add Vite proxy entries if that's wanted.
-- **Tool "rug pull":** an existing tool whose description/annotations change
-  is not re-flagged. Re-flag as new (ask) when its description or annotations
-  change materially. Should come before more upstreams are added.
-- **Approval wait budget (slice 6):** upstream call timeout is 120 s; approval
-  wait plus upstream call must stay below Claude.ai's ~300 s. Start the 5-min
-  clock at receipt and cap the upstream call by what's left.
+- **Rug pull vs explicit ALLOW** (question to Matthias): a changed tool with an
+  explicit tool/client ALLOW is still forwarded. Recommendation: drop to ASK
+  until acknowledged. Also: `inputSchema` changes aren't detected (not stored).
+- **Lock-screen "Erlauben" decides on an agent-controlled 120-char summary**
+  (question to Matthias): consider no approve action for destructive tools.
+- **No caps** on held calls per user or SSE streams per user.
+- Boot sweep labels an ALLOW call that crashed mid-forward `DENIED +restart`,
+  though it may have reached the upstream.
 - **SSRF via discovery:** OAuth discovery follows the upstream's metadata URLs
   from inside the cluster; responses aren't shown, but internal hosts can be
   probed. Covered by the outbound address policy above.

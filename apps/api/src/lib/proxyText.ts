@@ -90,8 +90,12 @@ export const MSG = {
     `[xitl] Verweigert: Das Tool „${tool}“ ist für diesen Client nicht erlaubt. / Denied: tool "${tool}" is not allowed for this client by the user's policy.`,
   unknownTool: (tool: string) =>
     `[xitl] Verweigert: Das Tool „${tool}“ ist nicht bekannt. / Denied: unknown tool "${tool}". List the tools first.`,
-  askUnavailable: (tool: string) =>
-    `[xitl] Verweigert: Freigabe ist noch nicht verfügbar; das Tool „${tool}“ braucht eine Freigabe. / Denied: approval is not available yet; tool "${tool}" requires approval.`,
+  declined: (tool: string, by: string) =>
+    `[xitl] Abgelehnt: ${by} hat den Aufruf von „${tool}“ abgelehnt. / Declined: ${by} declined the call to "${tool}".`,
+  timedOut: (tool: string) =>
+    `[xitl] Verweigert: Der Aufruf von „${tool}“ wurde nicht innerhalb von 5 Minuten freigegeben; bitte später erneut versuchen. / Denied: the call to "${tool}" was not approved within 5 minutes; try again later.`,
+  approvalCancelled: (tool: string) =>
+    `[xitl] Verweigert: Die Freigabe für „${tool}“ wurde abgebrochen (Verbindung beendet oder Server neu gestartet); bitte später erneut versuchen. / Denied: approval for "${tool}" was cancelled; try again later.`,
   reconnect: (name: string) =>
     `Upstream „${name}“ muss in xitl neu verbunden werden. / Upstream "${name}" must be reconnected in xitl.`,
   notConnected: (name: string) =>

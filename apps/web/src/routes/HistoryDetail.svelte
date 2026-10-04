@@ -1,0 +1,68 @@
+<script lang="ts">
+  // #/verlauf/<id>: one audit entry with arguments and the result excerpt.
+  import Spinner from '../lib/Spinner.svelte';
+  import { api, ApiError, decisionPathText, messageOf, OUTCOME_LABEL, POLICY_LABEL, type AuditDetail } from '../lib/api';
+
+  let { id }: { id: number } = $props();
+
+  let entry = $state<AuditDetail | null>(null);
+  let missing = $state(false);
+  let loadError = $state<string | null>(null);
+
+  function load() {
+    api.getAudit(id).then(
+      (e) => (entry = e),
+      (e) => {
+        if (e instanceof ApiError && e.status === 404) missing = true;
+        else loadError = messageOf(e);
+      },
+    );
+  }
+  load();
+
+  const dateTime = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'medium' });
+  const fmt = (iso: string | null) => (iso ? dateTime.format(new Date(iso)) : '–');
+  const argsText = (v: unknown) => {
+    try {
+      return JSON.stringify(v, null, 2) ?? '';
+    } catch {
+      return String(v);
+    }
+  };
+</script>
+
+<div class="history">
+  <a class="back-link" href="#/verlauf">‹ Verlauf</a>
+  {#if loadError}
+    <p class="error" role="alert">{loadError}</p>
+  {:else if missing}
+    <p class="empty">Diesen Eintrag gibt es nicht.</p>
+  {:else if !entry}
+    <Spinner />
+  {:else}
+    {@const e = entry}
+    <article class="card audit-detail" aria-label={`Aufruf: ${e.tool}`}>
+      <div class="item-head">
+        <span class="tool-name">{e.tool}</span>
+        <span class="chip outcome-{e.outcome.toLowerCase()}">{OUTCOME_LABEL[e.outcome]}</span>
+      </div>
+      <dl class="facts">
+        <dt>Upstream</dt><dd>{e.upstream?.name ?? '–'}</dd>
+        <dt>Client</dt><dd>{e.clientName ?? '–'}</dd>
+        <dt>Entscheidung</dt><dd>{decisionPathText(e.decisionPath)}</dd>
+        <dt>Regel</dt><dd>{POLICY_LABEL[e.policy]}</dd>
+        <dt>Eingegangen</dt><dd>{fmt(e.receivedAt)}</dd>
+        <dt>Entschieden</dt><dd>{fmt(e.decidedAt)}</dd>
+        <dt>Fertig</dt><dd>{fmt(e.finishedAt)}</dd>
+      </dl>
+      <h3 class="section-title">Argumente</h3>
+      <pre class="args" aria-label="Argumente">{argsText(e.arguments)}</pre>
+      <h3 class="section-title">Ergebnis{e.isError ? ' (Fehler)' : ''}</h3>
+      {#if e.resultText}
+        <pre class="args result" aria-label="Ergebnis">{e.resultText}</pre>
+      {:else}
+        <p class="hint">Kein Ergebnis.</p>
+      {/if}
+    </article>
+  {/if}
+</div>

@@ -20,7 +20,10 @@
 //     credential it was called with (to prove xitl scrubs it).
 //   Control (test-only):
 //     POST /control/t/<t>/config   { accessTtl?, rejectRefresh?, instructions? }
-//     POST /control/t/<t>/tools    { name, description?, annotations? }
+//     POST /control/t/<t>/tools    { name, description?, annotations? }: adds
+//                                  a tool, or REPLACES the definition of an
+//                                  existing one (base or added) of that name
+//                                  (rug pull, TC-36)
 //     POST /control/t/<t>/expire-access   invalidates all current access tokens
 //     GET  /control/t/<t>/state    { calls, refreshCount, tokens, ... }
 import crypto from 'node:crypto';
@@ -41,6 +44,8 @@ interface Tenant {
   rejectRefresh: boolean;
   instructions: string;
   extraTools: ToolDef[];
+  /** Replaced definitions of base tools, by name. */
+  overrides: Map<string, ToolDef>;
   clients: Map<string, { redirectUris: string[] }>;
   codes: Map<string, { clientId: string; redirectUri: string; challenge: string; used: boolean }>;
   access: Map<string, { valid: boolean; exp: number }>;
@@ -63,6 +68,7 @@ function tenant(t: string): Tenant {
       rejectRefresh: false,
       instructions: `Fake-Upstream ${t}: Einkaufsliste. Nutze list_items vor add_item.`,
       extraTools: [],
+      overrides: new Map(),
       clients: new Map(),
       codes: new Map(),
       access: new Map(),
@@ -124,7 +130,7 @@ function issueTokens(t: Tenant, clientId: string) {
 }
 
 function tools(t: Tenant): ToolDef[] {
-  return [...BASE_TOOLS, ...t.extraTools];
+  return [...BASE_TOOLS.map((b) => t.overrides.get(b.name) ?? b), ...t.extraTools];
 }
 
 function callTool(t: Tenant, name: string, args: Record<string, unknown>, credential: string) {
@@ -322,12 +328,18 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
       return send(res, 200, { ok: true });
     }
     if (m[2] === 'tools') {
-      t.extraTools.push({
-        name: String(body.name),
+      const name = String(body.name);
+      const base = BASE_TOOLS.find((b) => b.name === name);
+      const def: ToolDef = {
+        name,
         description: body.description,
-        inputSchema: { type: 'object', properties: {} },
+        inputSchema: base?.inputSchema ?? { type: 'object', properties: {} },
         annotations: body.annotations,
-      });
+      };
+      const extra = t.extraTools.findIndex((x) => x.name === name);
+      if (base) t.overrides.set(name, def);
+      else if (extra >= 0) t.extraTools[extra] = def;
+      else t.extraTools.push(def);
       return send(res, 200, { ok: true });
     }
     for (const rec of t.access.values()) rec.valid = false;

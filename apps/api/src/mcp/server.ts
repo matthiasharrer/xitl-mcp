@@ -9,8 +9,10 @@
 //   approval stamp in their description; name/inputSchema/annotations pass
 //   through unchanged.
 // - tools/call: re-evaluates the policy (never trusts that the client saw the
-//   list), writes the audit row FIRST (PENDING), then forwards (ALLOW) or
-//   refuses (DENY, and ASK until approval exists: "ask:no-channel").
+//   list; a live snooze can turn ASK into ALLOW), writes the audit row FIRST
+//   (PENDING), then forwards (ALLOW), refuses (DENY) or holds the call for the
+//   user's decision (ASK, approval/pending.ts): approve -> forward with what is
+//   left of the 300 s budget; deny / timeout / client abort / shutdown -> refuse.
 //
 // WHO is acting and WHICH upstream comes only from `AuthInfo.extra`, which
 // mcp/verifier.ts (user, client) and mcp/mount.ts (upstream, resolved among
@@ -26,6 +28,9 @@ import { MSG, errorResult, instructionsFor, resultExcerpt, scrubSecrets, stamped
 import { CONNECT_TIMEOUT_MS, CALL_TIMEOUT_MS, UpstreamNeedsReconnect, UpstreamNotConnected, isUsable, withUpstream } from '../upstream/connection.js';
 import { syncKnownTools, usableTools } from '../upstream/tools.js';
 import { errorTag } from '../upstream/oauthClient.js';
+import { approvals, ApprovalHub, type Decision } from '../approval/pending.js';
+import { approvalDeadline, approvalTimeoutFromEnv, upstreamTimeoutMs } from '../approval/budget.js';
+import { createSnooze, liveSnoozeUntil, liveSnoozesFor } from '../approval/snooze.js';
 
 /** What the proxy needs to know about one request, from the verified token and
  * the resolved upstream. */
@@ -70,7 +75,17 @@ function upstreamListError(name: string, e: unknown): ProtocolError {
   return new ProtocolError(ProtocolErrorCode.InternalError, text);
 }
 
-export function makeBuildMcpServer(clock: Clock = systemClock) {
+export interface ProxyDeps {
+  clock?: Clock;
+  hub?: ApprovalHub;
+  /** How long an ASK call waits for a decision (capped by the 300 s budget). */
+  approvalTimeoutMs?: number;
+}
+
+export function makeBuildMcpServer(deps: ProxyDeps = {}) {
+  const clock = deps.clock ?? systemClock;
+  const hub = deps.hub ?? approvals;
+  const approvalTimeoutMs = deps.approvalTimeoutMs ?? approvalTimeoutFromEnv(process.env.APPROVAL_TIMEOUT_MS);
   return async function buildMcpServer(ctx: McpRequestContext): Promise<Server> {
     const call = callContextFrom(ctx);
     const { userId, mcpClientId } = call;
@@ -120,13 +135,15 @@ export function makeBuildMcpServer(clock: Clock = systemClock) {
         throw upstreamListError(upstream.name, e);
       }
       await syncKnownTools(upstream.id, tools, clock);
-      const [known, current] = await Promise.all([
+      const now = clock.now();
+      const [known, current, snoozes] = await Promise.all([
         prisma.knownTool.findMany({
           where: { upstreamId: upstream.id, upstream: { userId } },
           include: { clientPolicies: { where: { mcpClientId } } },
         }),
         // The default may have changed since the factory ran; read it fresh.
         prisma.upstream.findFirst({ where: { id: upstream.id, userId }, select: { defaultPolicy: true } }),
+        liveSnoozesFor(userId, upstream.id, mcpClientId, now),
       ]);
       const byName = new Map(known.map((k) => [k.name, k]));
       const listed: Tool[] = [];
@@ -136,6 +153,8 @@ export function makeBuildMcpServer(clock: Clock = systemClock) {
           upstreamDefault: (current?.defaultPolicy ?? 'DENY') as Policy,
           tool: k ? { policy: k.policy as Policy | null, acknowledgedAt: k.acknowledgedAt } : null,
           clientOverride: (k?.clientPolicies[0]?.policy as Policy | undefined) ?? null,
+          snoozedUntil: snoozes.get(t.name) ?? null,
+          now,
         });
         if (decision.policy === 'DENY') continue;
         listed.push(decision.policy === 'ASK' ? { ...t, description: stampedDescription(t.description, user.displayName) } : t);
@@ -143,25 +162,33 @@ export function makeBuildMcpServer(clock: Clock = systemClock) {
       return { tools: listed };
     });
 
-    server.setRequestHandler('tools/call', async (request): Promise<CallToolResult> => {
+    server.setRequestHandler('tools/call', async (request, reqCtx): Promise<CallToolResult> => {
       const name = request.params.name;
       const args = request.params.arguments ?? {};
+      // The 300 s budget (TC-37) counts from here.
       const receivedAt = clock.now();
+      const signal = reqCtx.mcpReq.signal;
 
       // Fresh reads: policy state at call time, scoped by the token's user.
-      const [tool, current] = await Promise.all([
+      const [tool, current, snoozedUntil] = await Promise.all([
         prisma.knownTool.findFirst({
           where: { upstreamId: upstream.id, name, upstream: { userId } },
           include: { clientPolicies: { where: { mcpClientId } } },
         }),
         prisma.upstream.findFirst({ where: { id: upstream.id, userId }, select: { defaultPolicy: true } }),
+        liveSnoozeUntil({ userId, upstreamId: upstream.id, toolName: name, mcpClientId }, receivedAt),
       ]);
       if (!current) throw new Error('upstream vanished mid-request');
       const decision = evaluatePolicy({
         upstreamDefault: current.defaultPolicy as Policy,
         tool: tool ? { policy: tool.policy as Policy | null, acknowledgedAt: tool.acknowledgedAt } : null,
         clientOverride: (tool?.clientPolicies[0]?.policy as Policy | undefined) ?? null,
+        snoozedUntil,
+        now: receivedAt,
       });
+      // ASK: the id the user decides by. Written into the audit row first, so a
+      // late decision can be told apart (409) from a foreign/unknown id (404).
+      const approvalId = decision.policy === 'ASK' ? ApprovalHub.newId() : null;
 
       // Audit first (ADR-0008): if this write fails, nothing is forwarded.
       const audit = await prisma.auditEntry.create({
@@ -176,10 +203,17 @@ export function makeBuildMcpServer(clock: Clock = systemClock) {
           decisionPath: decision.path,
           outcome: 'PENDING',
           receivedAt,
+          approvalId,
         },
       });
       const shownName = name.slice(0, 100);
-      const finish = (data: { outcome: 'FORWARDED' | 'DENIED' | 'UPSTREAM_ERROR'; decisionPath?: string; isError?: boolean; resultText?: string; decided?: boolean }) =>
+      const finish = (data: {
+        outcome: 'FORWARDED' | 'DENIED' | 'TIMED_OUT' | 'UPSTREAM_ERROR';
+        decisionPath?: string;
+        isError?: boolean;
+        resultText?: string;
+        decidedAt?: Date;
+      }) =>
         prisma.auditEntry.update({
           where: { id: audit.id },
           data: {
@@ -187,10 +221,35 @@ export function makeBuildMcpServer(clock: Clock = systemClock) {
             ...(data.decisionPath ? { decisionPath: data.decisionPath } : {}),
             isError: data.isError ?? null,
             resultText: data.resultText ?? null,
-            decidedAt: receivedAt,
+            decidedAt: data.decidedAt ?? receivedAt,
             finishedAt: clock.now(),
           },
         });
+
+      /** Calls the upstream; the ONLY place a call leaves xitl. */
+      const forward = async (timeoutMs: number, decisionPath?: string, decidedAt?: Date): Promise<CallToolResult> => {
+        try {
+          const result = await withUpstream(
+            upstream.id,
+            userId,
+            async ({ client, secrets }) =>
+              scrubSecrets((await client.callTool({ name, arguments: args }, { timeout: timeoutMs })) as CallToolResult, secrets()),
+            { clock, timeoutMs },
+          );
+          await finish({ outcome: 'FORWARDED', decisionPath, decidedAt, isError: result.isError === true, resultText: resultExcerpt(result) });
+          return result;
+        } catch (e) {
+          const text =
+            e instanceof UpstreamNeedsReconnect
+              ? MSG.reconnect(upstream.name)
+              : e instanceof UpstreamNotConnected
+                ? MSG.notConnected(upstream.name)
+                : MSG.upstreamError(upstream.name);
+          console.warn(`proxy: upstream ${upstream.id}: tools/call failed: ${errorTag(e)}`);
+          await finish({ outcome: 'UPSTREAM_ERROR', decisionPath, decidedAt, isError: true, resultText: text });
+          return errorResult(text);
+        }
+      };
 
       if (decision.policy === 'DENY') {
         const text = decision.path === 'unknown-tool' ? MSG.unknownTool(shownName) : MSG.denied(shownName);
@@ -198,36 +257,81 @@ export function makeBuildMcpServer(clock: Clock = systemClock) {
         return errorResult(text);
       }
 
-      if (decision.policy === 'ASK') {
-        // SLICE 6 replaces this: hold the call, notify the user (push/page),
-        // wait up to 300 s, deny on timeout (ADR-0004). Until then: fail closed.
-        const text = MSG.askUnavailable(shownName);
-        await finish({ outcome: 'DENIED', decisionPath: `${decision.path}+ask:no-channel`, isError: true, resultText: text });
+      if (decision.policy === 'ASK' && approvalId) {
+        const rule = decision.path;
+        const held = hub.hold(
+          {
+            userId,
+            mcpClientId,
+            clientName: call.clientName,
+            upstreamId: upstream.id,
+            upstreamSlug: upstream.slug,
+            upstreamName: upstream.name,
+            toolName: name.slice(0, MAX_TOOL_NAME_IN_AUDIT),
+            args,
+            auditId: audit.id,
+            rulePath: rule,
+            receivedAt,
+            deadline: approvalDeadline(receivedAt, approvalTimeoutMs),
+            // New/changed tools are reviewed in the rules, not snoozed (policy.ts).
+            snoozable: rule !== 'new-tool',
+          },
+          approvalId,
+        );
+        // The client hanging up is a denial, never a reason to keep waiting.
+        const onAbort = () => hub.abort(approvalId);
+        if (signal.aborted) onAbort();
+        else signal.addEventListener('abort', onAbort, { once: true });
+        let d: Decision;
+        try {
+          d = await held.decision;
+        } finally {
+          signal.removeEventListener('abort', onAbort);
+        }
+
+        if (d.kind === 'approve') {
+          const path = `${rule}+approved:${d.via}`;
+          if (d.snoozeUntil && held.call.snoozable) {
+            try {
+              await createSnooze({ userId, upstreamId: upstream.id, toolName: name, mcpClientId }, d.snoozeUntil, d.at);
+            } catch (e) {
+              console.warn(`proxy: snooze not stored: ${errorTag(e)}`);
+            }
+          }
+          const timeoutMs = upstreamTimeoutMs(receivedAt, clock.now(), CALL_TIMEOUT_MS);
+          if (timeoutMs === null) {
+            const text = MSG.timedOut(shownName);
+            await finish({ outcome: 'TIMED_OUT', decisionPath: `${path}+timeout`, decidedAt: d.at, isError: true, resultText: text });
+            return errorResult(text);
+          }
+          return forward(timeoutMs, path, d.at);
+        }
+        if (d.kind === 'deny') {
+          const text = MSG.declined(shownName, user.displayName);
+          await finish({ outcome: 'DENIED', decisionPath: `${rule}+denied:${d.via}`, decidedAt: d.at, isError: true, resultText: text });
+          return errorResult(text);
+        }
+        if (d.kind === 'timeout') {
+          const text = MSG.timedOut(shownName);
+          await finish({ outcome: 'TIMED_OUT', decisionPath: `${rule}+timeout`, decidedAt: d.at, isError: true, resultText: text });
+          return errorResult(text);
+        }
+        // aborted / shutdown: fail closed.
+        const text = MSG.approvalCancelled(shownName);
+        await finish({ outcome: 'DENIED', decisionPath: `${rule}+${d.kind}`, decidedAt: d.at, isError: true, resultText: text });
         return errorResult(text);
       }
 
-      // ALLOW: forward.
-      try {
-        const result = await withUpstream(
-          upstream.id,
-          userId,
-          async ({ client, secrets }) =>
-            scrubSecrets((await client.callTool({ name, arguments: args }, { timeout: CALL_TIMEOUT_MS })) as CallToolResult, secrets()),
-          { clock, timeoutMs: CALL_TIMEOUT_MS },
-        );
-        await finish({ outcome: 'FORWARDED', isError: result.isError === true, resultText: resultExcerpt(result) });
-        return result;
-      } catch (e) {
-        const text =
-          e instanceof UpstreamNeedsReconnect
-            ? MSG.reconnect(upstream.name)
-            : e instanceof UpstreamNotConnected
-              ? MSG.notConnected(upstream.name)
-              : MSG.upstreamError(upstream.name);
-        console.warn(`proxy: upstream ${upstream.id}: tools/call failed: ${errorTag(e)}`);
-        await finish({ outcome: 'UPSTREAM_ERROR', isError: true, resultText: text });
+      if (decision.policy !== 'ALLOW') {
+        // Unreachable (evaluatePolicy only returns the three Policy values);
+        // fail closed rather than forward on anything unexpected.
+        const text = MSG.denied(shownName);
+        await finish({ outcome: 'DENIED', isError: true, resultText: text });
         return errorResult(text);
       }
+
+      // ALLOW (rule or snooze): forward.
+      return forward(CALL_TIMEOUT_MS);
     });
 
     return server;

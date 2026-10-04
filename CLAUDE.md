@@ -109,6 +109,11 @@ scripts/app.sh logs [api|web]
   migrate dev --name <name> </dev/null) && npm run db:generate`, then
   `scripts/app.sh start`. (`npm run db:migrate -- --name x` does not forward
   `--name`; Prisma 7's `migrate dev` does not regenerate the client.)
+  When `migrate dev` refuses to run non-interactively (e.g. it warns about a
+  new unique index), write the migration with `npx prisma migrate diff
+  --from-config-datasource --to-schema prisma/schema.prisma --script` into a new
+  `prisma/migrations/<timestamp>_<name>/migration.sql` and apply it with `npx
+  prisma migrate deploy`.
 
 First time after a clone: `npm install && npm run db:generate && npm run db:migrate && scripts/app.sh start`.
 

@@ -27,20 +27,74 @@ export function usableTools(tools: Tool[]): Tool[] {
   });
 }
 
-/** Upserts KnownTool rows for one upstream's current tool list. */
+/**
+ * Upserts KnownTool rows for one upstream's current tool list.
+ *
+ * Rug pull (TC-36): when an ACKNOWLEDGED tool comes back with a different
+ * description or annotations, its acknowledgement is withdrawn (-> ASK via the
+ * "new-tool" rule, whatever the upstream default says) and `changedAt` is set
+ * so the UI says "Geändert". Its snoozes are dropped too, so an explicit ASK
+ * policy can't be bypassed by a snooze given for the old definition. An
+ * explicit per-tool or per-client policy still wins over the re-flag (policy.ts
+ * precedence), as for new tools.
+ */
 export async function syncKnownTools(upstreamId: number, tools: Tool[], clock: Clock = systemClock): Promise<void> {
   const now = clock.now();
-  const existing = await prisma.knownTool.count({ where: { upstreamId } });
-  const acknowledgedAt = existing === 0 && ACKNOWLEDGE_INITIAL_TOOLS ? now : null;
+  const existingRows = await prisma.knownTool.findMany({
+    where: { upstreamId },
+    select: { id: true, name: true, description: true, annotations: true, acknowledgedAt: true },
+  });
+  const byName = new Map(existingRows.map((r) => [r.name, r]));
+  const acknowledgedAt = existingRows.length === 0 && ACKNOWLEDGE_INITIAL_TOOLS ? now : null;
   for (const t of usableTools(tools)) {
     const description = typeof t.description === 'string' ? t.description.slice(0, MAX_DESCRIPTION) : null;
     const annotations = t.annotations ? JSON.stringify(t.annotations) : null;
-    await prisma.knownTool.upsert({
-      where: { upstreamId_name: { upstreamId, name: t.name } },
-      create: { upstreamId, name: t.name, description, annotations, firstSeenAt: now, lastSeenAt: now, acknowledgedAt },
-      update: { description, annotations, lastSeenAt: now },
-    });
+    const prev = byName.get(t.name);
+    if (!prev) {
+      await prisma.knownTool.upsert({
+        where: { upstreamId_name: { upstreamId, name: t.name } },
+        create: { upstreamId, name: t.name, description, annotations, firstSeenAt: now, lastSeenAt: now, acknowledgedAt },
+        update: { description, annotations, lastSeenAt: now },
+      });
+      continue;
+    }
+    const changed = prev.description !== description || !sameAnnotations(prev.annotations, annotations);
+    if (changed && prev.acknowledgedAt !== null) {
+      // Conditional on the row still being acknowledged with the old text, so
+      // a concurrent sync can't double-flag or undo a fresh acknowledgement.
+      await prisma.knownTool.updateMany({
+        where: { id: prev.id, acknowledgedAt: { not: null } },
+        data: { description, annotations, lastSeenAt: now, acknowledgedAt: null, changedAt: now },
+      });
+      const owner = await prisma.upstream.findUnique({ where: { id: upstreamId }, select: { userId: true } });
+      if (owner) await prisma.snooze.deleteMany({ where: { userId: owner.userId, upstreamId, toolName: t.name } });
+      console.warn(`tools: upstream ${upstreamId}: tool definition changed, re-flagged for review`);
+    } else {
+      await prisma.knownTool.update({ where: { id: prev.id }, data: { description, annotations, lastSeenAt: now } });
+    }
   }
+}
+
+/** Annotations compared as data (key order doesn't count as a change). */
+function sameAnnotations(a: string | null, b: string | null): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  try {
+    return canonical(JSON.parse(a)) === canonical(JSON.parse(b));
+  } catch {
+    return false;
+  }
+}
+
+function canonical(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
+  if (v && typeof v === 'object') {
+    return `{${Object.keys(v as Record<string, unknown>)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(v) ?? 'null';
 }
 
 /** Fetches tools/list from the upstream (as `userId`) and records it. */

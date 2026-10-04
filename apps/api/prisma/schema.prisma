@@ -110,6 +110,11 @@ model KnownTool {
   firstSeenAt    DateTime     @default(now())
   lastSeenAt     DateTime     @default(now())
   acknowledgedAt DateTime?
+  /// Set when an ACKNOWLEDGED tool's description or annotations changed
+  /// ("rug pull", TC-36): acknowledgedAt is cleared at the same time, so the
+  /// tool is ASK ("new-tool") again and the UI says "Geändert" instead of
+  /// "Neu". Cleared again when the user acknowledges or sets a policy.
+  changedAt      DateTime?
   clientPolicies ClientToolPolicy[]
 
   @@unique([upstreamId, name])
@@ -194,6 +199,10 @@ model AuditEntry {
   receivedAt   DateTime
   decidedAt    DateTime?
   finishedAt   DateTime?
+  /// The pending approval's unguessable id (approval/pending.ts) when the
+  /// call was held for a decision (ASK). Lets the API answer 409 "nicht mehr
+  /// offen" and the deep-link page show the outcome after the call resolved.
+  approvalId   String?     @unique
 
   @@index([userId, receivedAt])
 }

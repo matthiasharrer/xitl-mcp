@@ -35,3 +35,9 @@ export const FAKE_HEADER_NAME = 'X-Fake-Key';
 export const FAKE_HEADER_SECRET = 'fake-header-secret-0123456789';
 /** The built server's stdout+stderr (TC-18 greps it for leaked tokens). */
 export const API_LOG = path.join(E2E_DIR, 'api.log');
+
+// Push (ADR-0009): the server appends every would-be push as a JSON line here
+// instead of sending it (PUSH_OUTBOX, copied from haushalts-todos).
+export const PUSH_OUTBOX = path.join(E2E_DIR, 'push-outbox.jsonl');
+// A held (ASK) call waits this long for a decision in e2e instead of 300 s.
+export const APPROVAL_TIMEOUT_MS = 5000;

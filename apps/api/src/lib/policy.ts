@@ -9,6 +9,13 @@
 //   3. per-tool policy                      -> it    "policy:tool"
 //   4. tool not yet acknowledged (new)      -> ASK   "new-tool"
 //   5. the upstream's default               -> it    "policy:upstream-default"
+// Then one post-step (ADR-0004 snooze, TC-30):
+//   6. result is ASK, the path is NOT "new-tool", and a snooze for (this
+//      client, this tool) is live at `now`  -> ALLOW "snooze"
+//   A snooze only ever upgrades ASK. Never DENY, never an unknown tool, and
+//   never a new or changed tool ("new-tool"): those must be looked at in the
+//   rules first, so a snooze set before a tool changed under us (rug pull,
+//   TC-36) cannot carry over.
 //
 // Fail closed: anything that is not a recognised Policy value is treated as
 // DENY (a corrupted row must never become ALLOW).
@@ -20,7 +27,8 @@ export type DecisionPath =
   | 'policy:client'
   | 'policy:tool'
   | 'new-tool'
-  | 'policy:upstream-default';
+  | 'policy:upstream-default'
+  | 'snooze';
 
 export interface PolicyDecision {
   policy: Policy;
@@ -35,6 +43,10 @@ export interface PolicyInput {
   tool: { policy: Policy | null; acknowledgedAt: Date | null } | null;
   /** The ClientToolPolicy for (this tool, this MCP client), if any. */
   clientOverride: Policy | null;
+  /** The latest live-looking Snooze.until for (this client, this tool), if any. */
+  snoozedUntil?: Date | null;
+  /** Now (from the Clock); required for a snooze to count. */
+  now?: Date;
 }
 
 const POLICIES: readonly string[] = ['ALLOW', 'ASK', 'DENY'];
@@ -45,6 +57,21 @@ function sane(value: unknown): Policy {
 }
 
 export function evaluatePolicy(input: PolicyInput): PolicyDecision {
+  const base = baseDecision(input);
+  if (
+    base.policy === 'ASK' &&
+    base.path !== 'new-tool' &&
+    input.snoozedUntil instanceof Date &&
+    input.now instanceof Date &&
+    !Number.isNaN(input.snoozedUntil.getTime()) &&
+    input.snoozedUntil.getTime() > input.now.getTime()
+  ) {
+    return { policy: 'ALLOW', path: 'snooze' };
+  }
+  return base;
+}
+
+function baseDecision(input: PolicyInput): PolicyDecision {
   const { tool } = input;
   if (!tool) return { policy: 'DENY', path: 'unknown-tool' };
 
@@ -56,9 +83,4 @@ export function evaluatePolicy(input: PolicyInput): PolicyDecision {
   }
   if (!tool.acknowledgedAt) return { policy: 'ASK', path: 'new-tool' };
   return { policy: sane(input.upstreamDefault), path: 'policy:upstream-default' };
-
-  // SNOOZE SEAM (slice 6, ADR-0004): a live snooze for (client, tool) turns an
-  // ASK decision into ALLOW with path "snooze". It goes here as a post-step on
-  // the result above (input gains `snoozedUntil: Date | null` and `now: Date`),
-  // and only ever upgrades ASK - never DENY, never an unknown tool.
 }

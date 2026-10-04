@@ -89,9 +89,9 @@ and the tokens it issued. Never the real Haushalt: e2e stays hermetic.
 | TC-19 | ⚡ With an MCP client token: `initialize` on `/mcp/<slug>` returns instructions containing the upstream's own instructions; `tools/list` returns the upstream's tools; `ask` tools carry the approval stamp in their description; `deny` tools are absent. |
 | TC-20 | `tools/call` on an `allow` tool is forwarded; the upstream's result comes back unchanged; one audit entry `FORWARDED` with its `decisionPath`. |
 | TC-21 | `tools/call` on a `deny` tool (called by name although hidden) → `isError` result with a reason; the upstream's call count unchanged; audit `DENIED`. |
-| TC-22 | Until approval exists (slice 6): an `ask` tool is denied with "Freigabe ist noch nicht verfügbar", audit `DENIED`, path `ask:no-channel`. Fail closed. |
+| TC-22 | An `ask` call is held and never forwarded by itself: without a decision it ends as a timeout (see TC-29). _(Until slice 6 this case was "denied with `ask:no-channel`".)_ |
 | TC-23 | A tool the upstream adds later is `ask` even under default `allow`, and shows as "Neu" in the policy UI; after the user acknowledges it (or sets a policy), the normal rules apply. |
-| TC-24 | Unit: precedence is client override > tool policy > unacknowledged tool (= `ask`) > upstream default; every result names its decision path. Snooze is added in slice 6. |
+| TC-24 | Unit: precedence is client override > tool policy > unacknowledged tool (= `ask`) > upstream default; every result names its decision path. A live snooze upgrades `ask` → `allow` (path `snooze`), never `deny`, an unknown tool, or a new/changed tool. |
 | TC-25 | ⚡ At 390×844: an upstream's "Regeln" view lists its tools with a read/write hint from annotations and a choice Standard / Erlauben / Fragen / Verbieten, plus per-client overrides; changes apply to the next `tools/list`. |
 | TC-26 | Policies and tools are user-scoped: `anna` gets 404 on Matthias's upstream's tools/policy routes. |
 
@@ -116,9 +116,16 @@ to an outbox file (Haushalt's pattern).
 
 ## Manual gates (to be defined, see roadmap)
 
-Things no script can prove: a real Claude.ai connection through the proxy, the
-DCR/consent flow end to end, push delivery to a real phone (lock screen
-actions), and real approval latency against the 300 s limit.
+Things no script can prove. Run on the deployed instance before calling
+milestone 1 done:
+
+| ID    | Case |
+| ----- | ---- |
+| MG-01 | Claude.ai adds `https://<xitl>/mcp/haushalt` as a connector: consent page shows the right user; tools appear with stamps. |
+| MG-02 | In xitl, "Verbinden" on Haushalt goes through Haushalt's consent (behind Authelia) and comes back "Verbunden". |
+| MG-03 | Android: an `ask` call pushes within seconds; "Erlauben" from the lock screen forwards the call and Claude gets the result. |
+| MG-04 | Same with "Ablehnen", and with no reaction: Claude reports the timeout after ~5 min and can retry. |
+| MG-05 | Tina: her own consent, her own Haushalt connection; she sees none of Matthias's calls, and he none of hers. |
 
 ## Run log
 
@@ -129,4 +136,5 @@ app stopped the case proving anything.
 | - | ---- | ----- | ------ |
 | 1 | 2026-10-04 | TC-01…04 (scaffold) | 4 passed |
 | 2 | 2026-10-04 | TC-01…14 (+1 extra: no `MCP_TOKEN` → 404), unit 13 | all passed (implementer and lead, separately) |
+| 4 | 2026-10-04 | TC-01…37, unit 61 | all passed (implementer and lead, separately). TC-34 stubs the browser's Notification/PushManager (headless reports `denied`); real device is a manual gate. |
 | 3 | 2026-10-04 | TC-01…26, unit 38 | all passed (implementer and lead, separately). TC-16 state expiry unit-only (no clock control in e2e). |
