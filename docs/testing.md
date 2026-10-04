@@ -43,6 +43,26 @@ in some other way has not passed.
 | TC-03 | `fixedClock` stands still until advanced. | `apps/api/src/lib/clock.test.ts` |
 | TC-04 | ⚡ At 390×844 the page loads, greets the user ("Hallo, …"), no horizontal scroll. | `e2e/tests/smoke.spec.ts` |
 
+### Upstream registry (ADR-0010, 0013): `e2e/tests/upstreams-api.spec.ts`, `upstreams-ui.spec.ts`
+
+| ID    | Case |
+| ----- | ---- |
+| TC-05 | `POST /api/upstreams` with name, slug, URL, description, default policy creates an upstream (`status` `NOT_CONNECTED`). Slug must match `^[a-z0-9][a-z0-9-]{0,31}$`, URL must be `http(s)://`, otherwise 400 with a German message. Same slug twice for one user → 409; the same slug for a *different* user is fine. |
+| TC-06 | Cross-user: `anna` gets 404 on `GET/PATCH/DELETE /api/upstreams/<matthias's id>`, and her `GET /api/upstreams` doesn't list it. |
+| TC-07 | No response from `/api/upstreams*` ever contains `accessToken`, `refreshToken`, `headerValue`, `oauthClient`, `pendingAuth` (checked on list, get, create, update), even when they're set in the DB. |
+| TC-08 | ⚡ At 390×844: Einstellungen → Upstream hinzufügen → fill the form → it appears in the list with its status; edit the description; delete it after a confirmation dialog. No horizontal scroll. |
+
+### Inbound MCP OAuth (ADR-0012, 0014): `e2e/tests/mcp-oauth.spec.ts`
+
+| ID    | Case |
+| ----- | ---- |
+| TC-09 | ⚡ DCR → `/oauth/authorize` as `matthias` (PKCE, CSRF) → `/mcp/token` → `initialize` on `/mcp/<slug of his upstream>` succeeds; `tools/list` answers (empty until the proxy core exists). |
+| TC-10 | `/mcp/<slug>` without a token → 401 with `WWW-Authenticate` carrying `resource_metadata`; that URL answers with `resource` = `<origin>/mcp/<slug>`. |
+| TC-11 | Matthias's token on `/mcp/<slug>` that only `anna` has → 404; on an unknown slug → 404. Never 200, never another user's server. |
+| TC-12 | The raw `MCP_TOKEN` as a bearer → 401. A token for a client revoked in Settings → 401. |
+| TC-13 | `/oauth/authorize` without `Remote-User` → 401. The client is bound to the approving user; `anna` approving Matthias's already-bound client → refused. |
+| TC-14 | Settings lists only the user's own MCP clients and shows both endpoint URLs per upstream (`/mcp/<slug>`; `/mcp` marked as coming later); revoke asks for confirmation. |
+
 ## Manual gates (to be defined, see roadmap)
 
 Things no script can prove: a real Claude.ai connection through the proxy, the

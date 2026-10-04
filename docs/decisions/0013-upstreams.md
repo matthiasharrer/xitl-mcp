@@ -16,8 +16,8 @@ too, separately from Matthias (ADR-0010).
 - **Only HTTP (Streamable HTTP) upstreams.** No stdio child processes in the
   container. A stdio server, if ever needed, gets wrapped into HTTP elsewhere
   and connected like any other (Matthias).
-- An upstream is defined once (name, URL, description); **each user connects to
-  it themselves**: xitl acts as an OAuth client (discovery, DCR, PKCE), the user
+- **An upstream belongs to one user** (nothing shared, ADR-0010): if both want
+  Haushalt, each adds it. **Each user connects it themselves**: xitl acts as an OAuth client (discovery, DCR, PKCE), the user
   consents on the upstream's own page under their identity, xitl stores and
   refreshes their tokens. A static-header credential is the fallback for an
   upstream without OAuth.

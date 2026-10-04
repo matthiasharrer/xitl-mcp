@@ -18,12 +18,202 @@ datasource db {
 }
 
 /// A person, created on first request from the Authelia Remote-* headers.
-/// For xitl that is the reviewer who approves calls in the browser.
+/// Accounts are completely separate (ADR-0010): every other model hangs off a
+/// user, and every query is scoped by userId.
 model User {
-  id          Int      @id @default(autoincrement())
-  username    String   @unique
-  displayName String
-  email       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                Int                @id @default(autoincrement())
+  username          String             @unique
+  displayName       String
+  email             String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  upstreams         Upstream[]
+  mcpClients        McpClient[]
+  snoozes           Snooze[]
+  auditEntries      AuditEntry[]
+  pushSubscriptions PushSubscription[]
+}
+
+enum Policy {
+  ALLOW
+  ASK
+  DENY
+}
+
+enum UpstreamAuth {
+  OAUTH
+  HEADER
+  NONE
+}
+
+enum UpstreamStatus {
+  NOT_CONNECTED
+  CONNECTED
+  NEEDS_RECONNECT
+}
+
+/// An upstream MCP server (Streamable HTTP only, ADR-0013), owned by one user.
+/// Two users wanting Haushalt each have their own row and their own tokens.
+/// slug is the path segment in /mcp/<slug> and the tool prefix in /mcp
+/// (ADR-0014). Credentials are stored as-is (unencrypted, like the audit,
+/// ADR-0008) and must never reach an agent, the UI after entry, or a log.
+model Upstream {
+  id            Int            @id @default(autoincrement())
+  userId        Int
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slug          String
+  name          String
+  url           String
+  description   String?
+  defaultPolicy Policy         @default(ASK)
+  auth          UpstreamAuth   @default(OAUTH)
+  status        UpstreamStatus @default(NOT_CONNECTED)
+
+  /// OAUTH: xitl's client registration at the upstream's AS (DCR result) and
+  /// the discovered AS metadata, both JSON; the user's tokens.
+  oauthClient   String?
+  oauthMetadata String?
+  accessToken   String?
+  refreshToken  String?
+  tokenExpiresAt DateTime?
+  /// OAUTH, in flight: PKCE verifier + state of a started connect flow.
+  pendingAuth   String?
+
+  /// HEADER: a static header injected on every upstream request.
+  headerName    String?
+  headerValue   String?
+
+  /// The upstream's own server instructions, last seen (ADR-0014).
+  instructions  String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  tools         KnownTool[]
+  snoozes       Snooze[]
+  auditEntries  AuditEntry[]
+
+  @@unique([userId, slug])
+}
+
+/// A tool seen in the upstream's tools/list. acknowledgedAt null = new tool:
+/// policy ASK whatever the default says, until the user has looked at it
+/// (ADR-0004). policy null = use the upstream default. annotations is the
+/// upstream's ToolAnnotations JSON (readOnlyHint, destructiveHint, ...).
+model KnownTool {
+  id             Int          @id @default(autoincrement())
+  upstreamId     Int
+  upstream       Upstream     @relation(fields: [upstreamId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  annotations    String?
+  policy         Policy?
+  firstSeenAt    DateTime     @default(now())
+  lastSeenAt     DateTime     @default(now())
+  acknowledgedAt DateTime?
+  clientPolicies ClientToolPolicy[]
+
+  @@unique([upstreamId, name])
+}
+
+/// Per-client override of a tool's policy (ADR-0004), e.g. stricter for one agent.
+model ClientToolPolicy {
+  id          Int       @id @default(autoincrement())
+  toolId      Int
+  tool        KnownTool @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  mcpClientId Int
+  mcpClient   McpClient @relation(fields: [mcpClientId], references: [id], onDelete: Cascade)
+  policy      Policy
+
+  @@unique([toolId, mcpClientId])
+}
+
+/// "Don't ask again for this client + tool until": set when approving (ADR-0004).
+model Snooze {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  upstreamId  Int
+  upstream    Upstream  @relation(fields: [upstreamId], references: [id], onDelete: Cascade)
+  toolName    String
+  mcpClientId Int
+  mcpClient   McpClient @relation(fields: [mcpClientId], references: [id], onDelete: Cascade)
+  until       DateTime
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, upstreamId, toolName, mcpClientId])
+}
+
+/// An inbound MCP OAuth client (ADR-0012, copied from Haushalt ADR-0006). Only
+/// clients are rows; codes and tokens are stateless signed blobs. userId is null
+/// until someone approves the consent page; then it's that user, for good.
+model McpClient {
+  id             Int                @id @default(autoincrement())
+  clientId       String             @unique
+  name           String
+  redirectUris   String
+  userId         Int?
+  user           User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime           @default(now())
+  lastUsedAt     DateTime?
+  toolPolicies   ClientToolPolicy[]
+  snoozes        Snooze[]
+  auditEntries   AuditEntry[]
+
+  @@index([userId])
+}
+
+enum CallOutcome {
+  PENDING
+  FORWARDED
+  DENIED
+  TIMED_OUT
+  UPSTREAM_ERROR
+}
+
+/// One row per tools/call that reached the proxy (ADR-0008), unredacted.
+/// decisionPath says how the decision was made: "policy:upstream-default",
+/// "policy:tool", "policy:client", "new-tool", "snooze", "approved:push",
+/// "approved:page", "denied:page", "timeout", ... endpoint is "/mcp/<slug>"
+/// or "/mcp".
+model AuditEntry {
+  id           Int         @id @default(autoincrement())
+  userId       Int
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mcpClientId  Int?
+  mcpClient    McpClient?  @relation(fields: [mcpClientId], references: [id], onDelete: SetNull)
+  upstreamId   Int?
+  upstream     Upstream?   @relation(fields: [upstreamId], references: [id], onDelete: SetNull)
+  endpoint     String
+  toolName     String
+  arguments    String
+  policy       Policy
+  decisionPath String
+  outcome      CallOutcome @default(PENDING)
+  isError      Boolean?
+  resultText   String?
+  receivedAt   DateTime
+  decidedAt    DateTime?
+  finishedAt   DateTime?
+
+  @@index([userId, receivedAt])
+}
+
+/// Small key/value store for server-generated settings (the VAPID key pair under "vapid").
+model AppSetting {
+  key   String @id
+  value String
+}
+
+/// One browser/device that can receive Web Push (ADR-0009), copied from Haushalt.
+model PushSubscription {
+  id            Int       @id @default(autoincrement())
+  endpoint      String    @unique
+  p256dh        String
+  auth          String
+  userId        Int
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now())
+  lastSuccessAt DateTime?
+
+  @@index([userId])
 }
