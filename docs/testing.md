@@ -95,6 +95,25 @@ and the tokens it issued. Never the real Haushalt: e2e stays hermetic.
 | TC-25 | ⚡ At 390×844: an upstream's "Regeln" view lists its tools with a read/write hint from annotations and a choice Standard / Erlauben / Fragen / Verbieten, plus per-client overrides; changes apply to the next `tools/list`. |
 | TC-26 | Policies and tools are user-scoped: `anna` gets 404 on Matthias's upstream's tools/policy routes. |
 
+### Approval, push, snooze (ADR-0004, 0009): `e2e/tests/approval.spec.ts`, `push.spec.ts`, unit tests
+
+e2e sets a short approval timeout (env, e.g. 3 s) instead of 300 s; push goes
+to an outbox file (Haushalt's pattern).
+
+| ID    | Case |
+| ----- | ---- |
+| TC-27 | ⚡ An `ask` call blocks the client; the Start page shows it (client name, upstream, tool, arguments as readable JSON, time left); "Erlauben" → the client gets the upstream's result; audit `FORWARDED`, path `<rule>+approved:page`. |
+| TC-28 | "Ablehnen" → `isError` result naming who declined; upstream not called; audit `DENIED`, path `<rule>+denied:page`. |
+| TC-29 | No decision within the timeout → `isError` result "nicht innerhalb von 5 Minuten freigegeben … später erneut versuchen"; audit `TIMED_OUT`; deciding afterwards → 409 "nicht mehr offen", nothing forwarded. |
+| TC-30 | Approve with snooze ("1 Stunde nicht mehr fragen") → the next call of the same client + tool is forwarded without asking, path `snooze`; another client still asks; after the TTL (Clock) it asks again. A snooze never upgrades `deny` or an unknown tool (unit). |
+| TC-31 | Cross-user: `anna` gets 404 deciding Matthias's pending call and never sees it in her list or live stream. |
+| TC-32 | On `ask`, a push goes to each of the user's subscriptions (outbox), never to another user's; payload ≤ 4 KB with call id, upstream, tool, short summary and the approve/deny actions; no upstream credential in it. |
+| TC-33 | The service worker's approve/deny action sends the same request the page does (`POST /api/approvals/:id`); tapping the notification body opens the approval page for that call. Scripted at the API level with the SW's exact payload; the SW code is reviewed. |
+| TC-34 | ⚡ Einstellungen → "Benachrichtigungen aktivieren" subscribes this device; "Test-Push" sends one (outbox) or reports why it can't. |
+| TC-35 | ⚡ "Verlauf" lists the user's calls newest first with outcome and decision path; a call's detail shows arguments and the result excerpt; `anna` sees none of Matthias's. |
+| TC-36 | A known, acknowledged tool whose description or annotations change is `ask` again ("Geändert") until acknowledged, even under default `allow`. |
+| TC-37 | Unit: approval wait and upstream call share one budget of 300 s from receipt; an approved call's upstream timeout is capped to what's left. |
+
 ## Manual gates (to be defined, see roadmap)
 
 Things no script can prove: a real Claude.ai connection through the proxy, the
