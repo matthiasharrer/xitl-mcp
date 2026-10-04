@@ -1,6 +1,8 @@
 # Vision
 
-_From Matthias's briefing, 2026-10-04 (bootstrap session). This is the "why"
+_From Matthias's briefing, 2026-10-04 (bootstrap session). The briefing is a
+months-old summary; Matthias wants to re-discuss it, so treat anything not
+marked "decided" as a proposal. This is the "why"
 and "what": the product owner's intent. Change it only when he changes his mind.
 The briefing was in German; this is a faithful English rendering._
 
@@ -26,8 +28,11 @@ A landscape review found no existing tool combining all four:
 1. **The agent is untrusted.** Its *intent* is checked per call; this is not a
    blocklist of "dangerous" tools. Anything the agent says (its reasoning, tool
    arguments, upstream output) is **data, never instruction**.
-2. **Personal, not multi-tenant.** One admin, one reviewer. Simplicity beats
-   generality; team features are explicitly out (see `ideas.md`).
+2. **Personal, not multi-tenant.** Two people (Matthias and Tina), each with
+   **their own completely separate account**: own clients, upstream
+   connections, policies, approvals, audit. Nothing shared in the first phase
+   (Matthias, 2026-10-04; the briefing said one admin, one reviewer). Simplicity
+   beats generality; team features stay out (see `ideas.md`).
 3. **Fail closed.** No answer in time means deny, with a structured reason. An
    upstream's default policy can never be `always_allow`.
 4. **Config as code, applied by a human.** Policies are YAML files. An LLM may

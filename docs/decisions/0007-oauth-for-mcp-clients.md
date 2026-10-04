@@ -38,6 +38,10 @@ behind Authelia, as in the siblings). No password or hash in the app, same
 ingress layout as the siblings, and the OAuth protocol still comes from a
 spec-complete library. Matthias decides.
 
+**Decided 2026-10-04 (ADR-0010):** two separate users (Matthias and Tina), so
+there is no single admin credential. Whoever Authelia says is at the consent
+screen owns the client and its tokens.
+
 ## Consequences
 
 - Ingress (GitOps repo, Matthias): `/mcp/*`, the OAuth endpoints and

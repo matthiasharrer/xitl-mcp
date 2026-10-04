@@ -5,18 +5,30 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-04 (scaffold committed, nothing of the proxy built)_
+_Last updated: 2026-10-04 (scaffold committed, nothing of the proxy built; first decisions taken)_
 
-## Decisions waiting for Matthias
+## Decided 2026-10-04
 
-1. **Consent-screen identity (ADR-0007):** hardcoded admin hash (briefing) vs
-   Authelia `Remote-User` (sibling scheme). Recommendation: Authelia. Needed
-   before phase 2, not before phase 1.
-2. **Auto-deny vs queue/resume:** the timeout document and the design document
-   disagree; ADR-0004 follows the design doc (auto-deny). Confirm.
-3. **First real upstream for phase 1**, so the proxy is proven against something
-   real: e.g. a filesystem server (stdio) or one of the sibling apps' `/mcp`
-   (HTTP). Affects what goes into the image (ADR-0002).
+- Two separate users via Authelia, nothing shared (ADR-0010).
+- Auto-deny after 300 s; timeout behaviour is a policy field (per upstream,
+  per-tool override), v1 implements only `auto_deny` (ADR-0004).
+- First real upstreams: **Haushalt and Rezepte**; both should move behind the
+  proxy soon.
+
+## Open: discuss with Matthias
+
+1. **The briefing is a months-old summary.** ADRs 0003–0009 are marked
+   Proposed until re-discussed.
+2. **Upstream OAuth is now required, not an idea.** Haushalt and Rezepte accept
+   only OAuth (no static bearer, both siblings' ADRs), with 1 h access tokens
+   and 30-day refresh tokens. Haushalt binds tokens to the approving user. So
+   xitl must be an **OAuth client per user per upstream** (connect flow, token
+   refresh), otherwise the briefing's "paste a static credential" can't reach
+   them. Recommendation: build it, scoped to the sibling apps' OAuth first.
+3. **Rezepte is single-user by design.** Should Tina reach it through xitl at
+   all? If yes, rezepte needs a user model first.
+4. **Policy shape:** per upstream with per-tool overrides (Matthias). Per user,
+   or shared templates?
 
 ## Next — Phase 1: proxy core + policy engine (ADR-0004, 0008)
 

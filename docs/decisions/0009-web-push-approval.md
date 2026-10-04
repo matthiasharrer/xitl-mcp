@@ -1,6 +1,6 @@
 # 0009. Approval on the phone via Web Push with actions
 
-- **Status:** Accepted (design; phase 4 builds it)
+- **Status:** Proposed — from a months-old summary of earlier discussions; Matthias wants to re-discuss before it binds (2026-10-04)
 - **Date:** 2026-10-04
 
 ## Decision

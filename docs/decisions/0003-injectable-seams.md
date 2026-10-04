@@ -1,6 +1,6 @@
 # 0003. Clock, LLM endpoint and push sender are injectable from the start
 
-- **Status:** Accepted
+- **Status:** Proposed — from a months-old summary of earlier discussions; Matthias wants to re-discuss before it binds (2026-10-04)
 - **Date:** 2026-10-04
 
 ## Context

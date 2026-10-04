@@ -1,6 +1,6 @@
 # 0004. Policy model: three outcomes, fail closed, auto-deny on timeout
 
-- **Status:** Accepted (design; phase 1 builds it)
+- **Status:** Proposed — from a months-old summary of earlier discussions; Matthias wants to re-discuss before it binds (2026-10-04)
 - **Date:** 2026-10-04
 
 ## Context
@@ -20,6 +20,10 @@ after about **300 s**.
   it. Only individual tool entries may loosen.
 - **Timeout ⇒ auto-deny** with a structured reason the agent can read ("not
   approved within 300 s"). **No queue/resume** in v1.
+  _Matthias, 2026-10-04: auto-deny after 300 s is fine, the agent can retry.
+  The timeout behaviour belongs **in the policy**, assignable per upstream and
+  overridable per tool, so queue/resume can be added later as another value
+  without reshaping config. v1 implements only `auto_deny`._
 - **Snooze:** when approving by hand, the reviewer may snooze future prompts for
   *this caller + this tool* with a TTL. A snooze is a rule on the same path as
   permanent policy, and the audit marks it separately ("allowed by snooze").
@@ -38,6 +42,6 @@ after about **300 s**.
 - **Async/resume (job id, poll or re-present next turn).** Recommended by the
   earlier timeout document; Matthias's design document chose auto-deny instead,
   and that is the current decision. The contradiction is noted in `roadmap.md`
-  until he confirms.
+  until he confirms. **Confirmed 2026-10-04:** auto-deny.
 - **Risk tiers inferred from tool names.** Contradicts "check intent, not a
   blocklist" and is guessable by the agent.

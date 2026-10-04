@@ -1,6 +1,6 @@
 # 0005. Config as code; the meta server can draft but never apply
 
-- **Status:** Accepted (design; phase 3 builds the meta server)
+- **Status:** Proposed — from a months-old summary of earlier discussions; Matthias wants to re-discuss before it binds (2026-10-04)
 - **Date:** 2026-10-04
 
 ## Context

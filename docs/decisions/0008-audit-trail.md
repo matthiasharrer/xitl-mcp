@@ -1,6 +1,6 @@
 # 0008. One complete audit record per call, unredacted in v1
 
-- **Status:** Accepted (design; phase 1 builds it)
+- **Status:** Proposed — from a months-old summary of earlier discussions; Matthias wants to re-discuss before it binds (2026-10-04)
 - **Date:** 2026-10-04
 
 ## Decision
