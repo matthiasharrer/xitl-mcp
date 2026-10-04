@@ -10,16 +10,12 @@ behind Authelia, `edge` image)_
 
 ## Next — milestone 1: Claude.ai → xitl → Haushalt, approval on the phone
 
-Slices (lead's plan; each verifiable on its own, app working in between):
+Slices (lead's plan; each verifiable on its own, app working in between;
+numbers are stable, done ones moved to `roadmap-archive.md`):
 
-1. **Data model + upstream registry:** `Upstream` (name, URL, description),
-   per-user `UpstreamConnection` (tokens), `Policy`/overrides, `Snooze`,
-   `AuditEntry`, all user-scoped (ADR-0010). Settings UI to add an upstream.
 2. **Upstream OAuth client** (ADR-0013): connect flow from the UI, token
    storage and refresh, "reconnect" state. Tested against a Haushalt built
    locally (its e2e server pattern) rather than production.
-3. **Inbound MCP OAuth** copied from Haushalt (ADR-0012): DCR, consent behind
-   Authelia, user-bound tokens, client list in Settings.
 4. **Proxy core:** `/mcp/<slug>` (ADR-0014): `tools/list` with policy stamp,
    `tools/call` pass-through, annotations read, unknown tools flagged.
 5. **Policy engine** (ADR-0004): pure function, Vitest + fake timers; policy UI
@@ -39,6 +35,21 @@ then needs Haushalt's `/mcp` + `/.well-known` exemptions (GitOps, Matthias).
 - Rezepte as second upstream, plus the aggregated `/mcp` endpoint (ADR-0014); Authelia access for Tina to Rezepte (Matthias).
 - Tina onboarded with her own connections.
 - More upstreams as they come.
+
+## Debt and open points (from slice 1+3 review, 2026-10-04)
+
+- **SSRF:** upstream URLs accept any http(s) address (internal IPs, cluster
+  services). Needs an outbound address policy before the proxy fetches
+  anything; must still allow the sibling apps.
+- **Status for HEADER/NONE upstreams** reads "Nicht verbunden" although they
+  need no connect step; fix with the connect flow (slice 2).
+- **DCR is open** (`/mcp/register`, as in Haushalt): unbound clients pile up if
+  spammed. Cleanup of never-approved clients after a day would do.
+- **Dev server proxies only `/api`:** `/mcp`, `/oauth`, `/.well-known` are
+  reachable on :3002 only, not via the Coder URL, so Claude.ai can't be tested
+  against the workspace. Add Vite proxy entries if that's wanted.
+- Signed auth codes are replayable within 60 s (needs PKCE verifier too),
+  copied caveat from Haushalt.
 
 ## Still to define
 

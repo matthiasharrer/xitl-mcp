@@ -20,3 +20,8 @@ export const PORT = 3202;
 export const BASE_URL = `http://127.0.0.1:${PORT}`;
 export const WEB_DIST = path.join(ROOT, 'apps/web/dist');
 export const SERVER_ENTRY = path.join(ROOT, 'apps/api/dist/index.js');
+
+// The built server mounts /mcp/<slug> only when MCP_TOKEN is set. It is the HMAC
+// secret that signs the OAuth codes/tokens, never a bearer (ADR-0012); TC-12
+// sends it as one to prove it is rejected.
+export const MCP_TOKEN = 'e2e-test-mcp-token';
