@@ -1,47 +1,50 @@
-# 0004. Policy model: three outcomes, fail closed, auto-deny on timeout
+# 0004. Policy model: allow, deny or ask; auto-deny on timeout
 
-- **Status:** Proposed — from a months-old summary of earlier discussions; Matthias wants to re-discuss before it binds (2026-10-04)
+- **Status:** Accepted (revised with Matthias, 2026-10-04; the briefing version
+  is in git history)
 - **Date:** 2026-10-04
 
 ## Context
 
-The core of the product: every `tools/call` gets a decision. The agent is
-untrusted, the reviewer is one human, and Claude.ai gives up on a tool call
-after about **300 s**.
+Every `tools/call` gets a decision. The calling agent is untrusted; the
+reviewer is the user who owns the call (ADR-0010). Claude.ai gives up on a
+tool call after about **300 s**.
 
 ## Decision
 
-- **Outcomes:** `always_allow`, `always_deny`, `require_approval`. Approval goes
-  to a human, a reviewer agent, or an agent that escalates (modes in ADR-0006).
-- **Inputs:** the tool, its **classification** (`read` / `write`, set
-  explicitly in config, never guessed), and the **caller identity** (OAuth
-  client and its trust tier, ADR-0007).
-- **Upstream `default_policy` can never be `always_allow`.** Config load rejects
-  it. Only individual tool entries may loosen.
-- **Timeout ⇒ auto-deny** with a structured reason the agent can read ("not
-  approved within 300 s"). **No queue/resume** in v1.
-  _Matthias, 2026-10-04: auto-deny after 300 s is fine, the agent can retry.
-  The timeout behaviour belongs **in the policy**, assignable per upstream and
-  overridable per tool, so queue/resume can be added later as another value
-  without reshaping config. v1 implements only `auto_deny`._
-- **Snooze:** when approving by hand, the reviewer may snooze future prompts for
-  *this caller + this tool* with a TTL. A snooze is a rule on the same path as
-  permanent policy, and the audit marks it separately ("allowed by snooze").
-- Pending calls live in an in-memory map, decoupled from the approval channels
-  by an `EventEmitter` (SSE now, push later, reviewer agent in parallel).
+- **Outcomes:** `allow`, `deny`, `ask` (ask = a human approves; a reviewer agent
+  is deferred, ADR-0006).
+- **Per user, per upstream default**, overridable **per tool**, optionally
+  **per client** (e.g. stricter for one agent). Any default is allowed,
+  including `allow`: Matthias wants Haushalt and Rezepte allowed by default.
+  _(Briefing said a default may never be `allow`; dropped.)_
+- **Read/write classification** comes from the upstream's MCP tool annotations
+  (`readOnlyHint`, `destructiveHint`) and can be overridden per tool. It's shown
+  in the UI to help choose a policy; it does not decide by itself.
+- **A tool not seen before** (the upstream added it later) is `ask` until the
+  user has set a policy for it, whatever the upstream default says, and the
+  user is told about it. Cheap protection against an upstream changing under us.
+- **Timeout:** 5 minutes, then **deny** with a structured reason the agent can
+  read ("nicht innerhalb von 5 Minuten freigegeben, später erneut versuchen").
+  The agent can retry. The timeout action is a field on the policy so queue or
+  resume can be added later; v1 knows only `deny` with a fixed 300 s.
+- **Snooze:** when approving, the user may allow *this client + this tool* for a
+  while (TTL). Same rule path as permanent policy; the audit says "via snooze".
+- **No trust tiers.** The per-client override covers the same need for a
+  handful of clients.
+- Pending calls live in memory, decoupled from channels (push, approval page)
+  by an `EventEmitter`. A restart drops them: they deny (fail closed).
+- The decision is **one pure function** (call, policy, snoozes, clock →
+  decision + decision path), unit-tested with Vitest fake timers.
 
 ## Consequences
 
-- Pending approvals don't survive a restart: they deny, consistent with fail
-  closed. Single replica, so nothing else could pick them up anyway.
-- Slow reviewers lose calls. If that turns out to be common in practice,
-  queue/resume is the parked alternative (`ideas.md`).
+- Slow approvals lose the call; the agent retries. Queue/resume stays in
+  `ideas.md` until that hurts.
+- "Allowed by default" upstreams still get every call audited (ADR-0008).
 
 ## Alternatives considered
 
-- **Async/resume (job id, poll or re-present next turn).** Recommended by the
-  earlier timeout document; Matthias's design document chose auto-deny instead,
-  and that is the current decision. The contradiction is noted in `roadmap.md`
-  until he confirms. **Confirmed 2026-10-04:** auto-deny.
-- **Risk tiers inferred from tool names.** Contradicts "check intent, not a
-  blocklist" and is guessable by the agent.
+- **Async/resume.** Matthias: auto-deny is fine for now, an agent can retry.
+- **Default never `allow` (briefing).** Too strict for low-stakes upstreams;
+  the new-tool rule keeps the safety that mattered.

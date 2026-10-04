@@ -1,6 +1,6 @@
 # 0005. Config as code; the meta server can draft but never apply
 
-- **Status:** Proposed — from a months-old summary of earlier discussions; Matthias wants to re-discuss before it binds (2026-10-04)
+- **Status:** Rejected 2026-10-04: two users editing from phones need policies in the app, see [ADR-0011](0011-policies-in-the-app.md)
 - **Date:** 2026-10-04
 
 ## Context

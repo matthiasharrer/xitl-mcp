@@ -39,10 +39,7 @@ side towards upstreams), a YAML parser, `diff` (ADR-0005), `web-push`.
 
 - Everything the siblings learned the hard way (Prisma/TS pins, the e2e
   browser trap, ingress exemptions for OAuth paths) applies directly.
-- **stdio upstreams run inside the container.** The proxy spawns them as child
-  processes, so their runtimes (e.g. `npx`, `uvx`) must exist in the image.
-  Decide per upstream when phase 1 picks its first real one; HTTP/SSE upstreams
-  need nothing.
+- Upstreams are HTTP only (ADR-0013), so the image needs no extra runtimes.
 - Code is copied, not shared: fixes in a sibling need porting by hand.
 
 ## Alternatives considered

@@ -1,6 +1,6 @@
 # 0008. One complete audit record per call, unredacted in v1
 
-- **Status:** Proposed — from a months-old summary of earlier discussions; Matthias wants to re-discuss before it binds (2026-10-04)
+- **Status:** Accepted (2026-10-04), per user (ADR-0010)
 - **Date:** 2026-10-04
 
 ## Decision

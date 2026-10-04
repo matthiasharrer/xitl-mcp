@@ -33,25 +33,24 @@ A landscape review found no existing tool combining all four:
    connections, policies, approvals, audit. Nothing shared in the first phase
    (Matthias, 2026-10-04; the briefing said one admin, one reviewer). Simplicity
    beats generality; team features stay out (see `ideas.md`).
-3. **Fail closed.** No answer in time means deny, with a structured reason. An
-   upstream's default policy can never be `always_allow`.
-4. **Config as code, applied by a human.** Policies are YAML files. An LLM may
-   *draft* changes; only the human applies them, from the CLI.
+3. **Fail closed.** No answer in 5 minutes means deny, with a structured
+   reason; the agent can retry. Unknown tools are asked about.
+4. **Only a human changes policy.** Policies are edited in the app (behind
+   Authelia); no MCP tool can change them (ADR-0011).
 5. **Everything is audited.** One complete record per call, including how the
    decision was reached.
 6. **Testable by autonomous agents from day one.** Clock, LLM endpoint and push
    sender are injectable; nothing depends on a real human or real time in tests.
 
-## Phases (Matthias's sequencing)
+## First milestone (Matthias, 2026-10-04)
 
-1. Proxy core + policy engine, approval in the browser via SSE.
-2. OAuth authorization server: DCR, PKCE, trust tiers.
-3. Meta server for LLM-assisted config: discovery first; `apply_draft` CLI-only
-   from the start.
-4. Web Push to the phone.
+**Matthias's Claude.ai → xitl → Haushalt**, with a call that needs approval
+reaching his phone as a push. Then Rezepte, then more upstreams, then Tina.
+LLM help (intent summary, reviewer agent, policy proposals) comes after
+UI-only approval works.
 
 ## Out of scope for v1
 
-Multi-reviewer / multi-admin, field-level audit redaction, upstream OAuth
-(tokens are pasted by the admin), queue/resume for slow approvals,
+Shared data between the two users, LLM-based review, stdio upstreams,
+field-level audit redaction, queue/resume for slow approvals,
 payload-similarity snooze. All parked in `ideas.md` with their triggers.

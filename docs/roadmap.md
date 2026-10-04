@@ -5,60 +5,48 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-04 (scaffold committed, nothing of the proxy built; first decisions taken)_
-
-## Decided 2026-10-04
-
-- Two separate users via Authelia, nothing shared (ADR-0010).
-- Auto-deny after 300 s; timeout behaviour is a policy field (per upstream,
-  per-tool override), v1 implements only `auto_deny` (ADR-0004).
-- First real upstreams: **Haushalt and Rezepte**; both should move behind the
-  proxy soon.
+_Last updated: 2026-10-04 (briefing reviewed with Matthias; scaffold deployed
+behind Authelia, `edge` image)_
 
 ## Open: discuss with Matthias
 
-1. **The briefing is a months-old summary.** ADRs 0003–0009 are marked
-   Proposed until re-discussed.
-2. **Upstream OAuth is now required, not an idea.** Haushalt and Rezepte accept
-   only OAuth (no static bearer, both siblings' ADRs), with 1 h access tokens
-   and 30-day refresh tokens. Haushalt binds tokens to the approving user. So
-   xitl must be an **OAuth client per user per upstream** (connect flow, token
-   refresh), otherwise the briefing's "paste a static credential" can't reach
-   them. Recommendation: build it, scoped to the sibling apps' OAuth first.
-3. **Rezepte is single-user by design.** Should Tina reach it through xitl at
-   all? If yes, rezepte needs a user model first.
-4. **Policy shape:** per upstream with per-tool overrides (Matthias). Per user,
-   or shared templates?
+1. **How upstreams appear to Claude** (grouping, scope, approval level in the
+   tool description): one connector per upstream vs one aggregated endpoint.
+   Lead's recommendation pending his answer; becomes ADR-0014.
 
-## Next — Phase 1: proxy core + policy engine (ADR-0004, 0008)
+## Next — milestone 1: Claude.ai → xitl → Haushalt, approval on the phone
 
-Slicing (lead's plan, each slice verifiable on its own):
+Slices (lead's plan; each verifiable on its own, app working in between):
 
-1. **Config loading:** YAML per upstream from `data/upstreams/`, validated with
-   zod; `default_policy: always_allow` is a load error. Unit-tested.
-2. **Policy engine:** pure function (call, classification, caller, snoozes,
-   clock) → decision + decision path. Vitest, fake timers.
-3. **Pass-through proxy:** `/mcp/<upstream>` speaks MCP to the client,
-   forwards to one stdio and one HTTP upstream; `tools/list` passes through;
-   credential injection. MCP test client in e2e.
-4. **Pending-call map + SSE approval UI:** EventEmitter; approve/deny/snooze in
-   the browser (phone viewport); 300 s auto-deny via Clock.
-5. **Audit records** for every call, and a read-only audit list in the UI.
-6. **Malicious-client suite**, first cases (ADR-0003).
+1. **Data model + upstream registry:** `Upstream` (name, URL, description),
+   per-user `UpstreamConnection` (tokens), `Policy`/overrides, `Snooze`,
+   `AuditEntry`, all user-scoped (ADR-0010). Settings UI to add an upstream.
+2. **Upstream OAuth client** (ADR-0013): connect flow from the UI, token
+   storage and refresh, "reconnect" state. Tested against a Haushalt built
+   locally (its e2e server pattern) rather than production.
+3. **Inbound MCP OAuth** copied from Haushalt (ADR-0012): DCR, consent behind
+   Authelia, user-bound tokens, client list in Settings.
+4. **Proxy core:** `tools/list` and `tools/call` pass-through per ADR-0014,
+   annotations read, unknown tools flagged.
+5. **Policy engine** (ADR-0004): pure function, Vitest + fake timers; policy UI
+   (upstream default, per-tool override, per-client override).
+6. **Approval:** pending map + approval page (phone) + Web Push with
+   approve/deny actions, copied from Haushalt's push (ADR-0009); 5 min auto-deny;
+   snooze.
+7. **Audit** (ADR-0008) and its list in the UI.
+8. **Malicious-client suite**, first cases: cross-user access, forged tokens,
+   upstream token leakage, approval of another user's call.
 
-Without OAuth, phase 1 is workspace-only (no ingress exemption yet).
+Release to the cluster when 1–6 work end to end in the workspace; the ingress
+then needs Haushalt's `/mcp` + `/.well-known` exemptions (GitOps, Matthias).
 
-## Later phases
+## After milestone 1
 
-- **Phase 2:** OAuth AS (DCR, PKCE, resource indicators, trust tiers): ADR-0007.
-- **Phase 3:** meta server, discovery → drafts; `apply_draft` CLI: ADR-0005.
-- **Phase 4:** Web Push with actions: ADR-0009.
-- **Deploy:** Flux manifests in the GitOps repo (Matthias's side): Deployment
-  (`strategy: Recreate`, single replica), PVC at `/data`, ingress with Authelia
-  and the OAuth/MCP exemptions. Not useful before phase 2.
+- Rezepte as second upstream; Authelia access for Tina to Rezepte (Matthias).
+- Tina onboarded with her own connections.
+- More upstreams as they come.
 
 ## Still to define
 
-- **Manual test gates** (`testing.md`): real Claude.ai connection, the DCR
-  flow, real push delivery, real latencies vs the 300 s limit.
-- Prototype spec beyond this roadmap: decided per slice in its brief.
+- **Manual test gates** (`testing.md`): real Claude.ai connection, consent
+  flows in both directions, push to a real phone, real approval latency vs 5 min.

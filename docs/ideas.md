@@ -25,10 +25,16 @@
 - **Field-level audit redaction/encryption.** Becomes relevant with a second
   reviewer, weaker disk guarantees, or an upstream returning secrets-manager
   output (ADR-0008).
-- **Upstream OAuth:** a second OAuth-client subsystem with token refresh. In v1
-  the admin pastes tokens.
 - **Multiple push subscriptions per reviewer** (phone + desktop) for redundancy.
 - **Other delivery channels:** Pushover, FCM/APNs, Slack/Teams.
 - **Prior art to borrow from:** YAML rules with named approvers
   (microsoft/agent-governance-toolkit), integrity levels (gh-aw-mcpg),
   prompt-injection guardrails (enkrypt), hash-chained audit (SidClaw).
+
+## From the review with Matthias (2026-10-04)
+
+- **LLM proposes policy, user confirms in the app.** Replaces the meta server
+  (ADR-0005, rejected). Never an MCP tool that applies.
+- **Intent summary / reviewer agent** (ADR-0006, deferred): when approvals turn
+  out hard to judge or too frequent. Ollama host is a candidate endpoint.
+- **stdio upstreams:** wrap them into HTTP elsewhere and connect as usual.

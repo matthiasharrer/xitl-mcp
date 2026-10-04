@@ -1,6 +1,6 @@
 # 0009. Approval on the phone via Web Push with actions
 
-- **Status:** Proposed — from a months-old summary of earlier discussions; Matthias wants to re-discuss before it binds (2026-10-04)
+- **Status:** Accepted (2026-10-04); approving from the lock screen relies on the Authelia session, accepted by Matthias (sessions are long-lived)
 - **Date:** 2026-10-04
 
 ## Decision

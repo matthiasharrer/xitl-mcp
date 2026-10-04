@@ -1,6 +1,6 @@
 # 0006. Intent summary advises; the reviewer agent decides; both kept separate
 
-- **Status:** Proposed — from a months-old summary of earlier discussions; Matthias wants to re-discuss before it binds (2026-10-04)
+- **Status:** Deferred 2026-10-04: UI-only approval first; LLM review later (Matthias). Keep as the design to start from.
 - **Date:** 2026-10-04
 
 ## Context

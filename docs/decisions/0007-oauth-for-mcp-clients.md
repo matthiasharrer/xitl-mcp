@@ -1,6 +1,6 @@
 # 0007. MCP clients authenticate with OAuth; the reviewer with Authelia
 
-- **Status:** **Proposed**: the identity source for the consent step is open
+- **Status:** Superseded by [ADR-0012](0012-inbound-mcp-oauth.md) (2026-10-04)
   (see "Open question"). Everything else is the briefing's design.
 - **Date:** 2026-10-04
 
