@@ -1,0 +1,37 @@
+{
+  "name": "xitl-mcp",
+  "private": true,
+  "version": "0.0.0",
+  "description": "X in the Loop: an MCP proxy that puts a human (or a reviewer agent) in front of every tool call",
+  "type": "module",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "./dev.sh",
+    "dev:api": "npm --workspace @xitl/api run dev",
+    "dev:web": "npm --workspace @xitl/web run dev",
+    "build": "npm run build:web && npm run build:api",
+    "build:web": "npm --workspace @xitl/web run build",
+    "build:api": "npm --workspace @xitl/api run build",
+    "db:generate": "npm --workspace @xitl/api run db:generate",
+    "db:migrate": "npm --workspace @xitl/api run db:migrate",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "e2e:headed": "playwright test --headed",
+    "skills:sync": "rm -rf .claude/skills/playwright-cli && cp -r node_modules/@playwright/cli/node_modules/playwright-core/lib/tools/skills/playwright-cli .claude/skills/",
+    "test:unit": "npm --workspace @xitl/api run test:unit"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@playwright/cli": "^0.1.22",
+    "@playwright/test": "^1.62.1"
+  },
+  "comment:overrides": "typescript: Prisma 7 pulls in typescript@7 and npm hoists it to the root, where svelte-check (which only supports TS <=6) would pick it up and crash. Pin the whole tree to the newest TS the Svelte toolchain supports (6.x). better-sqlite3: the @prisma/adapter-better-sqlite3 driver adapter needs ^12.6.0, but prisma's optional better-sqlite3 peer (>=9.0.0) makes npm auto-install a second, newer copy at the root, so two native modules compile in the image. Pin the tree to the adapter's 12.x line. (Copied from haushalts-todos, which copied it from rezepte.)",
+  "overrides": {
+    "typescript": "6.0.3",
+    "better-sqlite3": "^12.6.0"
+  }
+}

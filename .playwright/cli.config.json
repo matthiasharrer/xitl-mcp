@@ -1,0 +1,15 @@
+{
+  "browser": {
+    "browserName": "chromium",
+    "launchOptions": {
+      "headless": true,
+      "executablePath": "/opt/playwright-browsers/chromium-1228/chrome-linux64/chrome"
+    },
+    "contextOptions": {
+      "viewport": { "width": 390, "height": 844 },
+      "hasTouch": true,
+      "isMobile": true,
+      "locale": "de-DE"
+    }
+  }
+}

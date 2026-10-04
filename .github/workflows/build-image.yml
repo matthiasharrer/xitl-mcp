@@ -1,0 +1,98 @@
+name: Build image
+
+# Every push to main produces a testable image (`edge`, `main-<sha>`); a
+# `v*` git tag is what marks a release (`1.2.3`, `1.2`, `latest`) and what the
+# cluster tracks.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Typecheck before building: it fails in ~1 min, the image build takes
+  # several, and a build that succeeds on broken types is worse than useless.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # The API's types come from the generated Prisma client — gitignored
+      # build output (apps/api/src/generated, `prisma-client` generator), so
+      # it must be regenerated before every typecheck/build, this one
+      # included. `--schema` (rather than `--config`) is deliberate: it skips
+      # prisma.config.ts auto-discovery, so this step doesn't need a
+      # DATABASE_URL — `generate` never opens the datasource anyway.
+      - run: npx prisma generate --schema apps/api/prisma/schema.prisma
+      - name: Typecheck API
+        run: npx tsc --noEmit -p apps/api/tsconfig.json
+      - name: Typecheck web (svelte-check)
+        run: npm --workspace @xitl/web run check
+
+      # Catches a schema.prisma edited without a matching migration. Without
+      # this, the image ships code expecting columns the database doesn't have,
+      # and the failure surfaces at runtime in production instead of here.
+      - name: Schema matches migrations
+        # Prisma 7: `--to-schema-datamodel` -> `--to-schema`, and
+        # `--shadow-database-url` is gone (SQLite manages the shadow itself).
+        run: |
+          npx prisma migrate diff \
+            --from-migrations apps/api/prisma/migrations \
+            --to-schema apps/api/prisma/schema.prisma \
+            --exit-code
+
+
+  build:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Pull requests build but never push — they have no business publishing
+      # an image, and GITHUB_TOKEN is read-only on forks anyway.
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # `latest` is added automatically for semver tags only (latest=auto),
+          # so a push to main can never move it.
+          tags: |
+            type=raw,value=edge,enable={{is_default_branch}}
+            type=sha,prefix=main-,format=short,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=pr
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

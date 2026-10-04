@@ -1,0 +1,33 @@
+{
+  "name": "@xitl/api",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "DATABASE_URL=file:generate-placeholder.db prisma generate && tsc -p tsconfig.json",
+    "start:prod": "node dist/index.js",
+    "db:generate": "DATABASE_URL=file:generate-placeholder.db prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "@prisma/adapter-better-sqlite3": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "dotenv": "^17.4.2",
+    "hono": "^4.13.8",
+    "prisma": "^7.10.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.3"
+  }
+}
