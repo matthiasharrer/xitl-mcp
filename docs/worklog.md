@@ -3,6 +3,25 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-04 — Briefing review, milestone 1 built, `v0.1.0`
+
+- Matthias reviewed the briefing (a months-old summary): two separate users
+  (ADR-0010), policies in the app not YAML (0011), inbound OAuth copied from
+  Haushalt (0012), HTTP upstreams connected per user via OAuth (0013), both
+  per-upstream and aggregated endpoints (0014), default `allow` permitted,
+  5-min auto-deny, LLM review deferred, both users on Android.
+- Built in three agent batches (Sonnet: registry + inbound OAuth; Opus:
+  upstream OAuth + proxy + policy; Opus: approval + push + snooze + Verlauf),
+  each reviewed line by line on the security paths and re-run by the lead.
+- Open questions to Matthias (roadmap): explicit ALLOW vs rug pull;
+  lock-screen approve for destructive tools.
+- Gotchas: `@hono/node-server` swaps global `Response`, which breaks
+  `instanceof Response` in the MCP SDK twice (auth gate, OAuth error parsing);
+  both worked around, see comments. MCP client SDK refuses non-https token
+  endpoints → upstreams via public URLs. `migrate dev` refuses new unique
+  indexes non-interactively (CLAUDE.md has the workaround). Headless Chromium
+  reports notifications as denied → TC-34 stubs the browser side.
+
 ## 2026-10-04 — Bootstrap
 
 - Matthias brought a German briefing ("X in the Loop MCP Proxy") and asked for a

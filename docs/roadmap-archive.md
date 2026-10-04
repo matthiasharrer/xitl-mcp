@@ -5,6 +5,8 @@ test evidence in `testing.md`'s run log.
 
 ## 2026-10-04
 
+- **`v0.1.0` released** (Matthias's call): slices 1–7 below. Without slice 8
+  and without the manual gates MG-01…05, which need the deployed instance.
 - **Milestone 1, slices 6–7:** held calls with approval page (live via SSE),
   Web Push with approve/deny actions (copied from Haushalt), snooze (15 min /
   1 h / today; not for new/changed tools), 300 s budget shared by wait and

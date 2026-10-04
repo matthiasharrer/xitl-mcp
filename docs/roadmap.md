@@ -5,8 +5,7 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-04 (briefing reviewed with Matthias; scaffold deployed
-behind Authelia, `edge` image)_
+_Last updated: 2026-10-04 (`v0.1.0` tagged: milestone 1 slices 1–7)_
 
 ## Next — milestone 1: Claude.ai → xitl → Haushalt, approval on the phone
 
@@ -16,8 +15,9 @@ numbers are stable, done ones moved to `roadmap-archive.md`):
 8. **Malicious-client suite**, first cases: cross-user access, forged tokens,
    upstream token leakage, approval of another user's call.
 
-Slices 1–7 are done. Remaining: slice 8, then a release (Matthias's call) and
-the manual gates MG-01…05 (`testing.md`).
+Slices 1–7 shipped as `v0.1.0` (Matthias, 2026-10-04). Next: Matthias deploys
+and runs the manual gates MG-01…05 (`testing.md`) with Haushalt; slice 8 in
+parallel. Milestone 1 is done when the gates pass.
 
 **Deploy checklist (GitOps, Matthias):** `MCP_TOKEN` secret ✅ (2026-10-04);
 Authelia exemptions for `/mcp*` ✅ — confirm `/.well-known/*` too, and that

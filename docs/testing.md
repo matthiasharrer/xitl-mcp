@@ -136,5 +136,5 @@ app stopped the case proving anything.
 | - | ---- | ----- | ------ |
 | 1 | 2026-10-04 | TC-01…04 (scaffold) | 4 passed |
 | 2 | 2026-10-04 | TC-01…14 (+1 extra: no `MCP_TOKEN` → 404), unit 13 | all passed (implementer and lead, separately) |
-| 4 | 2026-10-04 | TC-01…37, unit 61 | all passed (implementer and lead, separately). TC-34 stubs the browser's Notification/PushManager (headless reports `denied`); real device is a manual gate. |
+| 4 | 2026-10-04 | TC-01…37, unit 61 (`v0.1.0`) | all passed (implementer and lead, separately). TC-34 stubs the browser's Notification/PushManager (headless reports `denied`); real device is a manual gate. |
 | 3 | 2026-10-04 | TC-01…26, unit 38 | all passed (implementer and lead, separately). TC-16 state expiry unit-only (no clock control in e2e). |
