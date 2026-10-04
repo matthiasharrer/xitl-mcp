@@ -13,6 +13,9 @@
 - **Every pending call is pushed immediately, high priority.** No risk tiering,
   no escalation ladder.
 - The PWA detects stale subscriptions and re-registers.
+- **Both users are on Android** (Matthias, 2026-10-04), so the action buttons
+  are the primary path; tapping the notification body opens the approval page
+  as the fallback (and the only path on iOS).
 
 ## Consequences
 
