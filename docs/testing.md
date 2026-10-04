@@ -47,7 +47,7 @@ in some other way has not passed.
 
 | ID    | Case |
 | ----- | ---- |
-| TC-05 | `POST /api/upstreams` with name, slug, URL, description, default policy creates an upstream (`status` `NOT_CONNECTED`). Slug must match `^[a-z0-9][a-z0-9-]{0,31}$`, URL must be `http(s)://`, otherwise 400 with a German message. Same slug twice for one user → 409; the same slug for a *different* user is fine. |
+| TC-05 | `POST /api/upstreams` with name, slug, URL, description, default policy creates an upstream (`status` `NOT_CONNECTED` for OAUTH; `CONNECTED` for HEADER/NONE, which need no connect step, from slice 2 on). Slug must match `^[a-z0-9][a-z0-9-]{0,31}$`, URL must be `http(s)://`, otherwise 400 with a German message. Same slug twice for one user → 409; the same slug for a *different* user is fine. |
 | TC-06 | Cross-user: `anna` gets 404 on `GET/PATCH/DELETE /api/upstreams/<matthias's id>`, and her `GET /api/upstreams` doesn't list it. |
 | TC-07 | No response from `/api/upstreams*` ever contains `accessToken`, `refreshToken`, `headerValue`, `oauthClient`, `pendingAuth` (checked on list, get, create, update), even when they're set in the DB. |
 | TC-08 | ⚡ At 390×844: Einstellungen → Upstream hinzufügen → fill the form → it appears in the list with its status; edit the description; delete it after a confirmation dialog. No horizontal scroll. |
@@ -62,6 +62,38 @@ in some other way has not passed.
 | TC-12 | The raw `MCP_TOKEN` as a bearer → 401. A token for a client revoked in Settings → 401. |
 | TC-13 | `/oauth/authorize` without `Remote-User` → 401. The client is bound to the approving user; `anna` approving Matthias's already-bound client → refused. |
 | TC-14 | Settings lists only the user's own MCP clients and shows both endpoint URLs per upstream (`/mcp/<slug>`; `/mcp` marked as coming later); revoke asks for confirmation. |
+
+### Fake upstream (test fixture)
+
+`e2e/support/fakeUpstream.ts`, started by Playwright as a second server on
+:3210: a minimal OAuth AS (metadata, DCR, PKCE, an authorize endpoint that
+auto-approves and redirects, token + refresh with a configurable short TTL, a
+switch to reject refreshes) and a Streamable-HTTP MCP server with server
+instructions and tools `list_items` (`readOnlyHint`), `add_item`, `delete_all`
+(`destructiveHint`), plus a control endpoint to add a tool, read call counts
+and the tokens it issued. Never the real Haushalt: e2e stays hermetic.
+
+### Upstream connection (ADR-0013): `e2e/tests/upstream-connect.spec.ts`
+
+| ID    | Case |
+| ----- | ---- |
+| TC-15 | ⚡ Einstellungen → "Verbinden" on an OAUTH upstream → (fake AS approves) → back on Einstellungen, status "Verbunden". The DB holds tokens; no API response contains them. |
+| TC-16 | The OAuth callback is bound to the user who started it: the right `state` presented as `anna` → 400, nothing stored; an unknown or already-used `state` → 400. |
+| TC-17 | Expired access token → the next proxied call refreshes transparently and succeeds. Refresh rejected → status "Neu verbinden nötig", the agent gets an `isError` result saying the upstream must be reconnected, the UI offers "Neu verbinden". |
+| TC-18 | No upstream token issued by the fake AS appears in any xitl API response, MCP result, MCP error or the API log (`.e2e` server output). |
+
+### Proxy and policy (ADR-0004, 0014): `e2e/tests/proxy.spec.ts`, `apps/api/src/lib/policy.test.ts`
+
+| ID    | Case |
+| ----- | ---- |
+| TC-19 | ⚡ With an MCP client token: `initialize` on `/mcp/<slug>` returns instructions containing the upstream's own instructions; `tools/list` returns the upstream's tools; `ask` tools carry the approval stamp in their description; `deny` tools are absent. |
+| TC-20 | `tools/call` on an `allow` tool is forwarded; the upstream's result comes back unchanged; one audit entry `FORWARDED` with its `decisionPath`. |
+| TC-21 | `tools/call` on a `deny` tool (called by name although hidden) → `isError` result with a reason; the upstream's call count unchanged; audit `DENIED`. |
+| TC-22 | Until approval exists (slice 6): an `ask` tool is denied with "Freigabe ist noch nicht verfügbar", audit `DENIED`, path `ask:no-channel`. Fail closed. |
+| TC-23 | A tool the upstream adds later is `ask` even under default `allow`, and shows as "Neu" in the policy UI; after the user acknowledges it (or sets a policy), the normal rules apply. |
+| TC-24 | Unit: precedence is client override > tool policy > unacknowledged tool (= `ask`) > upstream default; every result names its decision path. Snooze is added in slice 6. |
+| TC-25 | ⚡ At 390×844: an upstream's "Regeln" view lists its tools with a read/write hint from annotations and a choice Standard / Erlauben / Fragen / Verbieten, plus per-client overrides; changes apply to the next `tools/list`. |
+| TC-26 | Policies and tools are user-scoped: `anna` gets 404 on Matthias's upstream's tools/policy routes. |
 
 ## Manual gates (to be defined, see roadmap)
 
