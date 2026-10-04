@@ -8,12 +8,6 @@
 _Last updated: 2026-10-04 (briefing reviewed with Matthias; scaffold deployed
 behind Authelia, `edge` image)_
 
-## Open: discuss with Matthias
-
-1. **How upstreams appear to Claude** (grouping, scope, approval level in the
-   tool description): one connector per upstream vs one aggregated endpoint.
-   Lead's recommendation pending his answer; becomes ADR-0014.
-
 ## Next — milestone 1: Claude.ai → xitl → Haushalt, approval on the phone
 
 Slices (lead's plan; each verifiable on its own, app working in between):
@@ -26,8 +20,8 @@ Slices (lead's plan; each verifiable on its own, app working in between):
    locally (its e2e server pattern) rather than production.
 3. **Inbound MCP OAuth** copied from Haushalt (ADR-0012): DCR, consent behind
    Authelia, user-bound tokens, client list in Settings.
-4. **Proxy core:** `tools/list` and `tools/call` pass-through per ADR-0014,
-   annotations read, unknown tools flagged.
+4. **Proxy core:** `/mcp/<slug>` (ADR-0014): `tools/list` with policy stamp,
+   `tools/call` pass-through, annotations read, unknown tools flagged.
 5. **Policy engine** (ADR-0004): pure function, Vitest + fake timers; policy UI
    (upstream default, per-tool override, per-client override).
 6. **Approval:** pending map + approval page (phone) + Web Push with
@@ -42,7 +36,7 @@ then needs Haushalt's `/mcp` + `/.well-known` exemptions (GitOps, Matthias).
 
 ## After milestone 1
 
-- Rezepte as second upstream; Authelia access for Tina to Rezepte (Matthias).
+- Rezepte as second upstream, plus the aggregated `/mcp` endpoint (ADR-0014); Authelia access for Tina to Rezepte (Matthias).
 - Tina onboarded with her own connections.
 - More upstreams as they come.
 

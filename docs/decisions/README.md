@@ -15,3 +15,4 @@
 | 0011 | [Policies live in the database and are edited in the app](0011-policies-in-the-app.md) | Accepted |
 | 0012 | [MCP clients connect via OAuth copied from Haushalt](0012-inbound-mcp-oauth.md) | Accepted |
 | 0013 | [Upstreams are web MCP servers, connected per user](0013-upstreams.md) | Accepted |
+| 0014 | [Upstreams reach clients two ways: one endpoint each, or all in one](0014-how-upstreams-appear-to-clients.md) | Accepted |
