@@ -110,10 +110,11 @@ model KnownTool {
   firstSeenAt    DateTime     @default(now())
   lastSeenAt     DateTime     @default(now())
   acknowledgedAt DateTime?
-  /// Set when an ACKNOWLEDGED tool's description or annotations changed
-  /// ("rug pull", TC-36): acknowledgedAt is cleared at the same time, so the
-  /// tool is ASK ("new-tool") again and the UI says "Geändert" instead of
-  /// "Neu". Cleared again when the user acknowledges or sets a policy.
+  /// Set when a known tool's description or annotations changed ("rug pull",
+  /// TC-36): acknowledgedAt is cleared at the same time, the tool is ASK
+  /// ("changed-tool") even over an explicit tool/client ALLOW (lib/policy.ts),
+  /// and the UI says "Geändert" instead of "Neu". Cleared again when the user
+  /// acknowledges or sets a policy.
   changedAt      DateTime?
   clientPolicies ClientToolPolicy[]
 
@@ -177,8 +178,9 @@ enum CallOutcome {
 
 /// One row per tools/call that reached the proxy (ADR-0008), unredacted.
 /// decisionPath says how the decision was made: "policy:upstream-default",
-/// "policy:tool", "policy:client", "new-tool", "snooze", "approved:push",
-/// "approved:page", "denied:page", "timeout", ... endpoint is "/mcp/<slug>"
+/// "policy:tool", "policy:client", "new-tool", "changed-tool", "snooze",
+/// "approved:push", "approved:page", "denied:page", "timeout", "revoked",
+/// "flood", ... endpoint is "/mcp/<slug>"
 /// or "/mcp".
 model AuditEntry {
   id           Int         @id @default(autoincrement())

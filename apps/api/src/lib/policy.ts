@@ -7,15 +7,21 @@
 //   1. tool unknown (not in KnownTool)      -> DENY  "unknown-tool"
 //   2. per-client override                  -> it    "policy:client"
 //   3. per-tool policy                      -> it    "policy:tool"
-//   4. tool not yet acknowledged (new)      -> ASK   "new-tool"
-//   5. the upstream's default               -> it    "policy:upstream-default"
+//      ...except that a CHANGED tool (its definition changed after xitl first
+//      recorded it, `changedAt` set; rug pull, TC-36) never resolves to ALLOW:
+//      an explicit ALLOW at 2. or 3. becomes ASK "changed-tool" (Matthias,
+//      2026-10-04). An explicit ASK or DENY applies unchanged.
+//   4. tool changed (see above), no rule    -> ASK   "changed-tool"
+//   5. tool not yet acknowledged (new)      -> ASK   "new-tool"
+//   6. the upstream's default               -> it    "policy:upstream-default"
 // Then one post-step (ADR-0004 snooze, TC-30):
-//   6. result is ASK, the path is NOT "new-tool", and a snooze for (this
-//      client, this tool) is live at `now`  -> ALLOW "snooze"
+//   7. result is ASK, the tool is NOT awaiting review (new or changed, see
+//      `awaitingReview`), and a snooze for (this client, this tool) is live
+//      at `now`                             -> ALLOW "snooze"
 //   A snooze only ever upgrades ASK. Never DENY, never an unknown tool, and
-//   never a new or changed tool ("new-tool"): those must be looked at in the
-//   rules first, so a snooze set before a tool changed under us (rug pull,
-//   TC-36) cannot carry over.
+//   never a new or changed tool, whatever path said ASK: those must be looked
+//   at in the rules first, so a snooze set before a tool changed under us
+//   cannot carry over.
 //
 // Fail closed: anything that is not a recognised Policy value is treated as
 // DENY (a corrupted row must never become ALLOW).
@@ -26,6 +32,7 @@ export type DecisionPath =
   | 'unknown-tool'
   | 'policy:client'
   | 'policy:tool'
+  | 'changed-tool'
   | 'new-tool'
   | 'policy:upstream-default'
   | 'snooze';
@@ -35,12 +42,32 @@ export interface PolicyDecision {
   path: DecisionPath;
 }
 
+export interface PolicyTool {
+  policy: Policy | null;
+  acknowledgedAt: Date | null;
+  /** Set when the tool's definition changed after it was recorded (rug pull);
+   * cleared when the user acknowledges it or sets its policy. Required on
+   * purpose: forgetting to pass it must not silently allow a changed tool. */
+  changedAt: Date | null;
+}
+
+/** The tool is new (never acknowledged) or changed: the user has to look at it
+ * in the rules. Such a tool is never snoozable. Fails closed: a `changedAt`
+ * still set counts as changed even if `acknowledgedAt` is set too. */
+export function awaitingReview(tool: PolicyTool | null): boolean {
+  return tool === null || !tool.acknowledgedAt || isChanged(tool);
+}
+
+function isChanged(tool: PolicyTool): boolean {
+  return tool.changedAt !== null && tool.changedAt !== undefined;
+}
+
 export interface PolicyInput {
   /** The upstream's default policy. */
   upstreamDefault: Policy;
   /** The KnownTool row for the called/listed name, or null when xitl has never
    * seen the upstream list it (an agent calling it is guessing). */
-  tool: { policy: Policy | null; acknowledgedAt: Date | null } | null;
+  tool: PolicyTool | null;
   /** The ClientToolPolicy for (this tool, this MCP client), if any. */
   clientOverride: Policy | null;
   /** The latest live-looking Snooze.until for (this client, this tool), if any. */
@@ -60,7 +87,7 @@ export function evaluatePolicy(input: PolicyInput): PolicyDecision {
   const base = baseDecision(input);
   if (
     base.policy === 'ASK' &&
-    base.path !== 'new-tool' &&
+    !awaitingReview(input.tool) &&
     input.snoozedUntil instanceof Date &&
     input.now instanceof Date &&
     !Number.isNaN(input.snoozedUntil.getTime()) &&
@@ -75,12 +102,18 @@ function baseDecision(input: PolicyInput): PolicyDecision {
   const { tool } = input;
   if (!tool) return { policy: 'DENY', path: 'unknown-tool' };
 
+  const changed = isChanged(tool);
+  // An explicit ALLOW does not cover a definition the user hasn't seen.
+  const explicit = (policy: Policy, path: DecisionPath): PolicyDecision =>
+    changed && policy === 'ALLOW' ? { policy: 'ASK', path: 'changed-tool' } : { policy, path };
+
   if (input.clientOverride !== null && input.clientOverride !== undefined) {
-    return { policy: sane(input.clientOverride), path: 'policy:client' };
+    return explicit(sane(input.clientOverride), 'policy:client');
   }
   if (tool.policy !== null && tool.policy !== undefined) {
-    return { policy: sane(tool.policy), path: 'policy:tool' };
+    return explicit(sane(tool.policy), 'policy:tool');
   }
+  if (changed) return { policy: 'ASK', path: 'changed-tool' };
   if (!tool.acknowledgedAt) return { policy: 'ASK', path: 'new-tool' };
   return { policy: sane(input.upstreamDefault), path: 'policy:upstream-default' };
 }

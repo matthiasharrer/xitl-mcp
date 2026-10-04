@@ -6,6 +6,8 @@ import type { Tool } from '@modelcontextprotocol/client';
 import { prisma } from '../db.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { withUpstream, CONNECT_TIMEOUT_MS } from './connection.js';
+import { MAX_UPSTREAM_TOOLS } from '../lib/limits.js';
+import { scrubSecrets } from '../lib/proxyText.js';
 
 /** Whether the FIRST tools/list ever seen for an upstream counts as
  * acknowledged. ADR-0004 says the new-tool rule is for tools "the upstream
@@ -17,32 +19,49 @@ export const ACKNOWLEDGE_INITIAL_TOOLS = true;
 const MAX_NAME = 128;
 const MAX_DESCRIPTION = 10_000;
 
-/** Upstream tools with a usable name, first occurrence of each name only. */
-export function usableTools(tools: Tool[]): Tool[] {
+/** Upstream tools with a usable name, first occurrence of each name only, at
+ * most MAX_UPSTREAM_TOOLS (TC-48: the rest are dropped, never recorded or
+ * listed, so calling one is "unknown-tool"). */
+export function usableTools(tools: Tool[], max: number = MAX_UPSTREAM_TOOLS): Tool[] {
   const seen = new Set<string>();
-  return tools.filter((t) => {
-    if (typeof t?.name !== 'string' || t.name.length === 0 || t.name.length > MAX_NAME || seen.has(t.name)) return false;
+  const out: Tool[] = [];
+  if (!Array.isArray(tools)) return out;
+  for (const t of tools) {
+    if (typeof t?.name !== 'string' || t.name.length === 0 || t.name.length > MAX_NAME || seen.has(t.name)) continue;
+    if (out.length >= max) {
+      if (!warnedAbout.has(tools)) {
+        warnedAbout.add(tools);
+        console.warn(`tools: upstream listed more than ${max} tools; the rest are ignored`);
+      }
+      break;
+    }
     seen.add(t.name);
-    return true;
-  });
+    out.push(t);
+  }
+  return out;
 }
+/** One log line per list, although sync and listing both filter it. */
+const warnedAbout = new WeakSet<Tool[]>();
 
 /**
  * Upserts KnownTool rows for one upstream's current tool list.
  *
- * Rug pull (TC-36): when an ACKNOWLEDGED tool comes back with a different
- * description or annotations, its acknowledgement is withdrawn (-> ASK via the
- * "new-tool" rule, whatever the upstream default says) and `changedAt` is set
- * so the UI says "Geändert". Its snoozes are dropped too, so an explicit ASK
- * policy can't be bypassed by a snooze given for the old definition. An
- * explicit per-tool or per-client policy still wins over the re-flag (policy.ts
- * precedence), as for new tools.
+ * Rug pull (TC-36): when a known tool comes back with a different description
+ * or annotations, `changedAt` is set and its acknowledgement withdrawn, so the
+ * UI says "Geändert" and the policy engine treats it as changed: ASK
+ * ("changed-tool") whatever the upstream default says, and an explicit
+ * tool- or client-level ALLOW no longer applies until the user acknowledges it
+ * (policy.ts; an explicit ASK/DENY still does). Its snoozes are dropped too,
+ * so an explicit ASK can't be bypassed by a snooze given for the old
+ * definition. This holds for tools that were never acknowledged as well: a
+ * per-client ALLOW can be set on a "Neu" tool without acknowledging it, and
+ * must not carry over to a definition nobody has seen.
  */
 export async function syncKnownTools(upstreamId: number, tools: Tool[], clock: Clock = systemClock): Promise<void> {
   const now = clock.now();
   const existingRows = await prisma.knownTool.findMany({
     where: { upstreamId },
-    select: { id: true, name: true, description: true, annotations: true, acknowledgedAt: true },
+    select: { id: true, name: true, description: true, annotations: true },
   });
   const byName = new Map(existingRows.map((r) => [r.name, r]));
   const acknowledgedAt = existingRows.length === 0 && ACKNOWLEDGE_INITIAL_TOOLS ? now : null;
@@ -59,11 +78,12 @@ export async function syncKnownTools(upstreamId: number, tools: Tool[], clock: C
       continue;
     }
     const changed = prev.description !== description || !sameAnnotations(prev.annotations, annotations);
-    if (changed && prev.acknowledgedAt !== null) {
-      // Conditional on the row still being acknowledged with the old text, so
-      // a concurrent sync can't double-flag or undo a fresh acknowledgement.
+    if (changed) {
+      // Conditional on the row still holding the old definition, so a
+      // concurrent sync that already flagged it doesn't flag it again (and
+      // undo an acknowledgement given for the new definition meanwhile).
       await prisma.knownTool.updateMany({
-        where: { id: prev.id, acknowledgedAt: { not: null } },
+        where: { id: prev.id, description: prev.description, annotations: prev.annotations },
         data: { description, annotations, lastSeenAt: now, acknowledgedAt: null, changedAt: now },
       });
       const owner = await prisma.upstream.findUnique({ where: { id: upstreamId }, select: { userId: true } });
@@ -102,7 +122,7 @@ export async function refreshToolsFromUpstream(upstreamId: number, userId: numbe
   const tools = await withUpstream(
     upstreamId,
     userId,
-    async ({ client }) => (await client.listTools(undefined, { timeout: CONNECT_TIMEOUT_MS * 2 })).tools,
+    async ({ client, secrets }) => scrubSecrets((await client.listTools(undefined, { timeout: CONNECT_TIMEOUT_MS * 2 })).tools, secrets()),
     { clock, timeoutMs: CONNECT_TIMEOUT_MS * 2 },
   );
   await syncKnownTools(upstreamId, tools, clock);

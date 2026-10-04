@@ -222,7 +222,8 @@ const PATH_PART: Record<string, string> = {
   'policy:upstream-default': 'Standardregel',
   'policy:tool': 'Regel des Tools',
   'policy:client': 'Regel für diesen Client',
-  'new-tool': 'neues oder geändertes Tool',
+  'new-tool': 'neues Tool',
+  'changed-tool': 'geändertes Tool',
   'unknown-tool': 'unbekanntes Tool',
   snooze: 'pausiert, ohne Nachfrage',
   'approved:page': 'erlaubt in der App',
@@ -232,6 +233,9 @@ const PATH_PART: Record<string, string> = {
   timeout: 'Zeit abgelaufen',
   aborted: 'Verbindung abgebrochen',
   shutdown: 'Server neu gestartet',
+  restart: 'Server neu gestartet',
+  revoked: 'Client oder Upstream entfernt',
+  flood: 'zu viele offene Freigaben',
   'ask:no-channel': 'Freigabe noch nicht verfügbar',
 };
 

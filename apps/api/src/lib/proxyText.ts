@@ -96,6 +96,10 @@ export const MSG = {
     `[xitl] Verweigert: Der Aufruf von „${tool}“ wurde nicht innerhalb von 5 Minuten freigegeben; bitte später erneut versuchen. / Denied: the call to "${tool}" was not approved within 5 minutes; try again later.`,
   approvalCancelled: (tool: string) =>
     `[xitl] Verweigert: Die Freigabe für „${tool}“ wurde abgebrochen (Verbindung beendet oder Server neu gestartet); bitte später erneut versuchen. / Denied: approval for "${tool}" was cancelled; try again later.`,
+  revoked: (tool: string) =>
+    `[xitl] Verweigert: Die Freigabe für „${tool}“ wurde beendet, weil der Client widerrufen oder der Upstream entfernt wurde. / Denied: approval for "${tool}" ended because the client was revoked or the upstream removed.`,
+  flood: (tool: string) =>
+    `[xitl] Verweigert: Zu viele offene Freigaben; „${tool}“ wurde nicht zur Freigabe vorgelegt. Bitte warten, bis offene Freigaben entschieden sind. / Denied: too many pending approvals; the call to "${tool}" was not queued. Wait for pending approvals to be decided.`,
   reconnect: (name: string) =>
     `Upstream „${name}“ muss in xitl neu verbunden werden. / Upstream "${name}" must be reconnected in xitl.`,
   notConnected: (name: string) =>

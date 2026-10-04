@@ -23,7 +23,7 @@ import type { McpRequestContext } from '@modelcontextprotocol/server';
 import type { CallToolResult, Tool } from '@modelcontextprotocol/client';
 import { prisma } from '../db.js';
 import { systemClock, type Clock } from '../lib/clock.js';
-import { evaluatePolicy, type Policy } from '../lib/policy.js';
+import { awaitingReview, evaluatePolicy, type Policy, type PolicyTool } from '../lib/policy.js';
 import { MSG, errorResult, instructionsFor, resultExcerpt, scrubSecrets, stampedDescription } from '../lib/proxyText.js';
 import { CONNECT_TIMEOUT_MS, CALL_TIMEOUT_MS, UpstreamNeedsReconnect, UpstreamNotConnected, isUsable, withUpstream } from '../upstream/connection.js';
 import { syncKnownTools, usableTools } from '../upstream/tools.js';
@@ -73,6 +73,11 @@ const MAX_TOOL_NAME_IN_AUDIT = 200;
 function upstreamListError(name: string, e: unknown): ProtocolError {
   const text = e instanceof UpstreamNeedsReconnect ? MSG.reconnect(name) : e instanceof UpstreamNotConnected ? MSG.notConnected(name) : MSG.upstreamError(name);
   return new ProtocolError(ProtocolErrorCode.InternalError, text);
+}
+
+/** The KnownTool fields the policy engine needs. */
+function policyTool(k: { policy: string | null; acknowledgedAt: Date | null; changedAt: Date | null }): PolicyTool {
+  return { policy: k.policy as Policy | null, acknowledgedAt: k.acknowledgedAt, changedAt: k.changedAt };
 }
 
 export interface ProxyDeps {
@@ -127,7 +132,8 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         tools = await withUpstream(
           upstream.id,
           userId,
-          async ({ client }) => (await client.listTools(undefined, { timeout: CONNECT_TIMEOUT_MS * 2 })).tools,
+          // Scrubbed: an upstream could echo our credential in a description.
+          async ({ client, secrets }) => scrubSecrets((await client.listTools(undefined, { timeout: CONNECT_TIMEOUT_MS * 2 })).tools, secrets()),
           { clock, timeoutMs: CONNECT_TIMEOUT_MS * 2 },
         );
       } catch (e) {
@@ -151,7 +157,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         const k = byName.get(t.name);
         const decision = evaluatePolicy({
           upstreamDefault: (current?.defaultPolicy ?? 'DENY') as Policy,
-          tool: k ? { policy: k.policy as Policy | null, acknowledgedAt: k.acknowledgedAt } : null,
+          tool: k ? policyTool(k) : null,
           clientOverride: (k?.clientPolicies[0]?.policy as Policy | undefined) ?? null,
           snoozedUntil: snoozes.get(t.name) ?? null,
           now,
@@ -179,9 +185,10 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         liveSnoozeUntil({ userId, upstreamId: upstream.id, toolName: name, mcpClientId }, receivedAt),
       ]);
       if (!current) throw new Error('upstream vanished mid-request');
+      const toolState = tool ? policyTool(tool) : null;
       const decision = evaluatePolicy({
         upstreamDefault: current.defaultPolicy as Policy,
-        tool: tool ? { policy: tool.policy as Policy | null, acknowledgedAt: tool.acknowledgedAt } : null,
+        tool: toolState,
         clientOverride: (tool?.clientPolicies[0]?.policy as Policy | undefined) ?? null,
         snoozedUntil,
         now: receivedAt,
@@ -274,7 +281,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
             receivedAt,
             deadline: approvalDeadline(receivedAt, approvalTimeoutMs),
             // New/changed tools are reviewed in the rules, not snoozed (policy.ts).
-            snoozable: rule !== 'new-tool',
+            snoozable: !awaitingReview(toolState),
           },
           approvalId,
         );
@@ -291,6 +298,15 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
 
         if (d.kind === 'approve') {
           const path = `${rule}+approved:${d.via}`;
+          // Revocation settles held calls (cancelWhere), but a call that was
+          // between evaluation and hold() at that moment could still be held
+          // afterwards. Re-check the client binding before anything leaves.
+          const stillBound = await prisma.mcpClient.findFirst({ where: { id: mcpClientId, userId }, select: { id: true } });
+          if (!stillBound) {
+            const text = MSG.revoked(shownName);
+            await finish({ outcome: 'DENIED', decisionPath: `${rule}+revoked`, decidedAt: d.at, isError: true, resultText: text });
+            return errorResult(text);
+          }
           if (d.snoozeUntil && held.call.snoozable) {
             try {
               await createSnooze({ userId, upstreamId: upstream.id, toolName: name, mcpClientId }, d.snoozeUntil, d.at);
@@ -316,8 +332,9 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           await finish({ outcome: 'TIMED_OUT', decisionPath: `${rule}+timeout`, decidedAt: d.at, isError: true, resultText: text });
           return errorResult(text);
         }
-        // aborted / shutdown: fail closed.
-        const text = MSG.approvalCancelled(shownName);
+        // aborted / shutdown / revoked / flood: fail closed.
+        const text =
+          d.kind === 'flood' ? MSG.flood(shownName) : d.kind === 'revoked' ? MSG.revoked(shownName) : MSG.approvalCancelled(shownName);
         await finish({ outcome: 'DENIED', decisionPath: `${rule}+${d.kind}`, decidedAt: d.at, isError: true, resultText: text });
         return errorResult(text);
       }

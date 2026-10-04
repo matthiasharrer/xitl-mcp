@@ -16,6 +16,22 @@ export async function fakeControl(request: APIRequestContext, tenant: string, wh
   expect(res.status()).toBe(200);
 }
 
+/** Turns on malicious modes of a tenant (see `Malice` in fakeUpstream.ts). */
+export const fakeMalice = (request: APIRequestContext, tenant: string, malice: Record<string, unknown>) =>
+  fakeControl(request, tenant, 'config', { malice });
+
+export interface SinkRecord {
+  method: string;
+  path: string;
+  authorization: string | null;
+  fakeKey: string | null;
+  body: string;
+}
+/** What reached the sink host for this tenant (TC-47: must stay empty). */
+export async function sinkRequests(request: APIRequestContext, tenant: string): Promise<SinkRecord[]> {
+  return (await (await request.get(`${FAKE_UPSTREAM}/control/sink/${tenant}`)).json()).requests;
+}
+
 export interface FakeState {
   calls: Record<string, number>;
   refreshCount: number;

@@ -6,6 +6,7 @@ import { RESERVED_SLUGS, SLUG_PATTERN } from '../lib/slugs.js';
 import type { Upstream } from '../generated/prisma/client.js';
 import { externalOrigin } from '../lib/externalOrigin.js';
 import { ConnectError, finishConnect, startConnect, errorTag } from '../upstream/oauthClient.js';
+import { approvals } from '../approval/pending.js';
 
 // /api/upstreams: the user's registry of upstream MCP servers (ADR-0013).
 // Mounted under /api, so it sits behind the identity middleware. Every query is
@@ -294,6 +295,9 @@ upstreams.patch('/:id', async (c) => {
     // Another server behind the same name: what the user acknowledged was a
     // different tool set, so every tool counts as new again (ADR-0004).
     if (urlChanged) await prisma.knownTool.updateMany({ where: { upstreamId: id }, data: { acknowledgedAt: null } });
+    // A held call was approved for the old server / login: never forward it
+    // to the new one.
+    if (urlChanged || authChanged) approvals.cancelWhere((call) => call.userId === userId && call.upstreamId === id);
   } catch (e) {
     if (isUniqueViolation(e)) return c.json({ error: SLUG_TAKEN }, 409);
     throw e;
@@ -306,6 +310,10 @@ upstreams.delete('/:id', async (c) => {
   noStore(c);
   const id = parseId(c.req.param('id'));
   if (id === null) return c.json({ error: 'Nicht gefunden.' }, 404);
-  const res = await prisma.upstream.deleteMany({ where: { id, userId: c.get('user').id } });
-  return res.count === 0 ? c.json({ error: 'Nicht gefunden.' }, 404) : c.body(null, 204);
+  const userId = c.get('user').id;
+  const res = await prisma.upstream.deleteMany({ where: { id, userId } });
+  if (res.count === 0) return c.json({ error: 'Nicht gefunden.' }, 404);
+  // Its held calls end denied right away ("+revoked", TC-41).
+  approvals.cancelWhere((call) => call.userId === userId && call.upstreamId === id);
+  return c.body(null, 204);
 });

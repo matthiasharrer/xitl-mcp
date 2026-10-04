@@ -16,6 +16,7 @@
 // token (TC-18).
 import {
   OAuthError,
+  checkResourceAllowed,
   discoverOAuthServerInfo,
   exchangeAuthorization,
   refreshAuthorization,
@@ -40,6 +41,8 @@ import {
   upstreamIdFromState,
   type PendingAuth,
 } from '../lib/upstreamOAuth.js';
+import { limitResponse } from '../lib/limitedResponse.js';
+import { MAX_OAUTH_RESPONSE_BYTES } from '../lib/limits.js';
 
 /** Timeout for every OAuth request to an upstream's AS. */
 const OAUTH_TIMEOUT_MS = 15_000;
@@ -91,24 +94,26 @@ export function errorTag(e: unknown): string {
   return typeof e;
 }
 
-/** fetch for OAuth traffic: a timeout, and no redirects on POST (a redirect
- * would replay a body carrying a code, verifier or refresh token elsewhere).
+/** fetch for OAuth traffic: a timeout, a byte cap on the response (TC-48) and
+ * NO redirects at all (TC-47): a redirected POST would replay a body carrying
+ * a code, verifier or refresh token elsewhere, and a redirected discovery GET
+ * would let the upstream point xitl's server-side requests anywhere. An AS
+ * whose metadata lives behind a redirect is not supported.
  *
  * The response is re-wrapped in the CURRENT global `Response`: `@hono/node-server`
  * swaps `globalThis.Response` for its own class (see mcp/mount.ts, isAuthInfo),
  * and the SDK's `parseErrorResponse` checks `input instanceof Response`. A
  * native fetch Response fails that check, so every token-endpoint error would
  * parse as `server_error` and a rejected refresh would never be recognised as
- * "reconnect needed". */
+ * "reconnect needed". (limitResponse builds with the current global.) */
 const oauthFetch: FetchLike = async (input, init) => {
-  const method = (init?.method ?? 'GET').toUpperCase();
   const timeout = AbortSignal.timeout(OAUTH_TIMEOUT_MS);
   const res = await fetch(input, {
     ...init,
-    redirect: method === 'GET' ? 'follow' : 'error',
+    redirect: 'error',
     signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
   });
-  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: res.headers });
+  return limitResponse(res, MAX_OAUTH_RESPONSE_BYTES);
 };
 
 function parseJson<T>(raw: string | null): T | null {
@@ -137,18 +142,21 @@ export async function startConnect(row: Upstream, redirectUri: string, clock: Cl
   const metadata = info.authorizationServerMetadata;
   if (!metadata) throw new ConnectError('Der Upstream bietet keine OAuth-Anmeldung an.');
 
-  // RFC 9728 §3.3: the protected-resource document must describe THIS server.
-  // A resource on another origin is refused rather than used as an audience.
+  // RFC 9728 §3.3: the protected-resource document must describe THIS server:
+  // same origin, and the upstream URL's path must lie under the resource's
+  // path (the SDK's own rule, checkResourceAllowed). Another resource - another
+  // origin, or another path on the same host - is refused rather than used as
+  // the token audience.
   let resource: string | undefined;
   const prmResource = info.resourceMetadata?.resource;
   if (prmResource) {
-    let same = false;
+    let matches = false;
     try {
-      same = new URL(prmResource).origin === new URL(row.url).origin;
+      matches = checkResourceAllowed({ requestedResource: row.url, configuredResource: prmResource });
     } catch {
-      same = false;
+      matches = false;
     }
-    if (!same) throw new ConnectError('Der Upstream meldet eine fremde Ressource; Verbindung abgelehnt.');
+    if (!matches) throw new ConnectError('Der Upstream meldet eine fremde Ressource; Verbindung abgelehnt.');
     resource = prmResource;
   }
 

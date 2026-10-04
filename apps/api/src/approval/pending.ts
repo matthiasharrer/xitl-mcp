@@ -12,9 +12,15 @@
 // - Only "approve" ever leads to forwarding. Timeout, abort and shutdown are
 //   denials (fail closed). A restart drops the map: nothing can be approved
 //   after it.
+// - At most `maxHeldPerUser` calls per user are held at a time (TC-45): the
+//   next one settles at once as "flood" and is never announced (no SSE event,
+//   no push).
+// - Revoking a client or deleting an upstream settles its held calls as
+//   "revoked" (`cancelWhere`), so nothing can approve them afterwards (TC-41).
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { systemClock, type Clock } from '../lib/clock.js';
+import { MAX_HELD_CALLS_PER_USER } from '../lib/limits.js';
 
 export type Via = 'page' | 'push';
 
@@ -23,7 +29,11 @@ export type Decision =
   | { kind: 'deny'; via: Via; at: Date }
   | { kind: 'timeout'; at: Date }
   | { kind: 'aborted'; at: Date }
-  | { kind: 'shutdown'; at: Date };
+  | { kind: 'shutdown'; at: Date }
+  /** The call's MCP client was revoked or its upstream deleted meanwhile. */
+  | { kind: 'revoked'; at: Date }
+  /** Refused at once: the user already has the maximum of held calls. */
+  | { kind: 'flood'; at: Date };
 
 /** What a channel may show about a held call. Never upstream credentials. */
 export interface PendingCall {
@@ -67,8 +77,14 @@ export class ApprovalHub extends EventEmitter {
   private readonly entries = new Map<string, Entry>();
   private closed = false;
 
-  constructor(private readonly clock: Clock = systemClock) {
+  private readonly maxHeldPerUser: number;
+
+  constructor(
+    private readonly clock: Clock = systemClock,
+    opts: { maxHeldPerUser?: number } = {},
+  ) {
     super();
+    this.maxHeldPerUser = opts.maxHeldPerUser ?? MAX_HELD_CALLS_PER_USER;
     // One listener per open SSE stream; more than 10 is normal, not a leak.
     this.setMaxListeners(0);
   }
@@ -92,6 +108,11 @@ export class ApprovalHub extends EventEmitter {
       resolve({ kind: 'shutdown', at: this.clock.now() });
       return { call, decision };
     }
+    // Synchronous count + insert: concurrent calls can't all slip under the cap.
+    if (this.list(call.userId).length >= this.maxHeldPerUser) {
+      resolve({ kind: 'flood', at: this.clock.now() });
+      return { call, decision };
+    }
     const delay = Math.max(0, call.deadline.getTime() - this.clock.now().getTime());
     const timer = setTimeout(() => this.settle(id, { kind: 'timeout', at: this.clock.now() }), delay);
     timer.unref?.();
@@ -112,6 +133,18 @@ export class ApprovalHub extends EventEmitter {
   /** The client went away (request aborted): deny. */
   abort(id: string): void {
     this.settle(id, { kind: 'aborted', at: this.clock.now() });
+  }
+
+  /** Settles every held call matching `pred` as "revoked" (denied). Used when
+   * a client is revoked or an upstream deleted. Returns how many. */
+  cancelWhere(pred: (call: PendingCall) => boolean): number {
+    let n = 0;
+    for (const [id, entry] of [...this.entries]) {
+      if (!pred(entry.call)) continue;
+      this.settle(id, { kind: 'revoked', at: this.clock.now() });
+      n++;
+    }
+    return n;
   }
 
   /** One of the user's pending calls, or null (also for another user's id). */

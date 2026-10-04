@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { fixedClock } from '../lib/clock.js';
 import { ApprovalHub, type NewPending } from './pending.js';
+import { MAX_HELD_CALLS_PER_USER } from '../lib/limits.js';
 
 const T0 = '2026-10-04T12:00:00Z';
 
@@ -107,5 +108,50 @@ describe('ApprovalHub', () => {
     expect(seen).toEqual([7]);
     expect(hub.decide(7, c.id, { kind: 'deny', via: 'page' })).toBe('ok');
     await expect(decision).resolves.toMatchObject({ kind: 'deny' });
+  });
+
+  // TC-41: revoking a client / deleting an upstream ends its held calls.
+  test('cancelWhere settles matching calls as revoked (once), leaves others; later decisions find nothing', async () => {
+    const onResolved = vi.fn();
+    hub.on('resolved', onResolved);
+    const a = hub.hold(call({ mcpClientId: 10 }));
+    const b = hub.hold(call({ mcpClientId: 11 }));
+    const other = hub.hold(call({ userId: 2, mcpClientId: 10 }));
+    expect(hub.cancelWhere((c) => c.userId === 1 && c.mcpClientId === 10)).toBe(1);
+    await expect(a.decision).resolves.toMatchObject({ kind: 'revoked' });
+    expect(hub.decide(1, a.call.id, { kind: 'approve', via: 'page', snoozeUntil: null })).toBe('not-found');
+    expect(hub.get(1, b.call.id)).not.toBeNull();
+    expect(hub.get(2, other.call.id)).not.toBeNull();
+    expect(hub.cancelWhere((c) => c.userId === 1 && c.upstreamId === 5)).toBe(1);
+    await expect(b.decision).resolves.toMatchObject({ kind: 'revoked' });
+    expect(onResolved.mock.calls.map((x) => x[0].decision.kind)).toEqual(['revoked', 'revoked']);
+    vi.advanceTimersByTime(600_000); // no late timeout for the revoked ones
+    expect(onResolved).toHaveBeenCalledTimes(3); // only `other` timed out
+  });
+
+  // TC-45: at most N held calls per user; the next one is refused at once and never announced.
+  test('the call over the per-user cap settles as flood without a pending event; other users unaffected', async () => {
+    expect(MAX_HELD_CALLS_PER_USER).toBe(10);
+    const onPending = vi.fn();
+    hub.on('pending', onPending);
+    const held = Array.from({ length: MAX_HELD_CALLS_PER_USER }, () => hub.hold(call()));
+    expect(onPending).toHaveBeenCalledTimes(MAX_HELD_CALLS_PER_USER);
+    const over = hub.hold(call());
+    await expect(over.decision).resolves.toMatchObject({ kind: 'flood' });
+    expect(onPending).toHaveBeenCalledTimes(MAX_HELD_CALLS_PER_USER);
+    expect(hub.list(1)).toHaveLength(MAX_HELD_CALLS_PER_USER);
+    expect(hub.get(1, over.call.id)).toBeNull();
+    const anna = hub.hold(call({ userId: 2 }));
+    expect(hub.get(2, anna.call.id)).not.toBeNull();
+    // a slot frees up once one is decided
+    hub.decide(1, held[0]!.call.id, { kind: 'deny', via: 'page' });
+    const next = hub.hold(call());
+    expect(hub.get(1, next.call.id)).not.toBeNull();
+  });
+
+  test('the cap is configurable (tests)', async () => {
+    const small = new ApprovalHub(clock, { maxHeldPerUser: 1 });
+    small.hold(call());
+    await expect(small.hold(call()).decision).resolves.toMatchObject({ kind: 'flood' });
   });
 });

@@ -12,12 +12,12 @@ _Last updated: 2026-10-04 (`v0.1.0` tagged: milestone 1 slices 1–7)_
 Slices (lead's plan; each verifiable on its own, app working in between;
 numbers are stable, done ones moved to `roadmap-archive.md`):
 
-8. **Malicious-client suite**, first cases: cross-user access, forged tokens,
-   upstream token leakage, approval of another user's call.
 
-Slices 1–7 shipped as `v0.1.0` (Matthias, 2026-10-04). Next: Matthias deploys
-and runs the manual gates MG-01…05 (`testing.md`) with Haushalt; slice 8 in
-parallel. Milestone 1 is done when the gates pass.
+
+Slices 1–7 shipped as `v0.1.0`; slice 8 (malicious-client suite + the
+changed-tool rule) is on `main`, unreleased. Next: Matthias deploys and runs the
+manual gates MG-01…05 (`testing.md`) with Haushalt. Milestone 1 is done when
+the gates pass.
 
 **Deploy checklist (GitOps, Matthias):** `MCP_TOKEN` secret ✅ (2026-10-04);
 Authelia exemptions for `/mcp*` ✅ — confirm `/.well-known/*` too, and that
@@ -43,9 +43,14 @@ and must allow responses up to 300 s on `/mcp/*`. Never set
 - **Dev server proxies only `/api`:** `/mcp`, `/oauth`, `/.well-known` are
   reachable on :3002 only, not via the Coder URL, so Claude.ai can't be tested
   against the workspace. Add Vite proxy entries if that's wanted.
-- **Decided 2026-10-04 (Matthias), to build:** a changed tool with an explicit
-  tool- or client-level ALLOW is ASK until acknowledged ("Geändert"); explicit
-  ASK/DENY unchanged. Precedence change in `lib/policy.ts` + TC-24/36 update.
+- **Question to Matthias: URL change of an upstream** keeps explicit tool/client
+  ALLOW rules by tool name (only acknowledgements reset), and a HEADER
+  upstream's static secret goes to the new URL. User-initiated, but a silent
+  re-point keeps old permissions. Recommendation: a URL change marks all tools
+  changed (→ ask until reviewed) and requires re-entering a HEADER secret.
+- Revoked/flood calls send no "resolved" push; a stale notification answers
+  "Nicht mehr offen" when tapped.
+- Approval stream cap (5) counts connections per process, not devices.
 - **Decided 2026-10-04 (Matthias), no change:** lock-screen "Erlauben" stays
   for all tools, destructive ones included (summary is agent-controlled;
   accepted).

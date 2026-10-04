@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { prisma } from '../db.js';
 import type { AppEnv } from '../identity.js';
+import { approvals } from '../approval/pending.js';
 
 // GET/PATCH/DELETE /api/mcp/clients - the management surface for MCP OAuth
 // clients (copied from haushalts-todos), restricted to the CALLER's own
@@ -65,11 +66,15 @@ mcpClients.patch('/:id', async (c) => {
 // DELETE /api/mcp/clients/:id - the revoke button. Deleting the row is the
 // whole mechanism: mcp/verifier.ts refuses a token whose client row is gone,
 // and /mcp/token refuses to mint for it, so it takes effect on the very next
-// request.
+// request. Its held calls end denied right away ("+revoked", TC-41), and its
+// snoozes and per-client rules go with the row (cascade).
 mcpClients.delete('/:id', async (c) => {
   noStore(c);
   const id = parseId(c.req.param('id'));
   if (id === null) return c.json({ error: 'not found' }, 404);
-  const res = await prisma.mcpClient.deleteMany({ where: { id, userId: c.get('user').id } });
-  return res.count === 0 ? c.json({ error: 'not found' }, 404) : c.body(null, 204);
+  const userId = c.get('user').id;
+  const res = await prisma.mcpClient.deleteMany({ where: { id, userId } });
+  if (res.count === 0) return c.json({ error: 'not found' }, 404);
+  approvals.cancelWhere((call) => call.userId === userId && call.mcpClientId === id);
+  return c.body(null, 204);
 });

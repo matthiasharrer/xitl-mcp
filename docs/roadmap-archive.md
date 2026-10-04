@@ -5,6 +5,17 @@ test evidence in `testing.md`'s run log.
 
 ## 2026-10-04
 
+- **Milestone 1, slice 8 + changed-tool rule** (unreleased on `main`): a
+  changed tool never resolves to allow (Matthias's decision); malicious-client
+  suite TC-38…49. Gaps found and fixed: held calls survived revoking their
+  client / deleting or re-pointing their upstream (now denied `+revoked`); no
+  body limits (now 64 KiB `/api`, 1 MiB `/mcp`/`/oauth`); no cap on held calls
+  or approval streams (10 / 5 per user); protected-resource check was
+  origin-only (now SDK `checkResourceAllowed`); OAuth discovery followed
+  redirects (now refused); our credentials could pass through in upstream tool
+  lists/instructions (now scrubbed), unbounded upstream responses (10 MiB MCP,
+  1 MiB OAuth, max 500 tools). Built by an Opus agent, reviewed by the lead.
+
 - **`v0.1.0` released** (Matthias's call): slices 1–7 below. Without slice 8
   and without the manual gates MG-01…05, which need the deployed instance.
 - **Milestone 1, slices 6–7:** held calls with approval page (live via SSE),

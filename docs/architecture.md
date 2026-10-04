@@ -1,8 +1,9 @@
 # Architecture
 
 > How the system fits together **right now**. Target design lives in the ADRs;
-> this file describes what exists. _Last updated: 2026-10-04 (slice 6:
-> approval, snooze, Web Push, Verlauf, rug-pull re-flag)._
+> this file describes what exists. _Last updated: 2026-10-04 (changed tools vs
+> explicit allow; malicious-client suite TC-38…49 and its fixes: revoke ends
+> held calls, caps, body/response limits, no OAuth redirects, scrubbed lists)._
 
 ## Current state: proxy with allow / deny / ask (held for approval on page or push)
 
@@ -29,6 +30,8 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
                          token user's upstreams -> mcp/server.ts (proxy core)
   /mcp                   404 (aggregated endpoint comes with the 2nd upstream)
   lib/policy.ts          THE policy function (pure, policy.test.ts = TC-24)
+  lib/limits.ts          every abuse limit in one place (TC-44/45/48)
+  lib/limitedResponse.ts byte cap on upstream/AS responses (TC-48)
   lib/proxyText.ts       ask stamp, instructions prefix, agent messages,
                          audit excerpt, secret scrubber (pure, tested)
   lib/upstreamOAuth.ts   connect state, pending-auth checks, token expiry (pure)
@@ -60,7 +63,9 @@ apps/web/   Svelte 5 SPA (Vite), German UI, mobile-first, installable PWA
             callback's result once (toast, then dropped from the URL).
 e2e/        Playwright against the built server on :3202 with .e2e/e2e.db
             (output in .e2e/api.log) plus the fake upstream on :3210
-            (e2e/support/fakeUpstream.ts). TC-01…TC-36 (TC-37 unit). The
+            (e2e/support/fakeUpstream.ts) with its sink host on :3211.
+            TC-01…TC-49 (TC-37 unit; malicious suite in
+            malicious-client.spec.ts / malicious-upstream.spec.ts). The
             server runs with APPROVAL_TIMEOUT_MS=5000 and PUSH_OUTBOX.
 scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
             (Playwright Chromium; rerun after changing the SVG).
@@ -76,9 +81,14 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
 - Status: OAUTH starts `NOT_CONNECTED`; HEADER/NONE are `CONNECTED` on create
   and when switched to (migration `header_none_connected` fixed older rows).
 - Changing an upstream's `url` or `auth` drops stored tokens and OAuth
-  registration (tokens must not follow to another server); a `url` change also
-  resets every KnownTool's `acknowledgedAt` (all tools "Neu" again). Tool
-  policies and client overrides are kept.
+  registration (tokens must not follow to another server) and ends its held
+  calls as denied (`+revoked`: never forwarded to the new server); a `url`
+  change also resets every KnownTool's `acknowledgedAt` (all tools "Neu"
+  again, not "Geändert": explicit tool/client ALLOW rules keep applying).
+  Tool policies and client overrides are kept. A HEADER upstream keeps its
+  header value across a `url` change (user-initiated).
+- Deleting an upstream ends its held calls as denied (`+revoked`, TC-41);
+  its audit rows stay (`upstreamId` → NULL), so deciding afterwards is 409.
 - Slugs: `^[a-z0-9][a-z0-9-]{0,31}$`, unique per user, `register` and `token`
   reserved (they are OAuth endpoints under `/mcp`).
 
@@ -104,8 +114,15 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   `CONNECTED` + tokens, redirect `/#/einstellungen?verbunden=<id>`; AS error or
   failed exchange -> redirect with `verbindung=abgelehnt|fehler`; bad/used/
   expired state -> 400 German page.
-- PRM `resource` on another origin than the upstream URL -> connect refused;
+- PRM `resource` must match the upstream URL by the SDK's
+  `checkResourceAllowed` (same origin, upstream path under the resource path);
+  another origin or another path on the same host -> connect refused (TC-46);
   otherwise it is sent as the RFC 8707 resource. Scope = PRM `scopes_supported`.
+- AS metadata `issuer` must equal the AS URL (the SDK's RFC 8414 §3.3 check in
+  `discoverAuthorizationServerMetadata`; IssuerMismatchError -> connect
+  refused). A non-http(s) `authorization_endpoint` is refused by the SDK's
+  metadata schema (javascript:, data:) or by `isNavigableUrl` (e.g. file:).
+  Nothing is stored before all checks pass (the row is written last).
 - Refresh (`refreshUpstreamTokens`): before a proxied request when expired or
   within 60 s of expiry (Clock), and once after a 401 (then the request is
   retried once). One refresh per upstream at a time (in-process lock; single
@@ -118,9 +135,14 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   every OAuth response in the current global `Response` (without that every
   token error parses as `server_error`). Same root cause as mount.ts's
   `isAuthInfo` guard.
-- OAuth POSTs refuse redirects; all OAuth requests time out after 15 s. The
-  SDK refuses non-https token endpoints except loopback (deploy note: an
-  in-cluster `http://…svc` upstream would fail to connect).
+- **Every** OAuth request (discovery GETs included) refuses redirects
+  (`redirect: 'error'`, TC-47): a redirected POST would replay a code,
+  verifier or refresh token elsewhere, a redirected discovery GET would let
+  the upstream aim xitl's server-side requests anywhere. An AS whose metadata
+  sits behind a redirect is unsupported. All OAuth requests time out after
+  15 s and read at most `MAX_OAUTH_RESPONSE_BYTES` (1 MiB). The SDK refuses
+  non-https token endpoints except loopback (deploy note: an in-cluster
+  `http://…svc` upstream would fail to connect).
 - Logs carry error class/code only (`errorTag`), never messages or bodies.
 
 ### Proxy core (ADR-0004, ADR-0008, ADR-0014, TC-19…23)
@@ -132,16 +154,24 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
 - Upstream access: `withUpstream(upstreamId, userId, fn)` re-reads the row
   scoped by user, opens a `Client` + `StreamableHTTPClientTransport` with our
   own `fetch` wrapper (credential only to the upstream's origin, `redirect:
-  'error'`, timeout 15 s connect / 120 s call), runs `fn`, closes. It stores
-  the upstream's instructions in `Upstream.instructions` when they change.
+  'error'`, timeout 15 s connect / 120 s call, every response capped at
+  `MAX_UPSTREAM_RESPONSE_BYTES` = 10 MiB via `limitResponse`: a declared
+  larger Content-Length is refused unread, a streamed body errors once past
+  the cap), runs `fn`, closes. It stores the upstream's instructions in
+  `Upstream.instructions` when they change, scrubbed of our own credentials
+  first (they are handed to agents, TC-48).
 - `initialize`: instructions = prefix line ("Über xitl vermittelt … / Proxied
   by xitl …") + the upstream's instructions (live, else last seen, else the
   description, else the name). Only `tools` is advertised: **resources and
   prompts are not proxied** (out of scope for now).
 - `tools/list`: not usable (OAUTH not connected / needs reconnect) -> `[]`
-  without contacting the upstream; otherwise fetch, `syncKnownTools`, evaluate
-  per tool for this client: DENY dropped, ASK description + stamp, ALLOW
-  unchanged. Upstream failure -> JSON-RPC error with a generic message.
+  without contacting the upstream; otherwise fetch, scrub our credentials out
+  of the list (`scrubSecrets`, also in "Tools aktualisieren"), `syncKnownTools`,
+  evaluate per tool for this client: DENY dropped, ASK description + stamp,
+  ALLOW unchanged. At most `MAX_UPSTREAM_TOOLS` (500) tools are taken
+  (`usableTools`; the rest are dropped with one log line, never recorded or
+  listed, so calling one is `unknown-tool`). Upstream failure (incl. a
+  response over the byte cap) -> JSON-RPC error with a generic message.
 - `tools/call`: KnownTool + client override + upstream default + live snooze
   read fresh -> `evaluatePolicy` -> AuditEntry `PENDING` written first (full
   arguments, `receivedAt` via Clock, endpoint, `approvalId` for ASK) -> DENY:
@@ -162,8 +192,13 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   `deadline`, `snoozable`. `hold()` returns a promise that settles **exactly
   once**: the first of `decide()` (owner only; another user's id = not found),
   the deadline timer (`setTimeout` from the Clock's delta), `abort()` (the MCP
-  request's `ctx.mcpReq.signal`: the client hung up) or `shutdown()` (SIGTERM
-  in index.ts). The entry leaves the Map synchronously when it settles. Events
+  request's `ctx.mcpReq.signal`: the client hung up), `cancelWhere(pred)`
+  (`revoked`: client revoked in `DELETE /api/mcp/clients/:id`, upstream
+  deleted or its url/auth changed in routes/upstreams.ts) or `shutdown()`
+  (SIGTERM in index.ts). The entry leaves the Map synchronously when it
+  settles. **Cap (TC-45):** `hold()` counts the user's held calls and inserts
+  in the same synchronous step; at `MAX_HELD_CALLS_PER_USER` (10) the new call
+  settles at once as `flood` and emits nothing (no SSE event, no push). Events
   `pending` / `resolved` / `shutdown` feed the channels (SSE, push);
   listener errors are swallowed so a channel can't break a decision.
 - Budget (`approval/budget.ts`): 300 s from `receivedAt` for wait + upstream.
@@ -176,13 +211,20 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   asked); deny -> `DENIED` `+denied:page|push`, agent text names the user;
   timeout -> `TIMED_OUT` `+timeout` ("nicht innerhalb von 5 Minuten
   freigegeben … später erneut versuchen"); client abort -> `DENIED`
-  `+aborted`; shutdown -> `DENIED` `+shutdown`. At boot, any audit row still
+  `+aborted`; shutdown -> `DENIED` `+shutdown`; revoked -> `DENIED`
+  `+revoked` ("… Client widerrufen oder der Upstream entfernt …"); over the
+  cap -> `DENIED` `+flood` ("Zu viele offene Freigaben …"). An approval is
+  only forwarded if the client row still exists for the user (re-checked
+  after the decision: a call that slipped into the hub after `cancelWhere`
+  still ends `+revoked`). At boot, any audit row still
   `PENDING` (crash/kill) becomes `DENIED` `+restart` (index.ts).
 - `/api/approvals` (routes/approvals.ts, behind identity, all user-scoped):
   `GET /` (my held calls, with `remainingMs` so the client's countdown doesn't
   depend on clock agreement), `GET /stream` (SSE via Hono `streamSSE`:
   `snapshot` on connect, then `pending` / `resolved` for the caller's calls
-  only; keepalive comment every 25 s; ends on shutdown), `GET /:id` (pending,
+  only; keepalive comment every 25 s; ends on shutdown; at most
+  `MAX_APPROVAL_STREAMS_PER_USER` (5) open per user, the next -> 429, counted
+  per route instance and released in the stream callback's finally), `GET /:id` (pending,
   or `{state:'resolved', outcome, decisionPath, …}` from the audit row by
   `approvalId`), `POST /:id` `{decision, via:'page'|'push', snoozeMinutes? |
   snoozeUntilMidnight?}` (strict zod; 404 unknown/foreign id, 409 "Diese
@@ -198,8 +240,11 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
 `Snooze` rows (user, upstream, tool name, client, `until`). Created when an
 approval carries `snoozeMinutes` (1…1440; UI: 15, 60) or
 `snoozeUntilMidnight` (next 00:00 Europe/Berlin, DST-safe). `evaluatePolicy`
-gets `snoozedUntil` (latest live row) + `now` and upgrades **only ASK, never
-the `new-tool` path** to ALLOW `snooze`; DENY and unknown tools never.
+gets `snoozedUntil` (latest live row) + `now` and upgrades **only ASK, and
+never for a tool awaiting review** (`awaitingReview`: new or changed, whatever
+path said ASK, e.g. an explicit ASK on a changed tool) to ALLOW `snooze`;
+DENY and unknown tools never. The held call's `snoozable` is
+`!awaitingReview(tool)`.
 tools/list applies it too (no stamp while snoozed). A rug-pull re-flag deletes
 the tool's snoozes. Expired rows are pruned when a new one is written.
 
@@ -207,11 +252,17 @@ the tool's snoozes. Expired rows are pruned when a new one is written.
 
 `syncKnownTools` compares each known tool's stored description and annotations
 (annotations as canonical JSON, key order ignored) with the new list. A change
-on an **acknowledged** tool clears `acknowledgedAt`, sets `changedAt` (UI
-"Geändert" instead of "Neu"; `isChanged` in the tools API) and deletes its
-snoozes. Acknowledge / set policy clears `changedAt`. `inputSchema` is not
-compared (not stored). Explicit tool / client policies still win over the
-re-flag (precedence unchanged).
+on **any** known tool (acknowledged or still "Neu": a per-client ALLOW can be
+set on a "Neu" tool without acknowledging it) clears `acknowledgedAt`, sets
+`changedAt` (UI "Geändert" instead of "Neu"; `isChanged` = `changedAt` set in
+the tools API) and deletes its snoozes; the write is conditional on the row
+still holding the old definition. Acknowledge / set policy clears `changedAt`.
+`inputSchema` is not compared (not stored). **A changed tool never resolves to
+ALLOW** (Matthias, 2026-10-04): an explicit tool- or client-level ALLOW
+becomes ASK `changed-tool`; an explicit ASK or DENY applies unchanged (a
+changed DENY tool stays hidden and denied); no rule -> ASK `changed-tool`.
+The Regeln view's "Gilt" uses the same function, so it shows "Fragen
+(geändertes Tool)" for such a tool.
 
 ### Web Push (ADR-0009, TC-32…34)
 
@@ -250,12 +301,17 @@ another user's id is 404. The UI renders `decisionPath` in German
 
 ### Policy engine (ADR-0004, TC-24, TC-30)
 
-`lib/policy.ts` `evaluatePolicy({ upstreamDefault, tool, clientOverride,
-snoozedUntil?, now? })`: unknown tool (no KnownTool) -> DENY `unknown-tool`;
-client override -> `policy:client`; tool policy -> `policy:tool`;
-unacknowledged (new or changed) -> ASK `new-tool`; else default ->
-`policy:upstream-default`; then a live snooze turns ASK (not `new-tool`) into
-ALLOW `snooze`. Non-Policy values fail closed to DENY.
+`lib/policy.ts` `evaluatePolicy({ upstreamDefault, tool: { policy,
+acknowledgedAt, changedAt } | null, clientOverride, snoozedUntil?, now? })`
+(`changedAt` is required in the type on purpose): unknown tool (no KnownTool)
+-> DENY `unknown-tool`; client override -> `policy:client`; tool policy ->
+`policy:tool`, except that an ALLOW from either becomes ASK `changed-tool`
+when `changedAt` is set; changed, no rule -> ASK `changed-tool`;
+unacknowledged (new) -> ASK `new-tool`; else default ->
+`policy:upstream-default`; then a live snooze turns ASK into ALLOW `snooze`
+unless the tool is awaiting review (new or changed). `changedAt` set counts
+as changed even with `acknowledgedAt` set (fail closed). Non-Policy values
+fail closed to DENY.
 
 KnownTool rows come from every upstream `tools/list` (proxy or "Tools
 aktualisieren"). The **first** list ever seen for an upstream is recorded as
@@ -277,6 +333,20 @@ caller's client overrides; plus the caller's clients), `POST …/tools/refresh`,
 caller's, the tool through that upstream, the client among the caller's: 404
 otherwise.
 
+### Request limits (TC-44)
+
+`app.ts`, Hono `bodyLimit`, registered before identity and every route:
+`/api/*` JSON bodies ≤ `MAX_API_BODY_BYTES` (64 KiB) -> 413 "Die Anfrage ist
+zu groß."; `/mcp`, `/mcp/*`, `/oauth/*` ≤ `MAX_MCP_BODY_BYTES` (1 MiB) -> 413.
+A declared Content-Length over the limit is refused on the header alone
+(before the token check, before any DB access); a chunked body is buffered
+only up to the limit. Node closes the connection after an early 413 while
+the client is still sending, so clients may see a reset instead of the
+status (e2e reads it with a raw request that sends only part of the body).
+Tool names over 200 chars are audited truncated and denied as
+`unknown-tool`; non-object `arguments` are rejected by the SDK's schema
+(JSON-RPC error, no audit row).
+
 ### CSRF backstop
 
 `app.ts`: unsafe methods under `/api/*` with `Sec-Fetch-Site` other than
@@ -290,7 +360,8 @@ SameSite cookie is the first line; this covers body-less POSTs like
   secret, **never** a bearer), 1 h access / 30 d refresh, DCR creates a
   `McpClient` row, consent page at `/oauth/authorize` behind identity with a
   double-submit CSRF token, the client bound to the approving user. Revoke =
-  delete the `McpClient` row (checked on every request in `mcp/verifier.ts`).
+  delete the `McpClient` row (checked on every request in `mcp/verifier.ts`);
+  its held calls end `+revoked` at once, its snoozes and client rules cascade.
   Unset `MCP_TOKEN` = no MCP routes at all (404).
 - Difference from Haushalt: the resource is per upstream. The 401 challenge on
   `/mcp/<slug>` points at `/.well-known/oauth-protected-resource/mcp/<slug>`
@@ -314,7 +385,15 @@ Streamable-HTTP MCP server (JSON responses; bearer or `X-Fake-Key`), tools
 `list_items`/`add_item`/`delete_all` (+ added ones; `leak_token` echoes its
 credential), and `/control/t/<tenant>/…` (config, add or replace a tool by
 name (rug pull), expire all access
-tokens, state: calls, refresh count, issued tokens). Hand-rolled rather than
+tokens, state: calls, refresh count, issued tokens, registered clients).
+Malicious modes per tenant (`config` `{ malice: {…} }`, type `Malice`):
+`issuer`, `authorizationEndpoint`, `resource` overrides; `redirectDiscovery`
+/ `redirectMcp` / `redirectToken` (307 to the sink); `echoInError`,
+`echoInErrorResult`, `echoInList`, `echoInInstructions`; `toolCount`
+(extra `bulk_<i>` tools), `padBytes` (one huge description). The **sink** is
+a second listener on :3211 in the same process that answers 200 to anything
+and records method, path, credential headers and body;
+`GET /control/sink/<tenant>` on :3210 lists them. Hand-rolled rather than
 built on `@modelcontextprotocol/server` because that package is installed
 under `apps/api/node_modules` only and e2e must not reach into a workspace.
 

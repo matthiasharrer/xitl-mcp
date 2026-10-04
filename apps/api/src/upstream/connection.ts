@@ -9,11 +9,17 @@
 //   wherever the upstream points),
 // - OAUTH: refreshed before use when expiring (Clock), and on a 401 refreshed
 //   once and the request retried once; a second 401 means reconnect.
+// Every response is bounded (MAX_UPSTREAM_RESPONSE_BYTES, TC-48), and the
+// upstream's instructions are scrubbed of our own credentials before they are
+// stored (they are handed to agents).
 import { Client, StreamableHTTPClientTransport, type FetchLike } from '@modelcontextprotocol/client';
 import { prisma } from '../db.js';
 import type { Upstream } from '../generated/prisma/client.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { needsRefresh } from '../lib/upstreamOAuth.js';
+import { limitResponse } from '../lib/limitedResponse.js';
+import { MAX_UPSTREAM_RESPONSE_BYTES } from '../lib/limits.js';
+import { scrubSecrets } from '../lib/proxyText.js';
 import { ReconnectRequired, errorTag, markNeedsReconnect, refreshUpstreamTokens } from './oauthClient.js';
 
 export const CONNECT_TIMEOUT_MS = 15_000;
@@ -40,6 +46,11 @@ export interface UpstreamSession {
   client: Client;
   /** Current credential values, for scrubbing results (proxyText.scrubSecrets). */
   secrets(): string[];
+}
+
+/** Our credential values for this upstream (what must never reach an agent). */
+function secretsOf(row: Upstream): string[] {
+  return [row.accessToken, row.refreshToken, row.headerValue].filter((s): s is string => !!s);
 }
 
 function urlOf(input: Parameters<FetchLike>[0]): URL {
@@ -122,7 +133,7 @@ export async function withUpstream<T>(
         await markNeedsReconnect(current.id, current.userId);
       }
     }
-    return res;
+    return limitResponse(res, MAX_UPSTREAM_RESPONSE_BYTES);
   };
 
   const transport = new StreamableHTTPClientTransport(new URL(current.url), { fetch: fetchFn });
@@ -131,13 +142,13 @@ export async function withUpstream<T>(
     await client.connect(transport, { timeout: Math.min(timeoutMs, CONNECT_TIMEOUT_MS) });
     // Remember the upstream's own instructions (ADR-0014): initialize uses them.
     const raw = client.getInstructions();
-    const instructions = typeof raw === 'string' ? raw.slice(0, MAX_INSTRUCTIONS) : null;
+    const instructions = typeof raw === 'string' ? scrubSecrets(raw, secretsOf(current)).slice(0, MAX_INSTRUCTIONS) : null;
     if (instructions !== current.instructions) {
       await prisma.upstream.updateMany({ where: { id: current.id, userId }, data: { instructions } });
     }
     return await fn({
       client,
-      secrets: () => [current.accessToken, current.refreshToken, current.headerValue].filter((s): s is string => !!s),
+      secrets: () => secretsOf(current),
     });
   } catch (e) {
     if (reconnect || e instanceof ReconnectRequired) throw new UpstreamNeedsReconnect();

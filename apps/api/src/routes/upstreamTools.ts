@@ -68,7 +68,7 @@ async function toolsView(upstreamId: number, userId: number) {
       // Effective policy without a client override (what most clients get).
       const base = evaluatePolicy({
         upstreamDefault: upstream.defaultPolicy as Policy,
-        tool: { policy: t.policy as Policy | null, acknowledgedAt: t.acknowledgedAt },
+        tool: { policy: t.policy as Policy | null, acknowledgedAt: t.acknowledgedAt, changedAt: t.changedAt },
         clientOverride: null,
       });
       return {
@@ -82,7 +82,7 @@ async function toolsView(upstreamId: number, userId: number) {
         // Not yet looked at: "Neu" (never acknowledged) or "Geändert" (its
         // definition changed after it was acknowledged, TC-36).
         isNew: t.acknowledgedAt === null && t.changedAt === null,
-        isChanged: t.acknowledgedAt === null && t.changedAt !== null,
+        isChanged: t.changedAt !== null,
         lastSeenAt: t.lastSeenAt.toISOString(),
         clientPolicies: t.clientPolicies.map((cp) => ({ mcpClientId: cp.mcpClientId, policy: cp.policy })),
       };

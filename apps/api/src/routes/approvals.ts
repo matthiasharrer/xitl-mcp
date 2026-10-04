@@ -18,6 +18,7 @@ import type { AppEnv } from '../identity.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { approvals as defaultHub, ApprovalHub, type PendingCall, type ResolvedEvent } from '../approval/pending.js';
 import { MAX_SNOOZE_MINUTES, snoozeUntil } from '../approval/budget.js';
+import { MAX_APPROVAL_STREAMS_PER_USER } from '../lib/limits.js';
 
 const NOT_FOUND = { error: 'Nicht gefunden.' };
 const GONE = { error: 'Diese Freigabe ist nicht mehr offen.' };
@@ -80,8 +81,15 @@ async function resolvedView(userId: number, id: string) {
   };
 }
 
-export function makeApprovalRoutes(hub: ApprovalHub = defaultHub, clock: Clock = systemClock) {
+export function makeApprovalRoutes(
+  hub: ApprovalHub = defaultHub,
+  clock: Clock = systemClock,
+  opts: { maxStreamsPerUser?: number } = {},
+) {
   const r = new Hono<AppEnv>();
+  const maxStreams = opts.maxStreamsPerUser ?? MAX_APPROVAL_STREAMS_PER_USER;
+  /** Open streams per user (TC-45). */
+  const openStreams = new Map<number, number>();
 
   r.use('*', async (c, next) => {
     c.header('Cache-Control', 'no-store');
@@ -95,6 +103,16 @@ export function makeApprovalRoutes(hub: ApprovalHub = defaultHub, clock: Clock =
 
   r.get('/stream', (c) => {
     const userId = c.get('user').id;
+    const openCount = openStreams.get(userId) ?? 0;
+    if (openCount >= maxStreams) return c.json({ error: 'Zu viele offene Verbindungen.' }, 429);
+    // Counted synchronously here, released in the stream callback's finally
+    // (streamSSE starts the callback at once; it ends on abort/shutdown/error).
+    openStreams.set(userId, openCount + 1);
+    const release = () => {
+      const n = (openStreams.get(userId) ?? 1) - 1;
+      if (n <= 0) openStreams.delete(userId);
+      else openStreams.set(userId, n);
+    };
     // Proxies (nginx-style) must not buffer the stream.
     c.header('X-Accel-Buffering', 'no');
     return streamSSE(c, async (stream) => {
@@ -143,6 +161,7 @@ export function makeApprovalRoutes(hub: ApprovalHub = defaultHub, clock: Clock =
         hub.off('pending', onPending);
         hub.off('resolved', onResolved);
         hub.off('shutdown', close);
+        release();
       }
     });
   });

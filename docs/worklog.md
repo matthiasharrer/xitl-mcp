@@ -3,6 +3,18 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-04 (late) — Scheduled run: changed-tool rule, malicious-client suite
+
+- Matthias answered before the run: changed tool vs explicit allow → ask (built);
+  lock-screen approve for destructive tools stays (no change, ADR-0009).
+- Slice 8 by an Opus agent; six real gaps fixed (roadmap archive). Lead
+  reviewed policy precedence, revoke handling and middleware order; gates
+  re-run: unit 78, e2e 59.
+- New question for Matthias: what an upstream URL change should do to existing
+  allow rules and HEADER secrets (roadmap).
+- Gotcha: an early 413 makes Node close the socket mid-upload, so Playwright
+  may report "socket hang up" instead of the status; TC-44 uses a raw request.
+
 ## 2026-10-04 — Briefing review, milestone 1 built, `v0.1.0`
 
 - Matthias reviewed the briefing (a months-old summary): two separate users

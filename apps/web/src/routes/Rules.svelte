@@ -26,7 +26,8 @@
   const POLICIES: Policy[] = ['ALLOW', 'ASK', 'DENY'];
   const PATH_LABEL: Record<string, string> = {
     'policy:tool': 'eigene Regel',
-    'new-tool': 'neues oder geändertes Tool',
+    'new-tool': 'neues Tool',
+    'changed-tool': 'geändertes Tool',
     'policy:upstream-default': 'Standard',
   };
 
@@ -152,7 +153,7 @@
               <p class="hint effective">Gilt: <strong>{POLICY_LABEL[t.effectivePolicy]}</strong> ({PATH_LABEL[t.path] ?? t.path})</p>
 
               {#if t.isChanged}
-                <p class="hint changed-note">Beschreibung oder Hinweise dieses Tools haben sich geändert. Bis du es ansiehst, wird jeder Aufruf erfragt (außer bei einer eigenen Regel).</p>
+                <p class="hint changed-note">Beschreibung oder Hinweise dieses Tools haben sich geändert. Bis du es ansiehst, wird jeder Aufruf erfragt, auch wenn eine eigene Regel „Erlauben“ sagt („Fragen“ und „Verbieten“ gelten weiter).</p>
               {/if}
               {#if t.isNew || t.isChanged}
                 <button type="button" class="btn wide" disabled={busy} onclick={() => acknowledge(t)}>Gesehen, Standard anwenden</button>

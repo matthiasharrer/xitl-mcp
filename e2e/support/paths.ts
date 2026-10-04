@@ -30,6 +30,10 @@ export const MCP_TOKEN = 'e2e-test-mcp-token';
 // second Playwright webServer. Tenants live under /t/<tenant>/.
 export const FAKE_UPSTREAM_PORT = 3210;
 export const FAKE_UPSTREAM = `http://127.0.0.1:${FAKE_UPSTREAM_PORT}`;
+/** A second fake host (same process, another port) that only records what it
+ * receives: the target of the fake's malicious redirects (TC-47). */
+export const FAKE_SINK_PORT = 3211;
+export const FAKE_SINK = `http://127.0.0.1:${FAKE_SINK_PORT}`;
 /** HEADER-auth credential the fake accepts instead of a bearer. */
 export const FAKE_HEADER_NAME = 'X-Fake-Key';
 export const FAKE_HEADER_SECRET = 'fake-header-secret-0123456789';

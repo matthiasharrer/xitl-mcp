@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { identity, type AppEnv } from './identity.js';
 import { me } from './routes/me.js';
 import { upstreams } from './routes/upstreams.js';
@@ -12,6 +13,7 @@ import { approvals } from './approval/pending.js';
 import { wireApprovalPush } from './approval/notify.js';
 import { mountMcp } from './mcp/mount.js';
 import { mountStatic } from './static.js';
+import { MAX_API_BODY_BYTES, MAX_MCP_BODY_BYTES } from './lib/limits.js';
 
 export const app = new Hono<AppEnv>();
 
@@ -35,6 +37,13 @@ app.use('/api/*', async (c, next) => {
   }
   await next();
 });
+// Body size limits (TC-44), before identity and before any route touches the
+// DB: a declared Content-Length over the limit is refused at once; a chunked
+// body is buffered only up to the limit.
+app.use('/api/*', bodyLimit({ maxSize: MAX_API_BODY_BYTES, onError: (c) => c.json({ error: 'Die Anfrage ist zu groß.' }, 413) }));
+for (const path of ['/mcp', '/mcp/*', '/oauth/*']) {
+  app.use(path, bodyLimit({ maxSize: MAX_MCP_BODY_BYTES, onError: (c) => c.json({ error: 'Payload too large' }, 413) }));
+}
 app.use('/api/*', identity);
 app.route('/api/me', me);
 app.route('/api/upstreams', upstreams);
