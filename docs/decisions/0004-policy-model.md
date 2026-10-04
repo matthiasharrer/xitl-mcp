@@ -21,7 +21,9 @@ tool call after about **300 s**.
 - **Read/write classification** comes from the upstream's MCP tool annotations
   (`readOnlyHint`, `destructiveHint`) and can be overridden per tool. It's shown
   in the UI to help choose a policy; it does not decide by itself.
-- **A tool not seen before** (the upstream added it later) is `ask` until the
+- **A tool not seen before** (the upstream added it later; the tools in an
+  upstream's *first* list count as seen, otherwise a new `allow` upstream would
+  ask for everything) is `ask` until the
   user has set a policy for it, whatever the upstream default says, and the
   user is told about it. Cheap protection against an upstream changing under us.
 - **Timeout:** 5 minutes, then **deny** with a structured reason the agent can

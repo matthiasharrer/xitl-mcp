@@ -25,3 +25,13 @@ export const SERVER_ENTRY = path.join(ROOT, 'apps/api/dist/index.js');
 // secret that signs the OAuth codes/tokens, never a bearer (ADR-0012); TC-12
 // sends it as one to prove it is rejected.
 export const MCP_TOKEN = 'e2e-test-mcp-token';
+
+// The fake upstream (e2e/support/fakeUpstream.ts): OAuth AS + MCP server, a
+// second Playwright webServer. Tenants live under /t/<tenant>/.
+export const FAKE_UPSTREAM_PORT = 3210;
+export const FAKE_UPSTREAM = `http://127.0.0.1:${FAKE_UPSTREAM_PORT}`;
+/** HEADER-auth credential the fake accepts instead of a bearer. */
+export const FAKE_HEADER_NAME = 'X-Fake-Key';
+export const FAKE_HEADER_SECRET = 'fake-header-secret-0123456789';
+/** The built server's stdout+stderr (TC-18 greps it for leaked tokens). */
+export const API_LOG = path.join(E2E_DIR, 'api.log');

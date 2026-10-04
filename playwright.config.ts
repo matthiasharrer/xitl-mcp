@@ -6,7 +6,9 @@
 // (see rezepte's CLAUDE.md; the image's /opt browsers lag @playwright/test).
 import { defineConfig } from '@playwright/test';
 import {
+  API_LOG,
   BASE_URL,
+  FAKE_UPSTREAM,
   DATABASE_URL,
   MCP_TOKEN,
   PORT,
@@ -35,11 +37,22 @@ export default defineConfig({
     // carry no identity; browser cases supply Remote-User like Traefik would.
     extraHTTPHeaders: { 'Remote-User': 'matthias', 'Remote-Name': 'Matthias (e2e)' },
   },
-  webServer: {
-    command: `npx tsx e2e/prepare.ts && node ${SERVER_ENTRY}`,
-    url: `${BASE_URL}/api/health`,
-    reuseExistingServer: false,
-    timeout: 180_000,
-    env: { DATABASE_URL, PORT: String(PORT), WEB_DIST, MCP_TOKEN },
-  },
+  webServer: [
+    {
+      // The server's output goes to .e2e/api.log: TC-18 greps it for leaked
+      // upstream tokens. `exec` keeps it one process, so teardown kills it.
+      command: `npx tsx e2e/prepare.ts && exec node ${SERVER_ENTRY} > ${API_LOG} 2>&1`,
+      url: `${BASE_URL}/api/health`,
+      reuseExistingServer: false,
+      timeout: 180_000,
+      env: { DATABASE_URL, PORT: String(PORT), WEB_DIST, MCP_TOKEN },
+    },
+    {
+      // OAuth AS + MCP server standing in for real upstreams (docs/testing.md).
+      command: 'npx tsx e2e/support/fakeUpstream.ts',
+      url: `${FAKE_UPSTREAM}/health`,
+      reuseExistingServer: false,
+      timeout: 30_000,
+    },
+  ],
 });

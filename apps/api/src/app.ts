@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { identity, type AppEnv } from './identity.js';
 import { me } from './routes/me.js';
 import { upstreams } from './routes/upstreams.js';
+import { upstreamTools } from './routes/upstreamTools.js';
 import { mcpClients } from './routes/mcpClients.js';
 import { mcpConfig } from './routes/mcpConfig.js';
 import { mountMcp } from './mcp/mount.js';
@@ -13,9 +14,26 @@ app.get('/api/health', (c) =>
   c.json({ status: 'ok', version: process.env.APP_VERSION ?? 'dev' }),
 );
 
+// CSRF backstop for the state-changing API: a browser marks every request with
+// Sec-Fetch-Site, and only our own SPA (same-origin) may change things. Some
+// endpoints take no body (connect, acknowledge a tool) and would otherwise be
+// reachable by a cross-site form POST whenever the Authelia cookie is sent
+// along. Requests without the header (curl, the e2e request fixture) pass;
+// the OAuth callback is a GET and so unaffected.
+app.use('/api/*', async (c, next) => {
+  const method = c.req.method;
+  if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+    const site = c.req.header('sec-fetch-site');
+    if (site !== undefined && site !== 'same-origin' && site !== 'none') {
+      return c.json({ error: 'Anfrage von fremder Seite abgelehnt.' }, 403);
+    }
+  }
+  await next();
+});
 app.use('/api/*', identity);
 app.route('/api/me', me);
 app.route('/api/upstreams', upstreams);
+app.route('/api/upstreams', upstreamTools);
 app.route('/api/mcp', mcpConfig);
 app.route('/api/mcp/clients', mcpClients);
 

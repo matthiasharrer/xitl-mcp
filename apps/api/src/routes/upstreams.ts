@@ -4,6 +4,8 @@ import { prisma } from '../db.js';
 import type { AppEnv } from '../identity.js';
 import { RESERVED_SLUGS, SLUG_PATTERN } from '../lib/slugs.js';
 import type { Upstream } from '../generated/prisma/client.js';
+import { externalOrigin } from '../lib/externalOrigin.js';
+import { ConnectError, finishConnect, startConnect, errorTag } from '../upstream/oauthClient.js';
 
 // /api/upstreams: the user's registry of upstream MCP servers (ADR-0013).
 // Mounted under /api, so it sits behind the identity middleware. Every query is
@@ -158,6 +160,8 @@ upstreams.post('/', async (c) => {
         auth: v.auth,
         headerName: v.auth === 'HEADER' ? v.headerName! : null,
         headerValue: v.auth === 'HEADER' ? v.headerValue! : null,
+        // HEADER/NONE need no connect step (ADR-0013); OAUTH waits for one.
+        status: v.auth === 'OAUTH' ? 'NOT_CONNECTED' : 'CONNECTED',
       },
     });
     return c.json(serializeUpstream(row), 201);
@@ -165,6 +169,58 @@ upstreams.post('/', async (c) => {
     if (isUniqueViolation(e)) return c.json({ error: SLUG_TAKEN }, 409);
     throw e;
   }
+});
+
+// ---- Connecting an OAUTH upstream (ADR-0013, TC-15/16) ----
+//
+// POST /:id/connect starts the flow and returns the upstream AS's authorize
+// URL for the browser; the AS sends the browser back to GET /oauth/callback,
+// which is under /api and so behind Authelia + identity: the callback is
+// redeemed as the logged-in user, and only against that user's own upstream
+// (finishConnect). The redirect URI is derived from our public origin.
+
+const CALLBACK_PATH = '/api/upstreams/oauth/callback';
+
+upstreams.post('/:id/connect', async (c) => {
+  noStore(c);
+  const id = parseId(c.req.param('id'));
+  if (id === null) return c.json({ error: 'Nicht gefunden.' }, 404);
+  const row = await prisma.upstream.findFirst({ where: { id, userId: c.get('user').id } });
+  if (!row) return c.json({ error: 'Nicht gefunden.' }, 404);
+  if (row.auth !== 'OAUTH') return c.json({ error: 'Dieser Upstream braucht keine Verbindung.' }, 400);
+  try {
+    const authorizationUrl = await startConnect(row, `${externalOrigin(c)}${CALLBACK_PATH}`);
+    return c.json({ authorizationUrl });
+  } catch (e) {
+    if (e instanceof ConnectError) return c.json({ error: e.message }, 502);
+    console.warn(`upstream ${id}: connect failed: ${errorTag(e)}`);
+    return c.json({ error: 'Die Verbindung konnte nicht gestartet werden.' }, 502);
+  }
+});
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]!);
+}
+
+upstreams.get('/oauth/callback', async (c) => {
+  noStore(c);
+  const q = c.req.query();
+  const result = await finishConnect(c.get('user').id, { state: q.state, code: q.code, iss: q.iss, error: q.error });
+  if (result.kind === 'bad') {
+    return c.html(
+      `<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
+        `<title>xitl: Verbindung fehlgeschlagen</title><body style="font-family:system-ui;padding:1rem">` +
+        `<h1 style="font-size:1.25rem">Verbindung fehlgeschlagen</h1><p>${escapeHtml(result.message)}</p>` +
+        `<p><a href="/#/einstellungen">Zurück zu den Einstellungen</a></p></body></html>`,
+      400,
+    );
+  }
+  // Relative: the browser stays on whatever origin it reached us through.
+  const target =
+    result.kind === 'connected'
+      ? `/#/einstellungen?verbunden=${result.upstreamId}`
+      : `/#/einstellungen?verbindung=${result.reason}&upstream=${result.upstreamId}`;
+  return c.redirect(target, 302);
 });
 
 upstreams.get('/:id', async (c) => {
@@ -217,7 +273,7 @@ upstreams.patch('/:id', async (c) => {
   if (v.url !== undefined) data.url = v.url;
   if (urlChanged || authChanged) {
     Object.assign(data, {
-      status: 'NOT_CONNECTED',
+      status: auth === 'OAUTH' ? 'NOT_CONNECTED' : 'CONNECTED',
       oauthClient: null,
       oauthMetadata: null,
       accessToken: null,
@@ -235,6 +291,9 @@ upstreams.patch('/:id', async (c) => {
   try {
     const res = await prisma.upstream.updateMany({ where: { id, userId }, data });
     if (res.count === 0) return c.json({ error: 'Nicht gefunden.' }, 404);
+    // Another server behind the same name: what the user acknowledged was a
+    // different tool set, so every tool counts as new again (ADR-0004).
+    if (urlChanged) await prisma.knownTool.updateMany({ where: { upstreamId: id }, data: { acknowledgedAt: null } });
   } catch (e) {
     if (isUniqueViolation(e)) return c.json({ error: SLUG_TAKEN }, 409);
     throw e;

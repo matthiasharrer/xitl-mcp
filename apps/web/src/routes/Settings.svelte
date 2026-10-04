@@ -40,7 +40,40 @@
       loaded = true;
     }
   }
-  load();
+  // One-shot result of the upstream OAuth callback (GET
+  // /api/upstreams/oauth/callback redirects to #/einstellungen?…): show it,
+  // then drop it from the URL so a reload doesn't repeat it.
+  async function showConnectResult() {
+    const query = location.hash.split('?')[1];
+    if (!query) return;
+    const params = new URLSearchParams(query);
+    history.replaceState(null, '', '#/einstellungen');
+    await load();
+    const connected = Number(params.get('verbunden'));
+    const failed = params.get('verbindung');
+    const name = (id: number) => upstreams.find((u) => u.id === id)?.name ?? 'Upstream';
+    if (connected) showToast(`„${name(connected)}“ verbunden`);
+    else if (failed === 'abgelehnt') showToast(`Verbindung zu „${name(Number(params.get('upstream')))}“ wurde abgelehnt.`, { error: true });
+    else if (failed) showToast(`Verbindung zu „${name(Number(params.get('upstream')))}“ ist fehlgeschlagen.`, { error: true });
+  }
+
+  if (location.hash.includes('?')) showConnectResult();
+  else load();
+
+  let connectingId = $state<number | null>(null);
+
+  async function connect(u: Upstream) {
+    connectingId = u.id;
+    try {
+      const { authorizationUrl } = await api.connectUpstream(u.id);
+      // Off to the upstream's own login/consent page; it sends the browser back
+      // to /api/upstreams/oauth/callback, which lands here again.
+      location.assign(authorizationUrl);
+    } catch (e) {
+      connectingId = null;
+      showToast(messageOf(e), { error: true });
+    }
+  }
 
   async function save(input: UpstreamInput) {
     if (sheet === 'new') {
@@ -152,6 +185,23 @@
                   </button>
                 </div>
               {/if}
+              {#if u.status === 'NEEDS_RECONNECT'}
+                <p class="hint reconnect-note">Die Anmeldung ist abgelaufen. Claude erreicht diesen Upstream erst wieder nach „Neu verbinden“.</p>
+              {/if}
+              <div class="item-actions">
+                {#if u.auth === 'OAUTH'}
+                  <button
+                    type="button"
+                    class="btn"
+                    class:primary={u.status !== 'CONNECTED'}
+                    disabled={connectingId !== null}
+                    onclick={() => connect(u)}
+                  >
+                    {connectingId === u.id ? 'Verbinde…' : u.status === 'NOT_CONNECTED' ? 'Verbinden' : 'Neu verbinden'}
+                  </button>
+                {/if}
+                <a class="btn" href={`#/regeln/${u.id}`} aria-label={`Regeln für ${u.name}`}>Regeln</a>
+              </div>
               <div class="item-actions">
                 <button type="button" class="btn" onclick={() => (sheet = u)}>Bearbeiten</button>
                 <button type="button" class="btn danger-outline" onclick={() => (deleting = u)}>Löschen</button>

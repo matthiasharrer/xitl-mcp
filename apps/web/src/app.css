@@ -437,3 +437,144 @@ dialog.confirm p {
 .item-actions .btn {
   flex: 1;
 }
+/* a link that looks like a button (e.g. "Regeln") */
+a.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  text-decoration: none;
+}
+.reconnect-note {
+  margin-top: 0.5rem;
+  color: var(--danger);
+}
+
+/* ---- rules view (#/regeln/<id>) ---- */
+.rules {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  min-height: var(--tap);
+  color: var(--accent-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+.rules-title {
+  margin: -0.5rem 0 0;
+  font-size: 1.25rem;
+  overflow-wrap: anywhere;
+}
+.section-title {
+  margin: 0 0 0.5rem;
+  padding: 0 0.25rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.section-head .section-title {
+  margin: 0;
+}
+.section-hint {
+  margin-top: 0.5rem;
+  padding: 0 0.25rem;
+}
+.segmented.four {
+  grid-template-columns: repeat(4, 1fr);
+}
+.segmented.four label {
+  font-size: 0.875rem;
+}
+.tool {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.tool-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.badge.new {
+  background: var(--accent);
+  color: #fff;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.chip {
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.75rem;
+  line-height: 1.5rem;
+  color: var(--muted);
+}
+.chip.hint-read {
+  color: var(--accent-text);
+  border-color: var(--accent-soft);
+  background: var(--accent-soft);
+}
+.chip.hint-destructive {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.tool-desc {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.effective {
+  margin: 0;
+}
+.client-overrides summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+  cursor: pointer;
+  color: var(--accent-text);
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+.client-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+.client-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.9375rem;
+}
+.client-row select {
+  flex: none;
+  min-height: var(--tap);
+  padding: 0 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}

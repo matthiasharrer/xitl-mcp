@@ -33,8 +33,12 @@ too, separately from Matthias (ADR-0010).
   identity, so Authelia must let her into Rezepte (Matthias's side). Rezepte is
   single-user in its data model: her calls act on the same recipes and are
   attributed per client. Fine for a shared household cookbook.
-- The proxy reaches the siblings via their public URL or in-cluster service:
-  decide when deploying (in-cluster needs `/mcp` reachable without the ingress).
+- **OAuth upstreams need https** (the MCP client SDK refuses plain-http token
+  endpoints except on loopback), so the siblings are reached via their **public
+  URLs** (their `/mcp` and `/.well-known` are exempt from Authelia already;
+  their consent page is behind it, which the user's browser passes).
+- The OAuth redirect back to xitl is built from `PUBLIC_URL` or the forwarded
+  headers: set `PUBLIC_URL` in production.
 
 ## Alternatives considered
 

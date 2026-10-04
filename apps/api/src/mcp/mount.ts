@@ -50,6 +50,28 @@ function isAuthInfo(value: AuthInfo | Response): value is AuthInfo {
 
 const NOT_FOUND = { error: 'Not found' };
 
+/** Bodies larger than this are not peeked at (the handler still limits them). */
+const PEEK_MAX_BYTES = 64 * 1024;
+
+async function peekWantsInstructions(req: Request): Promise<boolean> {
+  if (req.method !== 'POST') return false;
+  // No declared length (chunked): don't buffer an unknown amount; the stored
+  // instructions are used instead.
+  const declared = req.headers.get('content-length');
+  const length = declared === null ? NaN : Number(declared);
+  if (!Number.isFinite(length) || length > PEEK_MAX_BYTES) return false;
+  try {
+    const body = (await req.clone().json()) as { method?: unknown } | unknown[];
+    const messages = Array.isArray(body) ? body : [body];
+    return messages.some((m) => {
+      const method = (m as { method?: unknown } | null)?.method;
+      return method === 'initialize' || method === 'server/discover';
+    });
+  } catch {
+    return false;
+  }
+}
+
 export function mountMcp(app: Hono<AppEnv>): void {
   const token = process.env.MCP_TOKEN;
   if (!token) {
@@ -105,7 +127,15 @@ export function mountMcp(app: Hono<AppEnv>): void {
     });
     if (!upstream) return c.json(NOT_FOUND, 404);
 
-    return handler.fetch(c.req.raw, { authInfo: { ...result, extra: { ...result.extra, upstream } } });
+    // Peek at the JSON-RPC method (on a clone; the handler reads the original)
+    // so the server factory only contacts the upstream for its instructions
+    // when the client actually asks for them. A hint only: it changes what
+    // instructions say, never who may do what.
+    const wantsInstructions = await peekWantsInstructions(c.req.raw);
+
+    return handler.fetch(c.req.raw, {
+      authInfo: { ...result, extra: { ...result.extra, upstream, wantsInstructions } },
+    });
   });
 
   // Anything deeper under /mcp (e.g. /mcp/foo/bar) is not an endpoint either;

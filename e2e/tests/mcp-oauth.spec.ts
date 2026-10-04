@@ -22,6 +22,9 @@ import {
 
 test.use({ extraHTTPHeaders: {} });
 
+/** First line of every proxied endpoint's instructions (apps/api/src/lib/proxyText.ts). */
+const PREFIX = 'Über xitl vermittelt: manche Tools brauchen eine Freigabe. / Proxied by xitl: some tools need approval.';
+
 const nowSec = () => Math.floor(Date.now() / 1000);
 
 test('TC-09 DCR -> Consent als matthias (PKCE, CSRF) -> Token -> initialize + tools/list auf /mcp/<slug>', async ({
@@ -91,11 +94,13 @@ test('TC-09 DCR -> Consent als matthias (PKCE, CSRF) -> Token -> initialize + to
   expect(init.status()).toBe(200);
   const initMsg = await parseRpc(init);
   expect(initMsg.result.serverInfo.name).toBe(`xitl/${slug}`);
-  expect(initMsg.result.instructions).toBe('Aufgaben im Haushalt');
+  // not connected yet: the description stands in for the upstream's own
+  // instructions, after xitl's one-line prefix (TC-19 covers a connected one)
+  expect(initMsg.result.instructions).toBe(`${PREFIX}\n\nAufgaben im Haushalt`);
   const list = await postMcp(request, slug, tokens.access_token, LIST);
   expect(list.status()).toBe(200);
   const listMsg = await parseRpc(list);
-  expect(listMsg.result.tools).toEqual([]);
+  expect(listMsg.result.tools).toEqual([]); // not connected: nothing to list
 
   // a refresh keeps the binding
   const r = await request.post('/mcp/token', { form: { grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: clientId } });
@@ -106,7 +111,7 @@ test('TC-09 DCR -> Consent als matthias (PKCE, CSRF) -> Token -> initialize + to
   const plain = uniqSlug('tc09n');
   await createUpstream(request, MATTHIAS, { slug: plain, name: 'Nur Name' });
   const plainInit = await parseRpc(await postMcp(request, plain, tokens.access_token, INITIALIZE));
-  expect(plainInit.result.instructions).toBe('Nur Name');
+  expect(plainInit.result.instructions).toBe(`${PREFIX}\n\nNur Name`);
 
   // unregistered redirect_uri -> error page, never a redirect (GET and POST); unknown client likewise
   const evil = { ...params, redirect_uri: 'https://evil.example/cb' };
@@ -201,8 +206,8 @@ test('TC-11 Fremder oder unbekannter Slug -> 404, nie ein anderer Nutzer-Server'
   // the same slug for two users: each token reaches its own user's upstream
   const mi = await parseRpc(await postMcp(request, shared, m.accessToken, INITIALIZE));
   const ai = await parseRpc(await postMcp(request, shared, a.accessToken, INITIALIZE));
-  expect(mi.result.instructions).toBe('Matthias gemeinsamer Slug');
-  expect(ai.result.instructions).toBe('Anna gemeinsamer Slug');
+  expect(mi.result.instructions).toBe(`${PREFIX}\n\nMatthias gemeinsamer Slug`);
+  expect(ai.result.instructions).toBe(`${PREFIX}\n\nAnna gemeinsamer Slug`);
 });
 
 test('TC-12 Roher MCP_TOKEN, manipulierte/abgelaufene/fremde Tokens und widerrufene Clients -> 401', async ({ request }) => {

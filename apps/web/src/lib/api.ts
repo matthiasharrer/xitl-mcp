@@ -31,6 +31,29 @@ export interface UpstreamInput {
   headerValue?: string | null;
 }
 
+export type ToolHint = 'read' | 'write' | 'destructive';
+
+export interface ToolRow {
+  id: number;
+  name: string;
+  description: string | null;
+  hint: ToolHint;
+  /** The tool's own policy; null = "Standard" (upstream default). */
+  policy: Policy | null;
+  /** What applies without a client override. */
+  effectivePolicy: Policy;
+  path: string;
+  isNew: boolean;
+  lastSeenAt: string;
+  clientPolicies: { mcpClientId: number; policy: Policy }[];
+}
+
+export interface ToolsView {
+  upstream: { id: number; name: string; defaultPolicy: Policy; status: UpstreamStatus; auth: UpstreamAuth };
+  clients: { id: number; name: string }[];
+  tools: ToolRow[];
+}
+
 export interface McpClient {
   id: number;
   name: string;
@@ -88,10 +111,25 @@ export const api = {
   renameMcpClient: (id: number, name: string) => request<McpClient>('PATCH', `/api/mcp/clients/${id}`, { name }),
   revokeMcpClient: (id: number) => request<void>('DELETE', `/api/mcp/clients/${id}`),
   getMcpConfig: () => request<{ configured: boolean }>('GET', '/api/mcp/config'),
+  connectUpstream: (id: number) => request<{ authorizationUrl: string }>('POST', `/api/upstreams/${id}/connect`),
+  getTools: (id: number) => request<ToolsView>('GET', `/api/upstreams/${id}/tools`),
+  refreshTools: (id: number) => request<ToolsView>('POST', `/api/upstreams/${id}/tools/refresh`),
+  setToolPolicy: (id: number, toolId: number, policy: Policy | null) =>
+    request<ToolsView>('PATCH', `/api/upstreams/${id}/tools/${toolId}`, { policy }),
+  acknowledgeTool: (id: number, toolId: number) =>
+    request<ToolsView>('POST', `/api/upstreams/${id}/tools/${toolId}/acknowledge`),
+  setClientPolicy: (id: number, toolId: number, clientId: number, policy: Policy) =>
+    request<ToolsView>('PUT', `/api/upstreams/${id}/tools/${toolId}/clients/${clientId}`, { policy }),
+  clearClientPolicy: (id: number, toolId: number, clientId: number) =>
+    request<ToolsView>('DELETE', `/api/upstreams/${id}/tools/${toolId}/clients/${clientId}`),
 };
 
 export const messageOf = (e: unknown) =>
   e instanceof ApiError ? e.message : 'Das hat nicht geklappt. Bitte versuche es noch einmal.';
+
+export const POLICY_LABEL: Record<Policy, string> = { ALLOW: 'Erlauben', ASK: 'Fragen', DENY: 'Verbieten' };
+
+export const HINT_LABEL: Record<ToolHint, string> = { read: 'Lesen', write: 'Schreiben', destructive: 'Destruktiv' };
 
 export const STATUS_LABEL: Record<UpstreamStatus, string> = {
   NOT_CONNECTED: 'Nicht verbunden',
