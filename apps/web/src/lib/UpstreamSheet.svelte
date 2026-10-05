@@ -3,7 +3,7 @@
   // TaskSheet). Native <dialog>: Escape and the backdrop tap close it. The save
   // action is an async callback owned by the parent; a rejection shows inline.
   import { onMount } from 'svelte';
-  import type { Policy, Upstream, UpstreamAuth, UpstreamInput } from './api';
+  import { ApiError, type Policy, type Upstream, type UpstreamAuth, type UpstreamInput } from './api';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -30,6 +30,9 @@
   let headerValue = $state('');
   let busy = $state(false);
   let error = $state<string | null>(null);
+  // The API refused the URL as internal (ADR-0020): explain, offer "Trotzdem
+  // erlauben". Cleared as soon as the URL changes.
+  let internalHint = $state<string | null>(null);
   let dialog: HTMLDialogElement;
 
   onMount(() => dialog.showModal());
@@ -57,11 +60,12 @@
       (auth !== 'HEADER' || (headerName.trim() !== '' && (headerValue !== '' || (u?.hasHeaderValue ?? false)))),
   );
 
-  async function save(e: Event) {
+  async function save(e: Event, allowInternal = false) {
     e.preventDefault();
     if (!canSave) return;
     busy = true;
     error = null;
+    internalHint = null;
     const input: UpstreamInput = {
       name: name.trim(),
       slug,
@@ -70,6 +74,7 @@
       defaultPolicy,
       auth,
     };
+    if (allowInternal) input.allowInternal = true;
     if (auth === 'HEADER') {
       input.headerName = headerName.trim();
       // Empty on edit = keep the stored value (it is write-only).
@@ -78,7 +83,8 @@
     try {
       await onsave(input);
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Das hat nicht geklappt.';
+      if (err instanceof ApiError && err.code === 'internal_address' && !allowInternal) internalHint = err.message;
+      else error = err instanceof Error ? err.message : 'Das hat nicht geklappt.';
       busy = false;
     }
   }
@@ -141,6 +147,7 @@
         <input
           type="url"
           bind:value={url}
+          oninput={() => (internalHint = null)}
           placeholder="https://…/mcp"
           required
           autocapitalize="none"
@@ -215,6 +222,24 @@
         >
           {error}
         </p>{/if}
+
+      {#if internalHint}
+        <div
+          class="internal-hint"
+          role="alert"
+          {@attach (el) => {
+            el.scrollIntoView({ block: 'nearest' });
+          }}
+        >
+          <p>{internalHint}</p>
+          <p>
+            Solche Adressen (z. B. localhost, 192.168.…, Cluster-Dienste) sind sonst gesperrt, damit ein fremder
+            Dienst xitl nicht in dein Heimnetz schicken kann. Erlaubt wird dann nur genau diese Adresse.
+            <strong>Erlaube es nur, wenn du dem Dienst vertraust.</strong>
+          </p>
+          <button type="button" class="btn wide" disabled={busy} onclick={(e) => save(e, true)}>Trotzdem erlauben</button>
+        </div>
+      {/if}
     </div>
 
     <footer class="sheet-foot">

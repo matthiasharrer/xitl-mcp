@@ -20,7 +20,7 @@ import type { Upstream } from '../generated/prisma/client.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { needsRefresh } from '../lib/upstreamOAuth.js';
 import { limitResponse } from '../lib/limitedResponse.js';
-import { outboundFetch } from '../lib/outbound.js';
+import { outboundFetch, upstreamAllowance } from '../lib/outbound.js';
 import { MAX_UPSTREAM_RESPONSE_BYTES } from '../lib/limits.js';
 import { scrubSecrets } from '../lib/proxyText.js';
 import { ReconnectRequired, errorTag, markNeedsReconnect, refreshUpstreamTokens } from './oauthClient.js';
@@ -102,12 +102,18 @@ export async function withUpstream<T>(
     const sameOrigin = url.origin === origin;
     const send = (headers: Headers) => {
       const timeout = AbortSignal.timeout(timeoutMs);
-      return outboundFetch(url, {
-        ...init,
-        headers,
-        redirect: 'error',
-        signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
-      });
+      return outboundFetch(
+        url,
+        {
+          ...init,
+          headers,
+          redirect: 'error',
+          signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
+        },
+        // ADR-0020: a flagged upstream may reach its own host:port, from the
+        // row as read for this request (never cached across requests).
+        { alsoAllow: upstreamAllowance(current) },
+      );
     };
     const headers = new Headers(init?.headers);
     if (sameOrigin) {

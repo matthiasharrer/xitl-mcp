@@ -5,14 +5,17 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { test, expect } from '@playwright/test';
-import { MATTHIAS, createUpstream, dbAll, dbRun, uniq, uniqSlug } from '../support/db.js';
+import { ANNA, MATTHIAS, createUpstream, dbAll, dbRun, uniq, uniqSlug } from '../support/db.js';
 import { LIST, parseRpc, postMcp, runOAuthFlow } from '../support/mcpClient.js';
 import { API_LOG, FAKE_HEADER_NAME, FAKE_HEADER_SECRET, FAKE_SINK } from '../support/paths.js';
-import { callTool, fakeMalice, fakeMcpUrl, fakeState, newTenant, sinkRequests } from '../support/upstream.js';
+import { callTool, connectViaApi, fakeMalice, fakeMcpUrl, fakeState, listTools, newTenant, sinkRequests } from '../support/upstream.js';
 
 test.use({ extraHTTPHeaders: {} });
 
-const BLOCKED_MESSAGE = 'Diese Adresse ist intern und für Upstreams nicht freigegeben.';
+const BLOCKED_MESSAGE =
+  'Diese Adresse liegt im internen Netz. xitl ruft sie nur auf, wenn du es für diesen Upstream ausdrücklich erlaubst.';
+const BLOCKED = { error: BLOCKED_MESSAGE, code: 'internal_address' };
+const flag = (id: number) => Boolean(row(id).allowInternal);
 const row = (id: number) => dbAll('select * from Upstream where id = ?', id)[0];
 
 const BLOCKED_URLS = [
@@ -34,7 +37,7 @@ test('TC-77 Upstream mit interner Adresse anlegen -> 400 (deutsch), keine Zeile;
     const slug = uniqSlug('tc77');
     const res = await request.post('/api/upstreams', { headers: MATTHIAS, data: { name: 'Intern', slug, url } });
     expect(res.status(), url).toBe(400);
-    expect((await res.json()).error, url).toBe(BLOCKED_MESSAGE);
+    expect(await res.json(), url).toEqual(BLOCKED);
     expect(dbAll('select id from Upstream where slug = ?', slug), url).toEqual([]);
   }
 
@@ -44,6 +47,8 @@ test('TC-77 Upstream mit interner Adresse anlegen -> 400 (deutsch), keine Zeile;
     data: { name: 'Fake', slug: uniqSlug('tc77ok'), url: fakeMcpUrl(tenant) },
   });
   expect(ok.status(), await ok.text()).toBe(201);
+  // allowed by the env list, so not "internal" for the check: no flag
+  expect((await ok.json()).allowInternal).toBe(false);
   await request.delete(`/api/upstreams/${(await ok.json()).id}`, { headers: MATTHIAS });
 
   // the same message in the form, on a phone (390×844 from the config)
@@ -55,7 +60,7 @@ test('TC-77 Upstream mit interner Adresse anlegen -> 400 (deutsch), keine Zeile;
   await sheet.getByLabel('Name').fill(name);
   await sheet.getByLabel('URL').fill('http://127.0.0.1:3211/mcp');
   await sheet.getByRole('button', { name: 'Hinzufügen' }).click();
-  await expect(sheet.getByRole('alert')).toHaveText(BLOCKED_MESSAGE);
+  await expect(sheet.locator('.internal-hint')).toContainText(BLOCKED_MESSAGE);
   await expect(sheet).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
   expect(dbAll('select id from Upstream where name = ?', name)).toEqual([]);
@@ -67,8 +72,9 @@ test('TC-78 PATCH auf eine interne Adresse -> 400, die alte URL bleibt', async (
   for (const url of ['http://127.0.0.1:3211/mcp', 'http://localhost:3210/mcp', 'http://169.254.169.254/latest/meta-data']) {
     const res = await request.patch(`/api/upstreams/${up.id}`, { headers: MATTHIAS, data: { url } });
     expect(res.status(), url).toBe(400);
-    expect((await res.json()).error).toBe(BLOCKED_MESSAGE);
+    expect(await res.json()).toEqual(BLOCKED);
     expect(row(up.id).url).toBe(fakeMcpUrl(tenant));
+    expect(flag(up.id)).toBe(false);
   }
   // an allowed URL is still accepted
   const other = fakeMcpUrl(newTenant('tc78b'));
@@ -113,6 +119,7 @@ test('TC-80 Durchsetzung beim Request (ohne Speicher-Prüfung): Upstream auf loc
   // resolves to a blocked address (and isn't on the exception list).
   const internalUrl = `http://localhost:3210/t/${tenant}/mcp`;
   dbRun('update Upstream set url = ? where id = ?', internalUrl, up.id);
+  expect(flag(up.id)).toBe(false); // unflagged: nobody confirmed it
 
   const listRes = await postMcp(request, up.slug, m.accessToken, LIST);
   const listText = await listRes.text();
@@ -154,4 +161,176 @@ test('TC-81 Push-Abo mit interner Adresse -> 400; ein öffentlicher Endpunkt geh
   const ok = await request.post('/api/push/subscriptions', { headers: user, data: { endpoint, keys } });
   expect(ok.status(), await ok.text()).toBe(201);
   expect((await request.delete('/api/push/subscriptions', { headers: user, data: { endpoint } })).status()).toBe(204);
+});
+
+/** The fake upstream under a name that is NOT on the env list: internal. */
+const internalUrl = (tenant: string) => `http://localhost:3210/t/${tenant}/mcp`;
+
+test('TC-82 Bestätigung pro Upstream: intern -> 400 internal_address; mit allowInternal -> gespeichert und erreichbar; öffentlich nie markiert; PATCH rechnet neu', async ({
+  request,
+}) => {
+  const m = await runOAuthFlow(request, uniq('tc82'), MATTHIAS);
+  const tenant = newTenant('tc82');
+  const base = {
+    name: 'Intern',
+    url: internalUrl(tenant),
+    auth: 'HEADER',
+    headerName: FAKE_HEADER_NAME,
+    headerValue: FAKE_HEADER_SECRET,
+    defaultPolicy: 'ALLOW',
+  };
+
+  const refused = await request.post('/api/upstreams', { headers: MATTHIAS, data: { ...base, slug: uniqSlug('tc82') } });
+  expect(refused.status()).toBe(400);
+  expect(await refused.json()).toEqual(BLOCKED);
+  const notTrue = await request.post('/api/upstreams', { headers: MATTHIAS, data: { ...base, slug: uniqSlug('tc82'), allowInternal: false } });
+  expect(await notTrue.json()).toEqual(BLOCKED);
+
+  const created = await request.post('/api/upstreams', { headers: MATTHIAS, data: { ...base, slug: uniqSlug('tc82'), allowInternal: true } });
+  expect(created.status(), await created.text()).toBe(201);
+  const up = await created.json();
+  expect(up.allowInternal).toBe(true);
+  expect(flag(up.id)).toBe(true);
+  // reaches the fake upstream under the internal name
+  expect((await listTools(request, up.slug, m.accessToken)).map((t) => t.name)).toContain('list_items');
+  expect((await callTool(request, up.slug, m.accessToken, 'list_items')).isError).toBeFalsy();
+  expect((await fakeState(request, tenant)).calls.list_items).toBe(1);
+
+  // a public URL never gets the flag, even when asked
+  const pub = await request.post('/api/upstreams', {
+    headers: MATTHIAS,
+    data: { name: 'Öffentlich', slug: uniqSlug('tc82p'), url: 'https://example.com/mcp', allowInternal: true },
+  });
+  expect(pub.status()).toBe(201);
+  expect((await pub.json()).allowInternal).toBe(false);
+
+  // PATCH to another internal URL: without confirmation refused and unchanged, with it ok
+  const other = internalUrl(newTenant('tc82b'));
+  const p1 = await request.patch(`/api/upstreams/${up.id}`, { headers: MATTHIAS, data: { url: other } });
+  expect(p1.status()).toBe(400);
+  expect(await p1.json()).toEqual(BLOCKED);
+  expect(row(up.id)).toMatchObject({ url: internalUrl(tenant) });
+  expect(flag(up.id)).toBe(true);
+  const p2 = await request.patch(`/api/upstreams/${up.id}`, { headers: MATTHIAS, data: { url: other, allowInternal: true } });
+  expect(p2.status()).toBe(200);
+  expect((await p2.json()).allowInternal).toBe(true);
+  expect(row(up.id).url).toBe(other);
+
+  // other fields keep the flag
+  const p3 = await request.patch(`/api/upstreams/${up.id}`, { headers: MATTHIAS, data: { description: 'geändert' } });
+  expect((await p3.json()).allowInternal).toBe(true);
+  // same URL again without the confirmation: unchanged URL, flag kept
+  const p4 = await request.patch(`/api/upstreams/${up.id}`, { headers: MATTHIAS, data: { url: other } });
+  expect(p4.status()).toBe(200);
+  expect(flag(up.id)).toBe(true);
+
+  // a public URL clears it, even when allowInternal is sent
+  const p5 = await request.patch(`/api/upstreams/${up.id}`, { headers: MATTHIAS, data: { url: 'https://example.com/mcp', allowInternal: true } });
+  expect(p5.status()).toBe(200);
+  expect((await p5.json()).allowInternal).toBe(false);
+  expect(flag(up.id)).toBe(false);
+
+  // another user: their own upstream needs their own confirmation; matthias's is not theirs to touch
+  const anna = await request.post('/api/upstreams', { headers: ANNA, data: { ...base, slug: uniqSlug('tc82a') } });
+  expect(await anna.json()).toEqual(BLOCKED);
+  expect((await request.patch(`/api/upstreams/${up.id}`, { headers: ANNA, data: { url: other, allowInternal: true } })).status()).toBe(404);
+  expect(flag(up.id)).toBe(false);
+
+  for (const id of [up.id, (await pub.json()).id]) await request.delete(`/api/upstreams/${id}`, { headers: MATTHIAS });
+});
+
+test('TC-83 Markierter Upstream erreicht nur seinen eigenen Host:Port: Discovery zum Sink -> abgelehnt, beim Sink nichts; ohne Malice verbindet er', async ({
+  request,
+}) => {
+  const createFlagged = async (tenant: string) => {
+    const res = await request.post('/api/upstreams', {
+      headers: MATTHIAS,
+      data: { name: 'Intern OAuth', slug: uniqSlug('tc83'), url: internalUrl(tenant), defaultPolicy: 'ALLOW', allowInternal: true },
+    });
+    expect(res.status(), await res.text()).toBe(201);
+    return (await res.json()) as { id: number; slug: string };
+  };
+
+  // discovery names an AS on another internal host:port -> refused
+  const tenant = newTenant('tc83');
+  const up = await createFlagged(tenant);
+  await fakeMalice(request, tenant, { asOnSink: true });
+  const res = await request.post(`/api/upstreams/${up.id}/connect`, { headers: MATTHIAS });
+  const text = await res.text();
+  expect(res.status(), text).toBe(502);
+  expect(JSON.parse(text).authorizationUrl).toBeUndefined();
+  expect(await sinkRequests(request, tenant)).toEqual([]);
+  expect(row(up.id)).toMatchObject({ status: 'NOT_CONNECTED', accessToken: null, oauthClient: null });
+
+  // control: the whole OAuth flow on its own host:port works (discovery, DCR, token, MCP)
+  const okTenant = newTenant('tc83ok');
+  const ok = await createFlagged(okTenant);
+  await connectViaApi(request, ok.id);
+  expect(row(ok.id).status).toBe('CONNECTED');
+  const m = await runOAuthFlow(request, uniq('tc83'), MATTHIAS);
+  expect((await listTools(request, ok.slug, m.accessToken)).map((t) => t.name)).toContain('list_items');
+  expect((await callTool(request, ok.slug, m.accessToken, 'list_items')).isError).toBeFalsy();
+  expect((await fakeState(request, okTenant)).calls.list_items).toBe(1);
+
+  for (const id of [up.id, ok.id]) await request.delete(`/api/upstreams/${id}`, { headers: MATTHIAS });
+});
+
+test('TC-84 Formular am Handy: interne Adresse -> Hinweis + "Trotzdem erlauben" sichtbar; Tippen speichert; Liste zeigt "intern"', async ({
+  page,
+  request,
+}) => {
+  await page.setExtraHTTPHeaders(MATTHIAS);
+  await page.goto('/#/einstellungen');
+  await page.getByRole('button', { name: 'Upstream hinzufügen' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Upstream hinzufügen' });
+  const name = uniq('Intern TC84').replace(/[^A-Za-z0-9 -]/g, '');
+  await sheet.getByLabel('Name').fill(name);
+  const url = internalUrl(newTenant('tc84'));
+  await sheet.getByLabel('URL').fill(url);
+  await sheet.getByRole('button', { name: 'Hinzufügen' }).click();
+
+  const hint = sheet.locator('.internal-hint');
+  const allow = sheet.getByRole('button', { name: 'Trotzdem erlauben' });
+  await expect(hint).toContainText('intern');
+  await expect(hint).toContainText('nur, wenn du dem Dienst vertraust');
+  // fully visible: inside the sheet's scroll area and above the sticky footer
+  // (1 px tolerance for subpixel layout)
+  await expect
+    .poll(() =>
+      hint.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const body = el.closest('.sheet-body')!.getBoundingClientRect();
+        const foot = el.closest('form')!.querySelector('.sheet-foot')!.getBoundingClientRect();
+        return r.top >= body.top - 1 && r.bottom <= Math.min(body.bottom, foot.top) + 1 && r.bottom <= innerHeight + 1;
+      }),
+    )
+    .toBe(true);
+  await expect(allow).toBeInViewport();
+  // the sticky footer doesn't cover it
+  const covered = await allow.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !el.contains(hit);
+  });
+  expect(covered).toBe(false);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+
+  // editing the URL clears the hint
+  await sheet.getByLabel('URL').fill(url + 'x');
+  await expect(hint).toHaveCount(0);
+  await sheet.getByLabel('URL').fill(url);
+  await sheet.getByRole('button', { name: 'Hinzufügen' }).click();
+  await expect(allow).toBeVisible();
+
+  await allow.click();
+  await expect(sheet).toBeHidden();
+  const item = page.locator('li.item', { hasText: name });
+  await expect(item).toBeVisible();
+  await expect(item.locator('.badge', { hasText: 'intern' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+
+  const saved = dbAll('select id, allowInternal from Upstream where name = ?', name);
+  expect(saved).toHaveLength(1);
+  expect(saved[0].allowInternal).toBe(1);
+  await request.delete(`/api/upstreams/${saved[0].id}`, { headers: MATTHIAS });
 });

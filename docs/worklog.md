@@ -3,6 +3,29 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-05 — Outbound address policy (SSRF), header link, `v0.4.0`
+
+- Roadmap caught up with reality: deployed, MG-01…04 passed (Matthias),
+  MG-06 answered by the measurements; MG-05 (Tina) and MG-07 still open.
+- SSRF fix (ADR-0020) by an Opus agent in two slices, the lead reviewed
+  `lib/outbound.ts` and the wiring line by line. The check runs in the
+  connection's own DNS lookup (undici Agent `connect.lookup`, https.Agent for
+  web push), so DNS rebinding can't slip past; mutation runs proved the
+  dispatcher is live.
+- Matthias didn't want deploy config. He chose per-upstream confirmation
+  ("Trotzdem erlauben") over automatic derivation, which would let a public
+  host re-point its DNS inward, and over a global UI list. The env var stays
+  as an optional admin override.
+- Header title "xitl" links to Freigaben (Matthias).
+- Gotchas:
+  - `migrate dev` names folders from the workspace clock (UTC). The
+    hand-named 2026-10-05 migrations sort later, so the new one was renamed
+    to `20261005200000_…` (plus its `_prisma_migrations` row in dev.db).
+  - undici must stay on 6.x while Node 22 bundles undici 6.
+- Release `v0.4.0` at Matthias's request. Upstreams whose host resolves
+  internally inside the pod need one "Trotzdem erlauben" per user after the
+  deploy.
+
 ## 2026-10-05 — Grouping by time gaps, pause scopes
 
 - Matthias chose time-gap grouping (10 min) plus day separators, and asked

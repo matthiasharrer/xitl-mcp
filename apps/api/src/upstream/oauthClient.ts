@@ -42,7 +42,7 @@ import {
   type PendingAuth,
 } from '../lib/upstreamOAuth.js';
 import { limitResponse } from '../lib/limitedResponse.js';
-import { outboundFetch } from '../lib/outbound.js';
+import { outboundFetch, upstreamAllowance } from '../lib/outbound.js';
 import { MAX_OAUTH_RESPONSE_BYTES } from '../lib/limits.js';
 
 /** Timeout for every OAuth request to an upstream's AS. */
@@ -114,15 +114,25 @@ export function errorTag(e: unknown): string {
  * ends in a German ConnectError like any unreachable AS; during refresh it is
  * not an OAuthError, so it counts as transient (RefreshUnavailable), never as
  * "reconnect". */
-const oauthFetch: FetchLike = async (input, init) => {
-  const timeout = AbortSignal.timeout(OAUTH_TIMEOUT_MS);
-  const res = await outboundFetch(input, {
-    ...init,
-    redirect: 'error',
-    signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
-  });
-  return limitResponse(res, MAX_OAUTH_RESPONSE_BYTES);
-};
+function oauthFetchFor(row: Pick<Upstream, 'url' | 'allowInternal'>): FetchLike {
+  // Read from the row the caller just loaded: a flagged upstream may reach
+  // its own URL's host:port even if internal; any other host (an AS the
+  // discovery names elsewhere) stays guarded (ADR-0020, TC-83).
+  const alsoAllow = upstreamAllowance(row);
+  return async (input, init) => {
+    const timeout = AbortSignal.timeout(OAUTH_TIMEOUT_MS);
+    const res = await outboundFetch(
+      input,
+      {
+        ...init,
+        redirect: 'error',
+        signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
+      },
+      { alsoAllow },
+    );
+    return limitResponse(res, MAX_OAUTH_RESPONSE_BYTES);
+  };
+}
 
 function parseJson<T>(raw: string | null): T | null {
   if (!raw) return null;
@@ -142,7 +152,7 @@ const RECONNECT_CODES = new Set(['invalid_grant', 'invalid_client', 'unauthorize
 export async function startConnect(row: Upstream, redirectUri: string, clock: Clock = systemClock): Promise<string> {
   let info: Awaited<ReturnType<typeof discoverOAuthServerInfo>>;
   try {
-    info = await discoverOAuthServerInfo(row.url, { fetchFn: oauthFetch });
+    info = await discoverOAuthServerInfo(row.url, { fetchFn: oauthFetchFor(row) });
   } catch (e) {
     console.warn(`upstream ${row.id}: OAuth discovery failed: ${errorTag(e)}`);
     throw new ConnectError('Der Upstream ist nicht erreichbar oder bietet keine OAuth-Anmeldung an.');
@@ -183,7 +193,7 @@ export async function startConnect(row: Upstream, redirectUri: string, clock: Cl
           response_types: ['code'],
           token_endpoint_auth_method: 'none',
         },
-        fetchFn: oauthFetch,
+        fetchFn: oauthFetchFor(row),
       });
       client = { issuer: metadata.issuer, redirectUri, info: full };
     } catch (e) {
@@ -277,7 +287,7 @@ export async function finishConnect(
       codeVerifier: pending.codeVerifier,
       redirectUri: pending.redirectUri,
       resource: meta.resource,
-      fetchFn: oauthFetch,
+      fetchFn: oauthFetchFor(row),
     });
   } catch (e) {
     console.warn(`upstream ${id}: code exchange failed: ${errorTag(e)}`);
@@ -353,7 +363,7 @@ export function refreshUpstreamTokens(
         clientInformation: client.info,
         refreshToken: fresh.refreshToken,
         resource: meta.resource,
-        fetchFn: oauthFetch,
+        fetchFn: oauthFetchFor(fresh),
       });
     } catch (e) {
       if (e instanceof OAuthError && RECONNECT_CODES.has(String(e.code))) {

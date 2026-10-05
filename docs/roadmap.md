@@ -5,15 +5,12 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-05 (deployed; MG-01…04 and MG-06 passed)_
+_Last updated: 2026-10-05 (`v0.4.0`: outbound address policy, ADR-0020)_
 
 ## Next
 
 Nothing scheduled; Matthias picks. Candidates: the URL-change question
-below, the two open manual gates. Deploy note for the outbound address policy
-(ADR-0020): if the siblings' hostnames resolve to internal addresses inside
-the pod, list them in `OUTBOUND_ALLOW_PRIVATE` before the next release goes
-live.
+below, the two open manual gates.
 
 ## Milestone 1 status
 

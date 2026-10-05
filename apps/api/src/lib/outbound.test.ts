@@ -19,6 +19,7 @@ import {
   parseAllowList,
   pushAgentFor,
   type Resolver,
+  upstreamAllowance,
 } from './outbound.js';
 
 describe('classifier', () => {
@@ -143,6 +144,29 @@ describe('exception list', () => {
     expect(isAllowedUrl(new URL('https://a.lan/'), def)).toBe(true);
     expect(isAllowedUrl(new URL('http://a.lan/'), def)).toBe(false);
     expect(isAllowedUrl(new URL('http://b.lan/'), def)).toBe(true);
+  });
+});
+
+describe('per-upstream allowance (TC-83 unit)', () => {
+  test('a flagged row allows exactly its own host:port, default port filled in', () => {
+    expect(upstreamAllowance({ url: 'http://localhost:3210/t/x/mcp', allowInternal: true })).toEqual([{ host: 'localhost', port: 3210 }]);
+    expect(upstreamAllowance({ url: 'http://Haushalt.LAN/mcp', allowInternal: true })).toEqual([{ host: 'haushalt.lan', port: 80 }]);
+    expect(upstreamAllowance({ url: 'https://haushalt.lan/mcp', allowInternal: true })).toEqual([{ host: 'haushalt.lan', port: 443 }]);
+    expect(upstreamAllowance({ url: 'http://[::1]:8080/', allowInternal: true })).toEqual([{ host: '[::1]', port: 8080 }]);
+    expect(upstreamAllowance({ url: 'http://2130706433:3211/', allowInternal: true })).toEqual([{ host: '127.0.0.1', port: 3211 }]);
+  });
+
+  test('an unflagged or unparseable row gets none', () => {
+    expect(upstreamAllowance({ url: 'http://localhost:3210/t/x/mcp', allowInternal: false })).toEqual([]);
+    expect(upstreamAllowance({ url: 'not a url', allowInternal: true })).toEqual([]);
+    expect(upstreamAllowance({ url: 'ftp://localhost/x', allowInternal: true })).toEqual([]);
+  });
+
+  test('the allowance covers that host:port only, not other ports or hosts', () => {
+    const allow = upstreamAllowance({ url: 'http://localhost:3210/t/x/mcp', allowInternal: true });
+    expect(isAllowedUrl(new URL('http://localhost:3210/.well-known/oauth-protected-resource/t/x/mcp'), allow)).toBe(true);
+    expect(isAllowedUrl(new URL('http://localhost:3211/sink'), allow)).toBe(false);
+    expect(isAllowedUrl(new URL('http://127.0.0.1:3210/'), allow)).toBe(false);
   });
 });
 
@@ -282,6 +306,15 @@ describe('outboundFetch / push agent against a real local server', () => {
     await expect(outboundFetch(`http://localhost:${port}/`, undefined, { allow: parseAllowList(`localhost:1`).entries })).rejects.toBeInstanceOf(
       OutboundBlocked,
     );
+    warn.mockRestore();
+  });
+
+  test('alsoAllow adds to the list (a flagged upstream reaching its own host:port)', async () => {
+    const alsoAllow = upstreamAllowance({ url: `http://localhost:${port}/mcp`, allowInternal: true });
+    const res = await outboundFetch(`http://localhost:${port}/`, undefined, { allow: [], alsoAllow });
+    expect(await res.text()).toBe('hello');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await expect(outboundFetch(`http://127.0.0.1:${port}/`, undefined, { allow: [], alsoAllow })).rejects.toBeInstanceOf(OutboundBlocked);
     warn.mockRestore();
   });
 

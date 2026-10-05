@@ -597,6 +597,22 @@ a.btn {
 .changed-note {
   color: var(--warn);
 }
+/* ADR-0020: the upstream form's "internal address" confirmation */
+.internal-hint {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.internal-hint p {
+  margin: 0;
+}
+.badge.internal {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
 
 /* ---- Freigaben (#/, #/freigabe/<id>) ---- */
 .approvals,

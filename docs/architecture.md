@@ -56,7 +56,8 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
                          per request, credentials injected by our fetch wrapper
   lib/outbound.ts        outbound address policy (ADR-0020): outboundFetch (the
                          only fetch), guarded DNS lookup, web-push agent,
-                         save-time checkUrlHost, OUTBOUND_ALLOW_PRIVATE
+                         save-time checkUrlHost, upstreamAllowance (the
+                         per-upstream exception), OUTBOUND_ALLOW_PRIVATE
   upstream/tools.ts      KnownTool sync from tools/list
   approval/pending.ts    ApprovalHub: in-memory held calls + EventEmitter
   approval/budget.ts     300 s budget, approval deadline, snooze ends,
@@ -167,11 +168,11 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   `http://…svc` upstream would fail to connect).
 - Logs carry error class/code only (`errorTag`), never messages or bodies.
 
-### Outbound address policy (ADR-0020, TC-77…81)
+### Outbound address policy (ADR-0020, TC-77…84)
 
 - Every server-side request to a URL xitl didn't choose goes through
   `lib/outbound.ts`: `outboundFetch` (used by `withUpstream`'s wrapper and
-  `oauthFetch`; nothing else calls `fetch`, a unit test scans for it) and
+  `oauthFetchFor(row)`; nothing else calls `fetch`, a unit test scans for it) and
   `pushAgentFor` (the `https.Agent` handed to `web-push`).
 - IP-literal hosts are classified before connecting. Names are checked in the
   connection's own DNS lookup: an `undici` 6 `Agent({ connect: { lookup } })`
@@ -180,11 +181,27 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   `https.Agent({ lookup })` for push. Any blocked address among the answers
   refuses the request (`OutboundBlocked`, logged with the hostname only).
   `outboundFetch` forces `redirect: 'error'` itself.
-- `OUTBOUND_ALLOW_PRIVATE` (`host`, `host:port`, `[v6]:port`): a URL whose
-  host (+port) matches skips the check and uses a plain dispatcher/agent.
-  Parsed once at boot (malformed entries warn). By name, not by address.
-- Save time (UX only): upstream create/PATCH URL and push subscribe call
-  `checkUrlHost` (resolve all addresses; unresolvable is ok) -> German 400.
+- **Per-upstream exception (the normal way):** `Upstream.allowInternal`.
+  Create/PATCH with an internal URL answers 400 `{ error, code:
+  "internal_address" }`; the form (`UpstreamSheet.svelte`) shows why plus
+  "Trotzdem erlauben", which re-submits with `allowInternal: true`. The stored
+  flag is `allowInternal === true && checkUrlHost(url) === 'blocked'`, so a
+  public URL never carries it. A PATCH that changes the URL recomputes it; one
+  that doesn't keeps it. Settings shows a flagged upstream as "intern".
+  Enforcement: `upstreamAllowance(row)` = `[{host, port}]` of the row's current
+  URL (default port filled in; `[]` unflagged), passed as `alsoAllow` to
+  `outboundFetch` in `withUpstream` and in every OAuth call for that row
+  (`startConnect`, `finishConnect`, refresh), built from the row read for that
+  request. Any other host (an AS discovery names elsewhere) stays guarded
+  (TC-83).
+- **Admin override `OUTBOUND_ALLOW_PRIVATE`** (optional, empty by default;
+  `host`, `host:port`, `[v6]:port`): a URL whose host (+port) matches skips the
+  check for every user and push, using a plain dispatcher/agent. Parsed once at
+  boot (malformed entries warn). By name, not by address. Such URLs count as
+  not internal at save time, so they never get the flag. e2e uses it for the
+  fake upstream.
+- Save time: upstream create/PATCH URL and push subscribe call `checkUrlHost`
+  (resolve all addresses; unresolvable is ok); push -> plain 400.
 - Request time: a blocked upstream fails like an unreachable one (generic
   agent error); during connect -> German `ConnectError`; during refresh ->
   `RefreshUnavailable` (transient, tokens kept, not "reconnect").

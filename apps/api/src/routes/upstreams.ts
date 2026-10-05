@@ -31,6 +31,7 @@ export function serializeUpstream(row: Upstream) {
     auth: row.auth,
     status: row.status,
     headerName: row.headerName,
+    allowInternal: row.allowInternal,
     // The value itself is write-only: it never leaves the server.
     hasHeaderValue: row.headerValue !== null && row.headerValue !== '',
     createdAt: row.createdAt.toISOString(),
@@ -94,6 +95,7 @@ const createSchema = z
     auth: authSchema.default('OAUTH'),
     headerName: headerNameSchema.nullish(),
     headerValue: headerValueSchema.nullish(),
+    allowInternal: z.boolean().optional(),
   })
   .superRefine((v, ctx) => {
     if (v.auth === 'HEADER') {
@@ -111,11 +113,25 @@ const patchSchema = z.object({
   auth: authSchema.optional(),
   headerName: headerNameSchema.nullish(),
   headerValue: headerValueSchema.nullish(),
+  allowInternal: z.boolean().optional(),
 });
 
 /** Save-time half of ADR-0020 (UX only; the request-time guard in
  * lib/outbound.ts is the enforcement). */
-export const BLOCKED_URL = 'Diese Adresse ist intern und für Upstreams nicht freigegeben.';
+export const BLOCKED_URL =
+  'Diese Adresse liegt im internen Netz. xitl ruft sie nur auf, wenn du es für diesen Upstream ausdrücklich erlaubst.';
+
+/**
+ * ADR-0020, "Exception per upstream": the flag to store for `url`, or a 400
+ * body. Internal + confirmed -> true; internal + not confirmed -> refused;
+ * not internal -> false (a public URL never gets the flag, even if asked).
+ */
+async function internalFlag(url: string, confirmed: boolean | undefined): Promise<{ flag: boolean } | { refused: { error: string; code: 'internal_address' } }> {
+  const internal = (await checkUrlHost(url)) === 'blocked';
+  if (!internal) return { flag: false };
+  if (confirmed === true) return { flag: true };
+  return { refused: { error: BLOCKED_URL, code: 'internal_address' } };
+}
 
 function noStore(c: { header: (name: string, value: string) => void }) {
   c.header('Cache-Control', 'no-store');
@@ -151,7 +167,8 @@ upstreams.post('/', async (c) => {
   if (!parsed.success) return c.json({ error: firstMessage(parsed.error) }, 400);
   const v = parsed.data;
   const userId = c.get('user').id;
-  if ((await checkUrlHost(v.url)) === 'blocked') return c.json({ error: BLOCKED_URL }, 400);
+  const internal = await internalFlag(v.url, v.allowInternal);
+  if ('refused' in internal) return c.json(internal.refused, 400);
 
   const clash = await prisma.upstream.findUnique({ where: { userId_slug: { userId, slug: v.slug } } });
   if (clash) return c.json({ error: SLUG_TAKEN }, 409);
@@ -163,6 +180,7 @@ upstreams.post('/', async (c) => {
         name: v.name,
         slug: v.slug,
         url: v.url,
+        allowInternal: internal.flag,
         description: v.description ? v.description : null,
         defaultPolicy: v.defaultPolicy,
         auth: v.auth,
@@ -252,11 +270,13 @@ upstreams.patch('/:id', async (c) => {
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: firstMessage(parsed.error) }, 400);
   const v = parsed.data;
-  if (v.url !== undefined && v.url !== existing.url && (await checkUrlHost(v.url)) === 'blocked') {
-    return c.json({ error: BLOCKED_URL }, 400);
-  }
-
   const data: Record<string, unknown> = {};
+  // A changed URL recomputes the flag (re-confirm); an unchanged one keeps it.
+  if (v.url !== undefined && v.url !== existing.url) {
+    const internal = await internalFlag(v.url, v.allowInternal);
+    if ('refused' in internal) return c.json(internal.refused, 400);
+    data.allowInternal = internal.flag;
+  }
   if (v.name !== undefined) data.name = v.name;
   if (v.slug !== undefined) data.slug = v.slug;
   if (v.description !== undefined) data.description = v.description ? v.description : null;

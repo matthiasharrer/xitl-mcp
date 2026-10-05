@@ -86,6 +86,10 @@ case.
   The agent cannot do it (ADR-0005: no config through MCP).
 - e2e lists only the fake upstream (`127.0.0.1:3210`); the sink port stays
   blocked and serves as the "internal" target.
+- A URL on the env list counts as "not internal" at save time, so it never
+  gets the flag. If the admin later removes that host from the list, the
+  upstream stops working until its URL is changed and confirmed. Re-saving the
+  same URL doesn't ask again, because an unchanged URL keeps its flag.
 - Adds the `undici` package for a connect-time `lookup` on Node's fetch.
 
 ## Alternatives considered

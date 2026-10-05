@@ -303,6 +303,7 @@
             <li class="item" data-slug={u.slug}>
               <div class="item-head">
                 <span class="item-name">{u.name}</span>
+                {#if u.allowInternal}<span class="badge internal" title="Interne Adresse, von dir erlaubt">intern</span>{/if}
                 <span class="badge status-{u.status.toLowerCase()}">{STATUS_LABEL[u.status]}</span>
               </div>
               <div class="sub">

@@ -15,6 +15,8 @@ export interface Upstream {
   status: UpstreamStatus;
   headerName: string | null;
   hasHeaderValue: boolean;
+  /** The user confirmed an internal address for this upstream (ADR-0020). */
+  allowInternal: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -29,6 +31,8 @@ export interface UpstreamInput {
   headerName?: string | null;
   /** Write-only; omitted on edit to keep the stored value. */
   headerValue?: string | null;
+  /** "Trotzdem erlauben": confirm an internal URL (ADR-0020). */
+  allowInternal?: boolean;
 }
 
 export type ToolHint = 'read' | 'write' | 'destructive';
@@ -179,6 +183,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** The API's machine-readable `code`, when it sends one (e.g. 'internal_address'). */
+    public code: string | null = null,
   ) {
     super(message);
   }
@@ -206,8 +212,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   if (!res.ok) {
     // The API answers validation errors with a German `error` string.
-    const detail = await res.json().then((b) => (typeof b?.error === 'string' ? b.error : null), () => null);
-    throw new ApiError(res.status, detail ?? germanMessage(res.status));
+    const b = await res.json().catch(() => null);
+    const detail = typeof b?.error === 'string' ? (b.error as string) : null;
+    const code = typeof b?.code === 'string' ? (b.code as string) : null;
+    throw new ApiError(res.status, detail ?? germanMessage(res.status), code);
   }
   if (res.status === 204) return undefined as T;
   return res.json();

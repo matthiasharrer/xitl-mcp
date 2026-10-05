@@ -226,6 +226,25 @@ export function isAllowedUrl(url: URL, list: AllowEntry[] = allowListFromEnv()):
   return list.some((e) => e.host === host && (e.port === undefined || e.port === port));
 }
 
+/**
+ * The allowance a flagged upstream carries (ADR-0020, "Exception per
+ * upstream"): exactly its own URL's host and port (default port filled in),
+ * from the row's CURRENT url. Unflagged rows, and anything unparseable, get
+ * none (fail closed). Callers read it from the row per request; never cache.
+ */
+export function upstreamAllowance(row: { url: string; allowInternal: boolean }): AllowEntry[] {
+  if (row.allowInternal !== true) return [];
+  let url: URL;
+  try {
+    url = new URL(row.url);
+  } catch {
+    return [];
+  }
+  const port = effectivePort(url);
+  if (port === null || !url.hostname) return [];
+  return [{ host: url.hostname.toLowerCase(), port }];
+}
+
 /** The URL's host as an IP literal (brackets stripped), or null for a name. */
 function ipLiteral(url: URL): string | null {
   const h = url.hostname;
@@ -336,10 +355,15 @@ function findBlocked(e: unknown): OutboundBlocked | null {
 export async function outboundFetch(
   input: string | URL | Request,
   init?: RequestInit,
-  opts: { allow?: AllowEntry[] } = {},
+  opts: {
+    /** Replaces the env list (tests). */
+    allow?: AllowEntry[];
+    /** Added to the env list: a flagged upstream's own host:port (upstreamAllowance). */
+    alsoAllow?: AllowEntry[];
+  } = {},
 ): Promise<Response> {
   const url = urlOfInput(input);
-  const allowed = precheck(url, opts.allow ?? allowListFromEnv());
+  const allowed = precheck(url, [...(opts.allow ?? allowListFromEnv()), ...(opts.alsoAllow ?? [])]);
   try {
     // redirect: 'error' is forced here, not left to callers: the IP-literal
     // check above only sees the first URL, a followed redirect would not pass it.

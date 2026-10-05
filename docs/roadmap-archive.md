@@ -5,12 +5,19 @@ test evidence in `testing.md`'s run log.
 
 ## 2026-10-05
 
+- **`v0.4.0` released** (Matthias's call): outbound address policy with
+  per-upstream confirmation (ADR-0020); header title links to Freigaben.
+- **Header title → Freigaben:** "xitl" in the app bar is a link to `#/`.
 - **Outbound address policy (ADR-0020):** all upstream, OAuth and push
   requests go through `lib/outbound.ts`; internal addresses (checked at
   connect time, DNS-rebinding-safe) are refused unless listed in
   `OUTBOUND_ALLOW_PRIVATE`; German 400 when saving such an upstream URL or push
   endpoint. Closes the two SSRF debt items (upstream URL, discovery).
-  TC-77…81 + unit. Unreleased.
+  TC-77…81 + unit. Then (Matthias's decision) the exception moved to the
+  upstream itself: an internal URL needs "Trotzdem erlauben" in the form
+  (`Upstream.allowInternal`, only for that URL's host:port, recomputed on
+  URL change, "intern" chip); the env list stays as an optional admin
+  override. No deploy config needed. TC-82…84. Unreleased.
 - **Deployed; manual gates MG-01…04 and MG-06 passed** (run log #12).
 - **`v0.3.3` released** (Matthias's call): grouping by day and time gaps,
   pause scopes (ADR-0019).

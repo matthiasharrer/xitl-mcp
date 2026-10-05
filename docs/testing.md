@@ -246,6 +246,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 13 | 2026-10-05 | TC-01…84, unit 212 (api 202 + web 10) (`v0.4.0`: ADR-0020) | all passed (implementer, then lead independently: e2e 101). TC-84 checks visibility by geometry (ratio 1 flaked at 0.9999). TC-07 key list gains `allowInternal`. |
 | 12 | 2026-10-05 | MG-01…04, MG-06 (deployed `v0.3.x`) | MG-01…04 passed (Matthias, reported). MG-06 answered by measurements 1+2 (ADR-0016): nothing identifies a chat → time-gap grouping (ADR-0019). MG-05 and MG-07 not yet run. |
 | 1 | 2026-10-04 | TC-01…04 (scaffold) | 4 passed |
 | 2 | 2026-10-04 | TC-01…14 (+1 extra: no `MCP_TOKEN` → 404), unit 13 | all passed (implementer and lead, separately) |
