@@ -279,6 +279,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 18 | 2026-10-05 | ADR-0023 on the deployed `v0.4.2` (manual, Matthias) | passed (reported): the llama.cpp web UI in the browser uses `/mcp` with an access token that lists its origin; Qwen 3.6 handles the 41 tools well. |
 | 17 | 2026-10-05 | TC-01…99, unit 281 (api 271 + web 10) (ADR-0022 revised: push + Freigaben card, no placeholder; ADR-0023 browser origins) | all passed (implementer, then lead independently: e2e 118). Mutation: without the `origin_not_allowed` check TC-98 fails. |
 | 16 | 2026-10-05 | TC-01…93, unit 234 (api 224 + web 10) (ADR-0022: failing upstream visible) | all passed (implementer, then lead independently: e2e 112). Mutation: without recording `lastFailureAt` on failure, TC-90…93 fail (4). |
 | 15 | 2026-10-05 | MG-07 (deployed `v0.4.x`) | passed (Matthias, reported): the unified `/mcp` works as a Claude.ai connector. Sonnet, with both the combined and the per-upstream tools loaded, found them equally easy to use; Matthias uses the combined endpoint from now on. MG-05 not yet run. |

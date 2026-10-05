@@ -5,6 +5,8 @@
 
 ## 2026-10-05 — Fault push + Freigaben card; browser origins per token
 
+- `v0.4.2` released and deployed; Matthias confirmed the llama.cpp web UI works
+  in the browser via `/mcp` (Qwen 3.6, 41 tools). Fault push not yet seen live.
 - Matthias dropped the `xitl-status` placeholder ("remove that extra tool")
   for push + an entry in the Freigaben work list; ADR-0022 revised in place
   (unreleased). He then asked for CORS for the llama.cpp web UI, per token
