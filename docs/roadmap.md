@@ -5,7 +5,7 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-05 (fault push + Freigaben card, ADR-0022; browser origins per token, ADR-0023; unreleased)_
+_Last updated: 2026-10-05 (fault push + Freigaben card, ADR-0022; browser origins per token, ADR-0023; released as `v0.4.2`)_
 
 ## Next
 
@@ -15,7 +15,7 @@ _Last updated: 2026-10-05 (fault push + Freigaben card, ADR-0022; browser origin
 
 ## Milestone 1 status
 
-Deployed (`v0.4.1` is the latest release) and in daily use: Matthias's
+Deployed (`v0.4.2` is the latest release) and in daily use: Matthias's
 Claude.ai uses the unified `/mcp` connector (Haushalt, Rezepte, Einkaufsliste
 behind it) from 2026-10-05 on. Manual gates MG-01…04, MG-06 and MG-07 passed
 (`testing.md` run log). **Open:**
