@@ -43,3 +43,12 @@ export const UNBOUND_CLIENT_TTL_MS = 24 * 60 * 60 * 1000;
  * unbound ones first. Bound and TOKEN clients never count and are never
  * touched. */
 export const MAX_UNBOUND_CLIENTS = 100;
+
+/** MCP sessions (ADR-0016 amendment) not seen for this long are deleted
+ * (`lastSeenAt`, which an ended session carries too; exactly this old stays).
+ * Their audit rows stay, with `sessionId` null. */
+export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Sessions kept per user at most; a new `initialize` evicts that user's
+ * least recently seen ones first. Other users' sessions never count. */
+export const MAX_SESSIONS_PER_USER = 500;

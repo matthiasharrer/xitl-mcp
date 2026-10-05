@@ -12,9 +12,11 @@ import {
   parseNames,
   cloudTraceIdOf,
   requestDiagnostics,
+  sessionsToPrune,
   traceIdOf,
   toolCallsOf,
 } from './sessions.js';
+import { MAX_SESSIONS_PER_USER, SESSION_TTL_MS } from '../lib/limits.js';
 
 describe('session ids', () => {
   it('are 256-bit base64url, distinct, and recognised', () => {
@@ -138,5 +140,59 @@ describe('trace correlation (grouping candidates)', () => {
     const d = (v: string) => requestDiagnostics(new Headers({ 'x-anthropic-client': v }), []).anthropicClient;
     expect(d('claude-ai/1.0')).toBe('claude-ai/1.0');
     expect(d('has space')).toBeNull();
+  });
+});
+
+// TC-100 (unit): which sessions expire. The DB half (the scoped delete, audit
+// rows keeping their call with sessionId null) is covered by e2e TC-100.
+describe('sessionsToPrune (TC-100)', () => {
+  const now = new Date(Date.UTC(2026, 9, 5, 12, 0));
+  const DAY = 24 * 60 * 60 * 1000;
+  const row = (id: string, ageMs: number, userId = 1) => ({ id, userId, lastSeenAt: new Date(now.getTime() - ageMs) });
+
+  it('limits: 30 days, 500 per user', () => {
+    expect(SESSION_TTL_MS).toBe(30 * DAY);
+    expect(MAX_SESSIONS_PER_USER).toBe(500);
+  });
+
+  it('older than 30 days goes, exactly 30 days stays, younger stays', () => {
+    const rows = [row('a', 31 * DAY), row('b', DAY), row('c', 30 * DAY), row('d', 30 * DAY + 1)];
+    expect(sessionsToPrune(rows, now).sort()).toEqual(['a', 'd']);
+  });
+
+  it('over the cap the least recently seen go first (ties by id)', () => {
+    const rows = [row('k', 3 * DAY), row('m', DAY), row('z', 5 * DAY), row('y', 5 * DAY), row('n', 2 * DAY)];
+    expect(sessionsToPrune(rows, now, { maxPerUser: 3 })).toEqual(['y', 'z']);
+  });
+
+  it('reserve leaves room for the session about to be created', () => {
+    const rows = [row('a', 3 * DAY), row('b', 2 * DAY), row('c', DAY)];
+    expect(sessionsToPrune(rows, now, { maxPerUser: 3 })).toEqual([]);
+    expect(sessionsToPrune(rows, now, { maxPerUser: 3, reserve: 1 })).toEqual(['a']);
+  });
+
+  it('expired ones go first, then the cap applies to the rest', () => {
+    const rows = [row('a', 40 * DAY), row('b', 3 * DAY), row('c', 2 * DAY), row('d', DAY)];
+    expect(sessionsToPrune(rows, now, { maxPerUser: 2, reserve: 1 })).toEqual(['a', 'b', 'c']);
+  });
+
+  it('each user is counted on their own; other users never push anyone out', () => {
+    const rows = [
+      row('u1-old', 3 * DAY, 1),
+      row('u1-new', DAY, 1),
+      row('u2-a', 9 * DAY, 2),
+      row('u2-b', 8 * DAY, 2),
+      row('u2-c', 7 * DAY, 2),
+      row('u3', 60 * DAY, 3),
+    ];
+    // user 1 is under the cap of 2 even though 5 live sessions exist overall
+    expect(sessionsToPrune(rows, now, { maxPerUser: 2 }).sort()).toEqual(['u2-a', 'u3']);
+    // only user 1's rows given (the per-user call before a create): only theirs can go
+    expect(sessionsToPrune(rows.filter((r) => r.userId === 1), now, { maxPerUser: 2, reserve: 1 })).toEqual(['u1-old']);
+  });
+
+  it('a custom maxAgeMs is honoured; nothing to do is an empty list', () => {
+    expect(sessionsToPrune([row('a', 2 * DAY)], now, { maxAgeMs: DAY })).toEqual(['a']);
+    expect(sessionsToPrune([], now, { reserve: 1 })).toEqual([]);
   });
 });

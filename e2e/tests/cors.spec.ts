@@ -140,10 +140,9 @@ test('TC-97 Preflight: gelistete Origin -> 204 mit genau den CORS-Headern; fremd
   }
   // no other route ever answers with CORS, even for a listed origin
   for (const path of ['/api/upstreams', '/api/mcp/clients', '/oauth/authorize', '/mcp/token', '/mcp/register', '/.well-known/oauth-protected-resource', '/.well-known/oauth-authorization-server', '/', '/sw.js']) {
-    // (OPTIONS on a static file answers with a length but no body; the client then waits: GET only there)
-    const methods = path === '/' || path === '/sw.js' ? ['GET'] : ['OPTIONS', 'GET', 'POST'];
-    for (const method of methods) {
-      const res = await request.fetch(path, { method, headers: { Origin: listed, ...CO_A }, maxRedirects: 0 });
+    // OPTIONS on static paths too (TC-101: a 204 without a body, never a hang)
+    for (const method of ['OPTIONS', 'GET', 'POST']) {
+      const res = await request.fetch(path, { method, headers: { Origin: listed, ...CO_A }, maxRedirects: 0, timeout: 2000 });
       expect(corsHeaders(res), `${method} ${path}`).toEqual([]);
     }
   }

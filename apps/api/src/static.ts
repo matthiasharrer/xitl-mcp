@@ -31,28 +31,37 @@ export function mountStatic(app: Hono): void {
   // process was started from.
   const root = path.relative(process.cwd(), absDist).split(path.sep).join('/');
 
+  // OPTIONS on the SPA and its files (TC-101). serveStatic treats OPTIONS like
+  // HEAD: a 200 with the file's Content-Length and no body, so a client waits
+  // for bytes that never come; a path without a file fell through to a 404.
+  // The answer is a plain 204 saying what the path supports, and never any
+  // `Access-Control-*` (CORS exists only on /mcp and /mcp/<slug>, ADR-0023).
+  // The API, OAuth and discovery prefixes keep their own (404) answer; /mcp*
+  // is answered by mcp/mount.ts before this is reached.
+  const ownAnswer = ['/api/', '/oauth/', '/.well-known/', '/mcp'];
+  app.options('*', async (c, next) => {
+    if (ownAnswer.some((p) => c.req.path.startsWith(p))) return next();
+    return c.body(null, 204, { Allow: 'GET, HEAD' });
+  });
+
   // Content-hashed assets (/assets/*) are safe to cache forever; everything
   // else (notably index.html) must revalidate on every request so a deploy
   // is picked up immediately instead of being stuck behind a stale cache.
-  app.use(
-    '/assets/*',
-    serveStatic({
-      root,
-      onFound: (_path, c) => {
-        c.header('Cache-Control', 'public, max-age=31536000, immutable');
-      },
-    }),
-  );
-
-  app.use(
-    '*',
-    serveStatic({
-      root,
-      onFound: (_path, c) => {
-        c.header('Cache-Control', 'no-cache');
-      },
-    }),
-  );
+  // Never for OPTIONS (see above): it would answer with a length and no body.
+  const assets = serveStatic({
+    root,
+    onFound: (_path, c) => {
+      c.header('Cache-Control', 'public, max-age=31536000, immutable');
+    },
+  });
+  const files = serveStatic({
+    root,
+    onFound: (_path, c) => {
+      c.header('Cache-Control', 'no-cache');
+    },
+  });
+  app.use('/assets/*', (c, next) => (c.req.method === 'OPTIONS' ? next() : assets(c, next)));
+  app.use('*', (c, next) => (c.req.method === 'OPTIONS' ? next() : files(c, next)));
 
   // SPA fallback: any GET/HEAD that isn't a real file and isn't under /api
   // gets index.html so client-side routes (e.g. /recipes/3) survive a

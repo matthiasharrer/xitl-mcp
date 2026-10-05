@@ -19,9 +19,19 @@
 // 404 so it says nothing about other sessions. Only header NAMES are stored,
 // plus the values of User-Agent and MCP-Protocol-Version; never Authorization
 // or cookies.
+//
+// Expiry (ADR-0016 amendment): almost no client sends DELETE, so a row would
+// be added per `initialize` forever. Sessions not seen for SESSION_TTL_MS are
+// deleted, and at most MAX_SESSIONS_PER_USER are kept per user (least
+// recently seen evicted first). Cleanup runs at boot (all users) and before
+// every new session (that user only); there is no timer. Audit rows stay
+// (`AuditEntry.session` is `onDelete: SetNull`). A deleted id is the same 404
+// as an unknown one, and the client re-initializes.
 import crypto from 'node:crypto';
 import { prisma } from '../db.js';
 import type { Clock } from '../lib/clock.js';
+import { MAX_SESSIONS_PER_USER, SESSION_TTL_MS } from '../lib/limits.js';
+import { errorTag } from '../upstream/oauthClient.js';
 
 /** `lastSeenAt` alone is written at most this often. */
 export const LAST_SEEN_MIN_INTERVAL_MS = 60_000;
@@ -143,7 +153,69 @@ export async function findOwnSession(id: string, owner: SessionOwner) {
   });
 }
 
-/** Creates the session after a successful `initialize`. Returns its id. */
+export interface SessionPruneOptions {
+  maxAgeMs?: number;
+  maxPerUser?: number;
+  /** Slots to leave free below `maxPerUser`: 1 right before a session is
+   * created, so that afterwards the user has at most `maxPerUser`. */
+  reserve?: number;
+}
+
+/**
+ * Which sessions to delete: every one last seen more than `maxAgeMs` before
+ * `now` (exactly `maxAgeMs` stays), then, per user, the least recently seen
+ * (ties by id) until at most `maxPerUser - reserve` of that user remain. Each
+ * user is counted on their own: one user's sessions never push out another's.
+ * Pure.
+ */
+export function sessionsToPrune(
+  rows: { id: string; userId: number; lastSeenAt: Date }[],
+  now: Date,
+  opts: SessionPruneOptions = {},
+): string[] {
+  const maxAgeMs = opts.maxAgeMs ?? SESSION_TTL_MS;
+  const keep = Math.max(0, (opts.maxPerUser ?? MAX_SESSIONS_PER_USER) - (opts.reserve ?? 0));
+  const cutoff = now.getTime() - maxAgeMs;
+  const out: string[] = [];
+  const liveByUser = new Map<number, { id: string; lastSeenAt: Date }[]>();
+  for (const r of rows) {
+    if (r.lastSeenAt.getTime() < cutoff) {
+      out.push(r.id);
+      continue;
+    }
+    const list = liveByUser.get(r.userId) ?? [];
+    list.push(r);
+    liveByUser.set(r.userId, list);
+  }
+  for (const live of liveByUser.values()) {
+    live.sort((a, b) => a.lastSeenAt.getTime() - b.lastSeenAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    out.push(...live.slice(0, Math.max(0, live.length - keep)).map((r) => r.id));
+  }
+  return out;
+}
+
+/** Ids per DELETE statement (SQLite bound-parameter limit). */
+const PRUNE_CHUNK = 500;
+
+/** Deletes sessions per `sessionsToPrune`: of one user (`userId`, before
+ * that user's new session) or of everyone (boot). The delete is scoped to
+ * the user too. Returns how many rows were deleted. */
+export async function pruneSessions(now: Date, opts: SessionPruneOptions & { userId?: number } = {}): Promise<number> {
+  const scope = opts.userId !== undefined ? { userId: opts.userId } : {};
+  const rows = await prisma.mcpSession.findMany({ where: scope, select: { id: true, userId: true, lastSeenAt: true } });
+  const ids = sessionsToPrune(rows, now, opts);
+  let count = 0;
+  for (let i = 0; i < ids.length; i += PRUNE_CHUNK) {
+    const res = await prisma.mcpSession.deleteMany({ where: { ...scope, id: { in: ids.slice(i, i + PRUNE_CHUNK) } } });
+    count += res.count;
+  }
+  if (count > 0) console.log(`mcp: ${count} expired session(s) removed`);
+  return count;
+}
+
+/** Creates the session after a successful `initialize`. Returns its id.
+ * First makes room for it (expired ones and any over the cap, this user
+ * only); a failure there is logged and never blocks the new session. */
 export async function createSession(
   owner: SessionOwner,
   init: Record<string, unknown>,
@@ -151,6 +223,11 @@ export async function createSession(
   clock: Clock,
 ): Promise<{ id: string; createdAt: Date }> {
   const now = clock.now();
+  try {
+    await pruneSessions(now, { userId: owner.userId, reserve: 1 });
+  } catch (e) {
+    console.warn(`mcp: session cleanup failed: ${errorTag(e)}`);
+  }
   const id = newSessionId();
   await prisma.mcpSession.create({
     data: {

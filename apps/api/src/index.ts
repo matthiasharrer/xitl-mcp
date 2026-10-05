@@ -5,6 +5,7 @@ import { approvals } from './approval/pending.js';
 import { systemClock } from './lib/clock.js';
 import { allowListFromEnv } from './lib/outbound.js';
 import { pruneUnboundClients } from './mcp/unboundClients.js';
+import { pruneSessions } from './mcp/sessions.js';
 
 const port = Number(process.env.PORT ?? 3002);
 
@@ -21,6 +22,8 @@ const swept = await prisma.$executeRaw`UPDATE "AuditEntry" SET "outcome" = 'DENI
 if (swept > 0) console.warn(`audit: ${swept} unfinished call(s) from before the restart marked DENIED`);
 // DCR clients nobody approved: expired ones and any over the cap (TC-88).
 await pruneUnboundClients(systemClock.now());
+// MCP sessions (ADR-0016 amendment): expired ones, and per user any over the cap.
+await pruneSessions(systemClock.now());
 
 const server = serve({ fetch: app.fetch, port }, (info) => {
   console.log(`API listening on http://localhost:${info.port}`);
