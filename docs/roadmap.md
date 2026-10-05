@@ -14,7 +14,7 @@ below, the two open manual gates.
 
 ## Milestone 1 status
 
-Deployed (`v0.3.3` is the latest release) and in daily use: Matthias's
+Deployed (`v0.4.0` is the latest release) and in daily use: Matthias's
 Claude.ai connectors (Haushalt, Rezepte, Einkaufsliste) run through xitl.
 Manual gates MG-01…04 and MG-06 passed (`testing.md` run log). **Open:**
 
