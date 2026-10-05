@@ -9,20 +9,19 @@ _Last updated: 2026-10-05 (`v0.4.1` work: URL change resets trust, ADR-0021; DCR
 
 ## Next
 
-Nothing scheduled; Matthias picks. Candidates: the two open manual gates
-(MG-05, MG-07). `v0.4.1` (URL change resets trust, ADR-0021; unbound
+Nothing scheduled; Matthias picks. Candidate: the last open manual gate
+(MG-05). `v0.4.1` (URL change resets trust, ADR-0021; unbound
 DCR client cleanup; KnownTool cap) is released.
 
 ## Milestone 1 status
 
 Deployed (`v0.4.1` is the latest release) and in daily use: Matthias's
-Claude.ai connectors (Haushalt, Rezepte, Einkaufsliste) run through xitl.
-Manual gates MG-01…04 and MG-06 passed (`testing.md` run log). **Open:**
+Claude.ai uses the unified `/mcp` connector (Haushalt, Rezepte, Einkaufsliste
+behind it) from 2026-10-05 on. Manual gates MG-01…04, MG-06 and MG-07 passed
+(`testing.md` run log). **Open:**
 
 - **MG-05:** Tina's own consent and Haushalt connection, no cross-user
   visibility. Needs Tina.
-- **MG-07:** the unified `/mcp` as a Claude.ai connector (Claude Code on `/mcp`
-  with an all-upstreams token already worked before `v0.3.2`).
 
 **Production rules (still binding):** never set `APPROVAL_TIMEOUT_MS` or
 `PUSH_OUTBOX`; the ingress must not buffer `/api/approvals/stream` (SSE) and

@@ -259,6 +259,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 15 | 2026-10-05 | MG-07 (deployed `v0.4.x`) | passed (Matthias, reported): the unified `/mcp` works as a Claude.ai connector. Sonnet, with both the combined and the per-upstream tools loaded, found them equally easy to use; Matthias uses the combined endpoint from now on. MG-05 not yet run. |
 | 14 | 2026-10-05 | TC-01…89, unit 226 (api 216 + web 10) (`v0.4.1`: ADR-0021, DCR cleanup, KnownTool cap) | all passed (implementer, then lead independently: e2e 108). TC-86 mutation (no `changedAt` reset) fails as expected. TC-41/82 now send `headerValue` on their URL PATCH. |
 | 13 | 2026-10-05 | TC-01…84, unit 212 (api 202 + web 10) (`v0.4.0`: ADR-0020) | all passed (implementer, then lead independently: e2e 101). TC-84 checks visibility by geometry (ratio 1 flaked at 0.9999). TC-07 key list gains `allowInternal`. |
 | 12 | 2026-10-05 | MG-01…04, MG-06 (deployed `v0.3.x`) | MG-01…04 passed (Matthias, reported). MG-06 answered by measurements 1+2 (ADR-0016): nothing identifies a chat → time-gap grouping (ADR-0019). MG-05 and MG-07 not yet run. |
