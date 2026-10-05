@@ -53,3 +53,22 @@ it sends no chat id that we know of.
   several calls in one chat, and in two chats — does a trace id stay the same
   per chat, per turn, or change per call? If none is stable per chat, the
   grouping falls back to time gaps per client.
+
+## Measurement result 2 (2026-10-05, deployed `v0.3.2`, 8 calls)
+
+Four headless Claude Code runs ("chats"), two `list_tasks` calls each:
+
+- **Claude Code's own MCP client** (`claude mcp add`, all-upstreams token, `/mcp`):
+  protocol 2026-07-28, clientInfo `claude-code 2.1.289`, UA
+  `claude-code/2.1.289 (sdk-cli)`, **no** trace headers. `_meta`: the standard
+  envelope + `claudecode/toolUseId` + `progressToken` (both per call). No
+  session (2026 era).
+- **claude.ai connector used from Claude Code** (`/mcp/<slug>`, requests come
+  from Anthropic's backend): same protocol and clientInfo (forwarded), UA
+  `Claude-User`, `x-anthropic-client: ClaudeCode`, `traceparent` and
+  `x-cloud-trace-context` carry the same trace id — but a **different trace id
+  on every call**, also between the two calls of one chat.
+- **Conclusion:** neither path sends anything stable per chat. Trace ids,
+  `toolUseId` and `progressToken` are per call. Grouping falls back to time
+  gaps per client (decision with Matthias). The per-call diagnostics stay
+  (cheap, and a future client may send a chat id).

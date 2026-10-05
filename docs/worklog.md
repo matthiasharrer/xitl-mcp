@@ -3,6 +3,14 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-05 — Measurement 2: nothing per chat
+
+- v0.3.2 deployed (version footer). Ran 4 headless Claude Code "chats" x 2
+  calls: own client via `/mcp` + token, and the claude.ai connector. Both
+  2026-07-28; trace ids differ on every call; `claudecode/toolUseId` per call.
+  Logged in ADR-0016. Token config deleted from the scratchpad; Matthias
+  revokes the token.
+
 ## 2026-10-05 — Claude.ai measured: 2026-07-28, no sessions
 
 - Matthias sent the "Diagnose" of a real Claude.ai call (v0.3.1): protocol
