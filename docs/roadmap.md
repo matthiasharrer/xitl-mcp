@@ -5,12 +5,14 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-05 (`v0.4.0`: outbound address policy, ADR-0020)_
+_Last updated: 2026-10-05 (`v0.4.1` work: URL change resets trust, ADR-0021; DCR cleanup; KnownTool cap)_
 
 ## Next
 
-Nothing scheduled; Matthias picks. Candidates: the URL-change question
-below, the two open manual gates.
+Nothing scheduled; Matthias picks. Candidates: the two open manual gates
+(MG-05, MG-07). The `v0.4.1` security fixes (URL change resets trust,
+ADR-0021; unbound DCR client cleanup; KnownTool cap) are on `main`,
+unreleased.
 
 ## Milestone 1 status
 
@@ -30,19 +32,15 @@ stay behind Authelia.
 
 ## Debt and open points (from slice 1+3 review, 2026-10-04)
 
-- **DCR is open** (`/mcp/register`, as in Haushalt): unbound clients pile up if
-  spammed. Cleanup of never-approved clients after a day would do.
 - **Dev server proxies only `/api`:** `/mcp`, `/oauth`, `/.well-known` are
   reachable on :3002 only, not via the Coder URL, so Claude.ai can't be tested
   against the workspace. Add Vite proxy entries if that's wanted.
-- **Question to Matthias: URL change of an upstream** keeps explicit tool/client
-  ALLOW rules by tool name (only acknowledgements reset), and a HEADER
-  upstream's static secret goes to the new URL. User-initiated, but a silent
-  re-point keeps old permissions. Recommendation: a URL change marks all tools
-  changed (→ ask until reviewed) and requires re-entering a HEADER secret.
 - Revoked/flood calls send no "resolved" push; a stale notification answers
   "Nicht mehr offen" when tapped.
-- Approval stream cap (5) counts connections per process, not devices.
+- Approval stream cap (`MAX_APPROVAL_STREAMS_PER_USER` = 5 per user) counts
+  open SSE connections, not devices: every tab takes a slot, and a half-dead
+  connection holds its slot until the server notices the abort. In-memory,
+  which is exact with the single replica.
 - **Grouping (ADR-0019, built):** time gaps per client (10 min); two chats in
   parallel on one connector share a group.
 - **READONLY pause trusts `readOnlyHint`** as declared when the tool was first
@@ -57,15 +55,17 @@ stay behind Authelia.
   for all tools, destructive ones included (summary is agent-controlled;
   accepted).
 - `inputSchema` changes aren't detected (not stored).
-- **No caps** on held calls per user or SSE streams per user.
 - Boot sweep labels an ALLOW call that crashed mid-forward `DENIED +restart`,
   though it may have reached the upstream.
-- URL change keeps tool policies by tool name (acknowledgements reset).
 - **Unified `/mcp`:** `tools/list` fans out to every usable upstream per call
   (no cache, ideas.md); a failing upstream silently drops its tools (only the
   log says why); no `list_changed` there either.
 - Only `tools` are proxied (no resources/prompts); no `list_changed`
   notifications (stateless endpoint; next `tools/list` sees changes).
-- KnownTool sync has no cap on tool count.
+- DCR cleanup (TC-88): prune-then-create isn't atomic, so concurrent
+  registrations can briefly exceed `MAX_UNBOUND_CLIENTS` by a few; the next
+  registration (or boot) corrects it. Registration spam can evict a client
+  that is mid-consent (it fails closed: "Unbekannter … client_id", register
+  again).
 - Signed auth codes are replayable within 60 s (needs PKCE verifier too),
   copied caveat from Haushalt.

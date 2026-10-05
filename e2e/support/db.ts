@@ -48,6 +48,18 @@ export function dbRun(sql: string, ...params: unknown[]): void {
   }
 }
 
+/** Runs one statement for many parameter rows in a single transaction. */
+export function dbBatch(sql: string, rows: unknown[][]): void {
+  const Database = require('better-sqlite3');
+  const db = new Database(DB_PATH);
+  try {
+    const stmt = db.prepare(sql);
+    db.transaction(() => rows.forEach((r) => stmt.run(...r)))();
+  } finally {
+    db.close();
+  }
+}
+
 /** Creates an upstream through the API; returns the serialized row. */
 export async function createUpstream(
   request: import('@playwright/test').APIRequestContext,

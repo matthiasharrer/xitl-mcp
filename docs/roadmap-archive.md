@@ -5,6 +5,11 @@ test evidence in `testing.md`'s run log.
 
 ## 2026-10-05
 
+- **Security fixes (unreleased, for `v0.4.1`):** a URL change of an upstream
+  marks every tool changed (explicit ALLOWs ask until reviewed, policies
+  kept), deletes its snoozes and needs a HEADER secret again (ADR-0021);
+  never-approved DCR clients expire after 24 h, at most 100 exist; KnownTool
+  rows capped at 1000 per upstream (stale ones pruned first). TC-85…89.
 - **`v0.4.0` released** (Matthias's call): outbound address policy with
   per-upstream confirmation (ADR-0020); header title links to Freigaben.
 - **Header title → Freigaben:** "xitl" in the app bar is a link to `#/`.

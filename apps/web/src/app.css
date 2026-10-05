@@ -876,3 +876,13 @@ a.session-line {
   font-size: 0.8125rem;
   overflow-wrap: anywhere;
 }
+/* ADR-0021: a HEADER upstream's new address needs the header value again */
+.hint.new-url {
+  color: var(--warn);
+  font-weight: 600;
+}
+.field-error {
+  font-size: 0.8125rem;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}

@@ -52,12 +52,20 @@
     if (!slugTouched) slug = slugify(name);
   }
 
+  // ADR-0021: a stored header value was given for the old address. Pointing a
+  // HEADER upstream elsewhere needs the value again (the API refuses
+  // otherwise with code 'header_value_required').
+  const needsNewHeaderValue = $derived(!creating && auth === 'HEADER' && url.trim() !== u?.url);
+  const keepsStoredHeaderValue = $derived((u?.hasHeaderValue ?? false) && !needsNewHeaderValue);
+  // The API's refusal of the header value, shown at that field.
+  let headerValueError = $state<string | null>(null);
+
   const canSave = $derived(
     name.trim() !== '' &&
       slug !== '' &&
       url.trim() !== '' &&
       !busy &&
-      (auth !== 'HEADER' || (headerName.trim() !== '' && (headerValue !== '' || (u?.hasHeaderValue ?? false)))),
+      (auth !== 'HEADER' || (headerName.trim() !== '' && (headerValue !== '' || keepsStoredHeaderValue))),
   );
 
   async function save(e: Event, allowInternal = false) {
@@ -66,6 +74,7 @@
     busy = true;
     error = null;
     internalHint = null;
+    headerValueError = null;
     const input: UpstreamInput = {
       name: name.trim(),
       slug,
@@ -84,6 +93,7 @@
       await onsave(input);
     } catch (err) {
       if (err instanceof ApiError && err.code === 'internal_address' && !allowInternal) internalHint = err.message;
+      else if (err instanceof ApiError && err.code === 'header_value_required') headerValueError = err.message;
       else error = err instanceof Error ? err.message : 'Das hat nicht geklappt.';
       busy = false;
     }
@@ -203,10 +213,20 @@
           <input
             type="password"
             bind:value={headerValue}
+            oninput={() => (headerValueError = null)}
             autocomplete="off"
-            placeholder={u?.hasHeaderValue ? 'gespeichert, leer lassen zum Behalten' : ''}
+            required={!keepsStoredHeaderValue}
+            aria-invalid={headerValueError !== null}
+            aria-describedby={needsNewHeaderValue && u?.hasHeaderValue ? 'header-value-new-url' : undefined}
+            placeholder={keepsStoredHeaderValue ? 'gespeichert, leer lassen zum Behalten' : ''}
           />
-          <span class="hint">Wird nie wieder angezeigt.</span>
+          {#if headerValueError}
+            <span class="field-error" role="alert">{headerValueError}</span>
+          {:else if needsNewHeaderValue && u?.hasHeaderValue}
+            <span class="hint new-url" id="header-value-new-url">Neue Adresse: Header-Wert bitte neu eingeben.</span>
+          {:else}
+            <span class="hint">Wird nie wieder angezeigt.</span>
+          {/if}
         </label>
       {/if}
 

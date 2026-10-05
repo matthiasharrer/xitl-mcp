@@ -19,7 +19,7 @@
 //     plus whatever /control adds; a tool named `leak_token` echoes the
 //     credential it was called with (to prove xitl scrubs it).
 //   Control (test-only):
-//     POST /control/t/<t>/config   { accessTtl?, rejectRefresh?, instructions?,
+//     POST /control/t/<t>/config   { accessTtl?, rejectRefresh?, instructions?, headerSecret?,
 //                                    ...malicious modes, see `Malice` below }
 //     POST /control/t/<t>/tools    { name, description?, annotations? }: adds
 //                                  a tool, or REPLACES the definition of an
@@ -90,6 +90,9 @@ interface Tenant {
   mcpRequests: number;
   /** Auth kinds seen on MCP requests ("bearer" | "header" | "none"). */
   authSeen: string[];
+  /** The HEADER-auth secret this tenant accepts (default FAKE_HEADER_SECRET);
+   * set via /control/…/config { headerSecret } (TC-85: a new value is used). */
+  headerSecret: string;
 }
 
 const tenants = new Map<string, Tenant>();
@@ -112,6 +115,7 @@ function tenant(t: string): Tenant {
       refreshCount: 0,
       mcpRequests: 0,
       authSeen: [],
+      headerSecret: FAKE_HEADER_SECRET,
     };
     tenants.set(t, v);
   }
@@ -218,7 +222,7 @@ async function handleMcp(t: Tenant, tenantName: string, origin: string, req: htt
       credential = tok;
       t.authSeen.push('bearer');
     }
-  } else if (key === FAKE_HEADER_SECRET) {
+  } else if (key === t.headerSecret) {
     credential = key;
     t.authSeen.push('header');
   }
@@ -392,6 +396,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
       if (typeof body.accessTtl === 'number') t.accessTtl = body.accessTtl;
       if (typeof body.rejectRefresh === 'boolean') t.rejectRefresh = body.rejectRefresh;
       if (typeof body.instructions === 'string') t.instructions = body.instructions;
+      if (typeof body.headerSecret === 'string') t.headerSecret = body.headerSecret;
       if (body.malice && typeof body.malice === 'object') t.malice = { ...t.malice, ...body.malice };
       return send(res, 200, { ok: true });
     }

@@ -6,7 +6,7 @@ import type { Tool } from '@modelcontextprotocol/client';
 import { prisma } from '../db.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { withUpstream, CONNECT_TIMEOUT_MS } from './connection.js';
-import { MAX_UPSTREAM_TOOLS } from '../lib/limits.js';
+import { MAX_KNOWN_TOOLS_PER_UPSTREAM, MAX_UPSTREAM_TOOLS } from '../lib/limits.js';
 import { scrubSecrets } from '../lib/proxyText.js';
 
 /** Whether the FIRST tools/list ever seen for an upstream counts as
@@ -57,15 +57,21 @@ const warnedAbout = new WeakSet<Tool[]>();
  * per-client ALLOW can be set on a "Neu" tool without acknowledging it, and
  * must not carry over to a definition nobody has seen.
  */
-export async function syncKnownTools(upstreamId: number, tools: Tool[], clock: Clock = systemClock): Promise<void> {
+export async function syncKnownTools(
+  upstreamId: number,
+  tools: Tool[],
+  clock: Clock = systemClock,
+  maxRows: number = MAX_KNOWN_TOOLS_PER_UPSTREAM,
+): Promise<void> {
   const now = clock.now();
+  const current = usableTools(tools);
   const existingRows = await prisma.knownTool.findMany({
     where: { upstreamId },
     select: { id: true, name: true, description: true, annotations: true },
   });
   const byName = new Map(existingRows.map((r) => [r.name, r]));
   const acknowledgedAt = existingRows.length === 0 && ACKNOWLEDGE_INITIAL_TOOLS ? now : null;
-  for (const t of usableTools(tools)) {
+  for (const t of current) {
     const description = typeof t.description === 'string' ? t.description.slice(0, MAX_DESCRIPTION) : null;
     const annotations = t.annotations ? JSON.stringify(t.annotations) : null;
     const prev = byName.get(t.name);
@@ -93,6 +99,45 @@ export async function syncKnownTools(upstreamId: number, tools: Tool[], clock: C
       await prisma.knownTool.update({ where: { id: prev.id }, data: { description, annotations, lastSeenAt: now } });
     }
   }
+  await pruneStaleTools(upstreamId, new Set(current.map((t) => t.name)), now, maxRows);
+}
+
+/**
+ * Which KnownTool rows to delete so at most `maxRows` remain: only rows NOT in
+ * the current list, oldest `lastSeenAt` first (ties: lower id first). Rows in
+ * the current list are never chosen, even if they alone exceed the cap. Pure;
+ * exported for the unit test (TC-89).
+ */
+export function staleToolsToPrune(
+  rows: { id: number; name: string; lastSeenAt: Date }[],
+  currentNames: ReadonlySet<string>,
+  maxRows: number,
+): number[] {
+  const excess = rows.length - Math.max(0, maxRows);
+  if (excess <= 0) return [];
+  return rows
+    .filter((r) => !currentNames.has(r.name))
+    .sort((a, b) => a.lastSeenAt.getTime() - b.lastSeenAt.getTime() || a.id - b.id)
+    .slice(0, excess)
+    .map((r) => r.id);
+}
+
+/** TC-89: an upstream that rotates tool names must not grow KnownTool without
+ * bound. A deleted row takes its per-client rules with it (cascade) and its
+ * TOOL pauses; if the tool comes back it is "Neu" (never acknowledged), and
+ * until then a call to it is "unknown-tool" DENY. */
+async function pruneStaleTools(upstreamId: number, currentNames: ReadonlySet<string>, now: Date, maxRows: number): Promise<void> {
+  if ((await prisma.knownTool.count({ where: { upstreamId } })) <= maxRows) return;
+  const rows = await prisma.knownTool.findMany({ where: { upstreamId }, select: { id: true, name: true, lastSeenAt: true } });
+  const ids = staleToolsToPrune(rows, currentNames, maxRows);
+  if (ids.length === 0) return;
+  const idSet = new Set(ids);
+  const doomed = rows.filter((r) => idSet.has(r.id)).map((r) => r.name);
+  // `lastSeenAt < now`: a concurrent sync that has just seen one of these
+  // tools again keeps it.
+  const res = await prisma.knownTool.deleteMany({ where: { upstreamId, id: { in: ids }, lastSeenAt: { lt: now } } });
+  await prisma.snooze.deleteMany({ where: { upstreamId, scope: 'TOOL', toolName: { in: doomed } } });
+  console.warn(`tools: upstream ${upstreamId}: ${res.count} stale tool row(s) removed (cap ${maxRows})`);
 }
 
 /** Annotations compared as data (key order doesn't count as a change). */

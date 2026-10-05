@@ -245,7 +245,7 @@ test('TC-41 URL eines Upstreams ändern während ein Aufruf wartet: abgelehnt (+
   const { accessToken: token } = await runOAuthFlow(request, uniq('tc41url'), MATTHIAS);
   const held = startCall(request, up.slug, token, 'add_item', { item: 'umgezogen' });
   const p = await waitPending(request, up.id, 'add_item');
-  const res = await request.patch(`/api/upstreams/${up.id}`, { headers: MATTHIAS, data: { url: `http://127.0.0.1:3210/t/${tenant}-new/mcp` } });
+  const res = await request.patch(`/api/upstreams/${up.id}`, { headers: MATTHIAS, data: { url: `http://127.0.0.1:3210/t/${tenant}-new/mcp`, headerValue: FAKE_HEADER_SECRET } });
   expect(res.status()).toBe(200);
   expect((await held).isError).toBe(true);
   expect(auditByApproval(p.id)).toMatchObject({ outcome: 'DENIED', decisionPath: 'policy:upstream-default+revoked' });

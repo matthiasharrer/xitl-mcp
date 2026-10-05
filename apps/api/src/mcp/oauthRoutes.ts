@@ -48,6 +48,8 @@ import { externalOrigin } from '../lib/externalOrigin.js';
 import { isUpstreamSlug } from '../lib/slugs.js';
 import { prisma } from '../db.js';
 import { identity, type AppEnv } from '../identity.js';
+import { systemClock, type Clock } from '../lib/clock.js';
+import { pruneUnboundClients } from './unboundClients.js';
 
 // The consent flow's authorization endpoint lives at **`/oauth/authorize`**, NOT
 // under `/mcp/*` like the other OAuth endpoints.
@@ -286,9 +288,9 @@ function tokenError(c: Context, error: string, error_description: string) {
  * revocation doesn't exist yet in this slice, so a row vanishing between
  * `/authorize` and here isn't a real scenario today, but nothing about this
  * update is worth failing the actual token response over even so. */
-async function bumpLastUsed(clientId: string): Promise<void> {
+async function bumpLastUsed(clientId: string, now: Date): Promise<void> {
   try {
-    await prisma.mcpClient.update({ where: { clientId }, data: { lastUsedAt: new Date() } });
+    await prisma.mcpClient.update({ where: { clientId }, data: { lastUsedAt: now } });
   } catch {
     // Client row gone (or some other update failure) — token issuance still
     // proceeds; this is a nice-to-have signal, not a correctness dependency.
@@ -310,7 +312,7 @@ function setCsrfCookie(c: Context, value: string): void {
   });
 }
 
-export function mountMcpOAuth(app: Hono<AppEnv>, secret: string): void {
+export function mountMcpOAuth(app: Hono<AppEnv>, secret: string, clock: Clock = systemClock): void {
   // Identity gate for the consent page (GET and POST). Registered before the
   // handlers below; Hono runs middleware in registration order.
   app.use(AUTHORIZE_PATH, identity);
@@ -399,13 +401,17 @@ export function mountMcpOAuth(app: Hono<AppEnv>, secret: string): void {
     // self-verifying, the row is the source of truth.
     const client_id = crypto.randomBytes(24).toString('base64url');
     const name = client_name?.trim() ? client_name.trim() : 'Unbenannter Client';
+    const now = clock.now();
+    // DCR is public: never-approved clients expire after a day, and at most
+    // MAX_UNBOUND_CLIENTS of them exist, this new one included (TC-88).
+    await pruneUnboundClients(now, { reserve: 1 });
     await prisma.mcpClient.create({
-      data: { clientId: client_id, kind: 'OAUTH', name, redirectUris: JSON.stringify(redirect_uris) },
+      data: { clientId: client_id, kind: 'OAUTH', name, redirectUris: JSON.stringify(redirect_uris), createdAt: now },
     });
 
     const registration = OAuthClientInformationFullSchema.parse({
       client_id,
-      client_id_issued_at: Math.floor(Date.now() / 1000),
+      client_id_issued_at: Math.floor(now.getTime() / 1000),
       redirect_uris,
       token_endpoint_auth_method: 'none', // public client — PKCE only, no client_secret
       grant_types: grant_types ?? ['authorization_code', 'refresh_token'],
@@ -626,7 +632,7 @@ export function mountMcpOAuth(app: Hono<AppEnv>, secret: string): void {
       // could in principle have vanished between /authorize and here (no
       // revocation exists yet to cause that, but nothing stops it becoming
       // true later), and that must never fail token issuance itself.
-      await bumpLastUsed(claims.cid);
+      await bumpLastUsed(claims.cid, clock.now());
       const tokens = OAuthTokensSchema.parse({
         access_token,
         token_type: 'Bearer',
@@ -661,7 +667,7 @@ export function mountMcpOAuth(app: Hono<AppEnv>, secret: string): void {
       // access token — neither artefact is ever handed back unchanged.
       const access_token = issueAccessToken({ cid: claims.cid, uid: claims.uid, scope: claims.scope }, secret);
       const refresh_token = issueRefreshToken({ cid: claims.cid, uid: claims.uid, scope: claims.scope }, secret);
-      await bumpLastUsed(claims.cid);
+      await bumpLastUsed(claims.cid, clock.now());
       const tokens = OAuthTokensSchema.parse({
         access_token,
         token_type: 'Bearer',

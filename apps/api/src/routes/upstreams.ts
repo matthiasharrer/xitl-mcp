@@ -9,6 +9,7 @@ import { checkUrlHost } from '../lib/outbound.js';
 import { ConnectError, finishConnect, startConnect, errorTag } from '../upstream/oauthClient.js';
 import { approvals } from '../approval/pending.js';
 import { createTokenClient } from './mcpClients.js';
+import { systemClock } from '../lib/clock.js';
 
 // /api/upstreams: the user's registry of upstream MCP servers (ADR-0013).
 // Mounted under /api, so it sits behind the identity middleware. Every query is
@@ -147,6 +148,14 @@ export function firstMessage(error: z.ZodError): string {
 
 const SLUG_TAKEN = 'Diesen Slug hast du schon vergeben.';
 
+/** PATCH of a HEADER upstream's URL without a new header value (ADR-0021). */
+export const HEADER_VALUE_REQUIRED = {
+  error: 'Neue Adresse: Bitte gib den Header-Wert neu ein.',
+  code: 'header_value_required',
+} as const;
+
+const clock = systemClock;
+
 function isUniqueViolation(e: unknown): boolean {
   return typeof e === 'object' && e !== null && (e as { code?: unknown }).code === 'P2002';
 }
@@ -271,9 +280,10 @@ upstreams.patch('/:id', async (c) => {
   if (!parsed.success) return c.json({ error: firstMessage(parsed.error) }, 400);
   const v = parsed.data;
   const data: Record<string, unknown> = {};
+  const urlChanged = v.url !== undefined && v.url !== existing.url;
   // A changed URL recomputes the flag (re-confirm); an unchanged one keeps it.
-  if (v.url !== undefined && v.url !== existing.url) {
-    const internal = await internalFlag(v.url, v.allowInternal);
+  if (urlChanged) {
+    const internal = await internalFlag(v.url!, v.allowInternal);
     if ('refused' in internal) return c.json(internal.refused, 400);
     data.allowInternal = internal.flag;
   }
@@ -285,7 +295,10 @@ upstreams.patch('/:id', async (c) => {
   const auth = v.auth ?? existing.auth;
   if (auth === 'HEADER') {
     const headerName = v.headerName ?? existing.headerName;
-    // A missing headerValue keeps the stored one (write-only field).
+    // ADR-0021: the stored secret was given for the OLD address; a new
+    // address must come with the value again, or nothing changes. Without a
+    // URL change a missing headerValue keeps the stored one (write-only field).
+    if (urlChanged && !v.headerValue) return c.json(HEADER_VALUE_REQUIRED, 400);
     const headerValue = v.headerValue ?? existing.headerValue;
     if (!headerName) return c.json({ error: 'Der Header-Name fehlt.' }, 400);
     if (!headerValue) return c.json({ error: 'Der Header-Wert fehlt.' }, 400);
@@ -299,7 +312,6 @@ upstreams.patch('/:id', async (c) => {
 
   // A different server or a different way to log in invalidates whatever
   // connection existed: tokens for the old one must not be sent to the new one.
-  const urlChanged = v.url !== undefined && v.url !== existing.url;
   const authChanged = auth !== existing.auth;
   if (v.url !== undefined) data.url = v.url;
   if (urlChanged || authChanged) {
@@ -320,11 +332,24 @@ upstreams.patch('/:id', async (c) => {
   }
 
   try {
-    const res = await prisma.upstream.updateMany({ where: { id, userId }, data });
-    if (res.count === 0) return c.json({ error: 'Nicht gefunden.' }, 404);
-    // Another server behind the same name: what the user acknowledged was a
-    // different tool set, so every tool counts as new again (ADR-0004).
-    if (urlChanged) await prisma.knownTool.updateMany({ where: { upstreamId: id }, data: { acknowledgedAt: null } });
+    const found = await prisma.$transaction(async (tx) => {
+      const res = await tx.upstream.updateMany({ where: { id, userId }, data });
+      if (res.count === 0) return false;
+      // Another server behind the same name (ADR-0021): nothing the user
+      // reviewed or paused applies to it. Every tool counts as CHANGED, so an
+      // explicit tool/client ALLOW becomes ASK "changed-tool" until the user
+      // acknowledges the tool or sets its policy (lib/policy.ts); the
+      // policies themselves are kept. Every pause of this upstream ends.
+      if (urlChanged) {
+        await tx.knownTool.updateMany({
+          where: { upstreamId: id, upstream: { userId } },
+          data: { acknowledgedAt: null, changedAt: clock.now() },
+        });
+        await tx.snooze.deleteMany({ where: { upstreamId: id, userId } });
+      }
+      return true;
+    });
+    if (!found) return c.json({ error: 'Nicht gefunden.' }, 404);
     // A held call was approved for the old server / login: never forward it
     // to the new one.
     if (urlChanged || authChanged) approvals.cancelWhere((call) => call.userId === userId && call.upstreamId === id);

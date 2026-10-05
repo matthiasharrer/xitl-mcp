@@ -28,3 +28,18 @@ export const MAX_OAUTH_RESPONSE_BYTES = 1024 * 1024;
 /** Tools taken from one upstream tools/list; the rest are dropped with a log
  * line (never recorded, never listed, so a call to one is "unknown-tool"). */
 export const MAX_UPSTREAM_TOOLS = 500;
+
+/** KnownTool rows kept per upstream (tools that dropped out of the list stay
+ * as rows). Past this, rows NOT in the current list are deleted after a sync,
+ * oldest `lastSeenAt` first; rows in the current list never are. A deleted
+ * tool that comes back is "Neu" again (fails closed). */
+export const MAX_KNOWN_TOOLS_PER_UPSTREAM = 1000;
+
+/** OAuth clients from DCR (`/mcp/register`, public) that nobody approved on
+ * the consent page (userId null) are deleted after this long. */
+export const UNBOUND_CLIENT_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Unbound OAuth clients kept at most; a new registration evicts the oldest
+ * unbound ones first. Bound and TOKEN clients never count and are never
+ * touched. */
+export const MAX_UNBOUND_CLIENTS = 100;

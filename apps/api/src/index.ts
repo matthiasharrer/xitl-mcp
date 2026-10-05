@@ -4,6 +4,7 @@ import { initDb, prisma } from './db.js';
 import { approvals } from './approval/pending.js';
 import { systemClock } from './lib/clock.js';
 import { allowListFromEnv } from './lib/outbound.js';
+import { pruneUnboundClients } from './mcp/unboundClients.js';
 
 const port = Number(process.env.PORT ?? 3002);
 
@@ -18,6 +19,8 @@ allowListFromEnv();
 // the path says the outcome is unknown, not that it was refused).
 const swept = await prisma.$executeRaw`UPDATE "AuditEntry" SET "outcome" = 'DENIED', "decisionPath" = "decisionPath" || '+restart', "finishedAt" = ${systemClock.now()} WHERE "outcome" = 'PENDING'`;
 if (swept > 0) console.warn(`audit: ${swept} unfinished call(s) from before the restart marked DENIED`);
+// DCR clients nobody approved: expired ones and any over the cap (TC-88).
+await pruneUnboundClients(systemClock.now());
 
 const server = serve({ fetch: app.fetch, port }, (info) => {
   console.log(`API listening on http://localhost:${info.port}`);

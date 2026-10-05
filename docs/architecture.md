@@ -1,7 +1,9 @@
 # Architecture
 
 > How the system fits together **right now**. Target design lives in the ADRs;
-> this file describes what exists. _Last updated: 2026-10-05 (unified `/mcp`,
+> this file describes what exists. _Last updated: 2026-10-05 (v0.4.1: URL
+> change resets trust, ADR-0021; unbound DCR clients pruned; KnownTool cap;
+> earlier: unified `/mcp`,
 > ADR-0017: all upstreams in one, `<slug>_` names; token scope one/all,
 > ADR-0018: every endpoint takes OAuth and tokens; MCP sessions,
 > ADR-0016: `Mcp-Session-Id` on 2025-era `initialize`, DB-backed, diagnostics;
@@ -31,7 +33,8 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
     /api/sessions        routes/sessions.ts: my MCP sessions + diagnostics
     /api/push            routes/push.ts: VAPID key, subscriptions, test push
   /mcp/register, /mcp/token, /oauth/authorize, /.well-known/*
-                         mcp/oauthRoutes.ts: DCR, PKCE, consent page
+                         mcp/oauthRoutes.ts: DCR, PKCE, consent page;
+                         mcp/unboundClients.ts prunes never-approved DCR clients
   /mcp/<slug>            mcp/mount.ts: bearer gate -> slug resolved among the
                          token user's upstreams -> session check/creation
                          (mcp/sessions.ts) -> mcp/server.ts (proxy core)
@@ -45,7 +48,7 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
                          callTool() as /mcp/<slug>; unresolved -> DENY audited
                          without upstream. Instructions: proxyText.unifiedInstructions
   lib/policy.ts          THE policy function (pure, policy.test.ts = TC-24)
-  lib/limits.ts          every abuse limit in one place (TC-44/45/48)
+  lib/limits.ts          every abuse limit in one place (TC-44/45/48/88/89)
   lib/limitedResponse.ts byte cap on upstream/AS responses (TC-48)
   lib/proxyText.ts       ask stamp, instructions prefix, agent messages,
                          audit excerpt, secret scrubber (pure, tested)
@@ -105,11 +108,16 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   and when switched to (migration `header_none_connected` fixed older rows).
 - Changing an upstream's `url` or `auth` drops stored tokens and OAuth
   registration (tokens must not follow to another server) and ends its held
-  calls as denied (`+revoked`: never forwarded to the new server); a `url`
-  change also resets every KnownTool's `acknowledgedAt` (all tools "Neu"
-  again, not "Geändert": explicit tool/client ALLOW rules keep applying).
-  Tool policies and client overrides are kept. A HEADER upstream keeps its
-  header value across a `url` change (user-initiated).
+  calls as denied (`+revoked`: never forwarded to the new server).
+- A real `url` change resets trust (ADR-0021, TC-85/86): in one
+  `prisma.$transaction` with the row update, every KnownTool of the upstream
+  gets `changedAt = now`, `acknowledgedAt = null` ("Geändert": an explicit
+  tool/client ALLOW becomes ASK `changed-tool` until acknowledged or its
+  policy is set), and every Snooze of the upstream (all scopes) is deleted.
+  Tool policies and client overrides are kept. If the resulting auth is
+  HEADER, the PATCH must carry a new non-empty `headerValue`, else 400 `code:
+  'header_value_required'` and nothing changes; without a URL change a
+  missing `headerValue` keeps the stored one.
 - Deleting an upstream ends its held calls as denied (`+revoked`, TC-41);
   its audit rows stay (`upstreamId` → NULL), so deciding afterwards is 409.
 - Slugs: `^[a-z0-9][a-z0-9-]{0,31}$`, unique per user, `register` and `token`
@@ -235,6 +243,12 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   (`usableTools`; the rest are dropped with one log line, never recorded or
   listed, so calling one is `unknown-tool`). Upstream failure (incl. a
   response over the byte cap) -> JSON-RPC error with a generic message.
+- KnownTool rows of tools that left the list stay, up to
+  `MAX_KNOWN_TOOLS_PER_UPSTREAM` (1000) rows per upstream: past that, a sync
+  deletes rows **not** in the current list, oldest `lastSeenAt` first, down
+  to the cap (`staleToolsToPrune`; rows in the current list are never
+  deleted), plus TOOL snoozes of the deleted names; client rules cascade. A
+  deleted tool is `unknown-tool` DENY until listed again, then "Neu" (TC-89).
 - `tools/call`: KnownTool + client override + upstream default + live snooze
   read fresh -> `evaluatePolicy` -> AuditEntry `PENDING` written first (full
   arguments, `receivedAt` via Clock, endpoint, `approvalId` for ASK) -> DENY:
@@ -548,11 +562,22 @@ SameSite cookie is the first line; this covers body-less POSTs like
 
 - Copied from Haushalt: stateless signed codes/tokens (`MCP_TOKEN` is the HMAC
   secret, **never** a bearer), 1 h access / 30 d refresh, DCR creates a
-  `McpClient` row, consent page at `/oauth/authorize` behind identity with a
+  `McpClient` row (`createdAt` and `client_id_issued_at` from the Clock
+  passed to `mountMcpOAuth`), consent page at `/oauth/authorize` behind identity with a
   double-submit CSRF token, the client bound to the approving user. Revoke =
   delete the `McpClient` row (checked on every request in `mcp/verifier.ts`);
   its held calls end `+revoked` at once, its snoozes and client rules cascade.
   Unset `MCP_TOKEN` = no MCP routes at all (404).
+- DCR is public, so never-approved clients (`kind OAUTH`, `userId` null) are
+  pruned (`mcp/unboundClients.ts`, TC-88): before every registration and once
+  at boot (index.ts), those older than `UNBOUND_CLIENT_TTL_MS` (24 h) are
+  deleted, then the oldest unbound ones until at most `MAX_UNBOUND_CLIENTS`
+  (100) remain including the new one. Every delete re-checks `kind OAUTH,
+  userId null`, so bound and TOKEN clients are never touched. A pruned
+  `client_id` is an unknown one: consent page 400 "Unbekannter oder
+  abgelaufener client_id-Parameter.", token endpoint `invalid_grant` (an
+  unbound client never holds a code or token anyway). Spam can evict a
+  legitimate client mid-consent; it simply registers again.
 - Difference from Haushalt: the resource is per upstream. The 401 challenge on
   `/mcp/<slug>` points at `/.well-known/oauth-protected-resource/mcp/<slug>`
   (`resource` = `<origin>/mcp/<slug>`); the bare well-known stays.

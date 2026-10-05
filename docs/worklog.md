@@ -3,6 +3,19 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-05 — Security fixes for `v0.4.1`
+
+- Matthias approved the URL-change recommendation by asking for "the security
+  fixes". Built by one Opus agent (it was interrupted once by an API 529 and
+  resumed). The lead reviewed the PATCH transaction, DCR pruning and tool cap
+  line by line and re-ran every gate: unit 226, e2e 108.
+- The debt entries "no caps on held calls / SSE streams" were stale: both caps
+  already exist per user (`lib/limits.ts`). Removed.
+- Accepted leftovers (roadmap debt): the unbound-client cap isn't atomic under
+  concurrent registrations, and registration spam can evict a client that is
+  mid-consent. Both fail closed.
+- A pruned stale tool loses its per-client rules (cascade) and comes back "Neu".
+
 ## 2026-10-05 — Outbound address policy (SSRF), header link, `v0.4.0`
 
 - Roadmap caught up with reality: deployed, MG-01…04 passed (Matthias),

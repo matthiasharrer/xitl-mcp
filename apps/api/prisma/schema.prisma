@@ -123,7 +123,8 @@ model KnownTool {
   /// TC-36): acknowledgedAt is cleared at the same time, the tool is ASK
   /// ("changed-tool") even over an explicit tool/client ALLOW (lib/policy.ts),
   /// and the UI says "Geändert" instead of "Neu". Cleared again when the user
-  /// acknowledges or sets a policy.
+  /// acknowledges or sets a policy. Also set for every tool of an upstream
+  /// whose URL changes (ADR-0021).
   changedAt      DateTime?
   clientPolicies ClientToolPolicy[]
 

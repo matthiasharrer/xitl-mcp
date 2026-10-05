@@ -205,13 +205,14 @@ test('TC-82 Bestätigung pro Upstream: intern -> 400 internal_address; mit allow
   expect((await pub.json()).allowInternal).toBe(false);
 
   // PATCH to another internal URL: without confirmation refused and unchanged, with it ok
+  // (a HEADER upstream's new URL always comes with the value again, ADR-0021)
   const other = internalUrl(newTenant('tc82b'));
   const p1 = await request.patch(`/api/upstreams/${up.id}`, { headers: MATTHIAS, data: { url: other } });
   expect(p1.status()).toBe(400);
   expect(await p1.json()).toEqual(BLOCKED);
   expect(row(up.id)).toMatchObject({ url: internalUrl(tenant) });
   expect(flag(up.id)).toBe(true);
-  const p2 = await request.patch(`/api/upstreams/${up.id}`, { headers: MATTHIAS, data: { url: other, allowInternal: true } });
+  const p2 = await request.patch(`/api/upstreams/${up.id}`, { headers: MATTHIAS, data: { url: other, allowInternal: true, headerValue: FAKE_HEADER_SECRET } });
   expect(p2.status()).toBe(200);
   expect((await p2.json()).allowInternal).toBe(true);
   expect(row(up.id).url).toBe(other);
@@ -225,7 +226,7 @@ test('TC-82 Bestätigung pro Upstream: intern -> 400 internal_address; mit allow
   expect(flag(up.id)).toBe(true);
 
   // a public URL clears it, even when allowInternal is sent
-  const p5 = await request.patch(`/api/upstreams/${up.id}`, { headers: MATTHIAS, data: { url: 'https://example.com/mcp', allowInternal: true } });
+  const p5 = await request.patch(`/api/upstreams/${up.id}`, { headers: MATTHIAS, data: { url: 'https://example.com/mcp', allowInternal: true, headerValue: FAKE_HEADER_SECRET } });
   expect(p5.status()).toBe(200);
   expect((await p5.json()).allowInternal).toBe(false);
   expect(flag(up.id)).toBe(false);

@@ -4,7 +4,7 @@
 > every time. **This process is binding.** Cases are written from what a
 > feature *should* do; a script is one way of running a case.
 >
-> _Last updated: 2026-10-05 (`v0.2.0`)_
+> _Last updated: 2026-10-05 (`v0.4.1` cases TC-85…89)_
 
 ## Running
 
@@ -224,6 +224,19 @@ Unit (`apps/api/src/lib/outbound.test.ts`):
 - **Guard coverage:** no `fetch(` call in `apps/api/src` (non-generated,
   non-test) outside `lib/outbound.ts`.
 
+### v0.4.1 security fixes (ADR-0021): `e2e/tests/url-change.spec.ts`, `e2e/tests/cleanup.spec.ts`, unit tests
+
+The fake upstream takes a per-tenant HEADER secret (`config { headerSecret }`),
+so a case can prove the *new* value is the one sent.
+
+| ID    | Case |
+| ----- | ---- |
+| TC-85 | PATCH a HEADER upstream's URL without `headerValue` (absent or `null`) → 400 `{ error: "Neue Adresse: Bitte gib den Header-Wert neu ein.", code: "header_value_required" }`; the row keeps its old URL, header value and tools state (an empty string is a 400 too). With a new `headerValue` → 200 and the upstream uses the new value (the fake tenant accepts only the new secret and sees `header`, never `none`). A PATCH of only the name without `headerValue` → 200, the stored value is kept. NONE→HEADER together with a URL change also requires the value. |
+| TC-86 | URL change resets trust: tools A (tool policy ALLOW), B (client-level ALLOW for the calling client), C (acknowledged, upstream default ALLOW), a live snooze of each scope; before, all three are forwarded by their rule. After a PATCH to another fake tenant: no Snooze rows remain for the upstream; every tool is `changedAt` set / not acknowledged and the rules view shows `isChanged`, effective ASK, path `changed-tool`; calls to A, B and C are held (`changed-tool`) and the new tenant counts **0** calls. Acknowledging A → its explicit ALLOW applies again (forwarded, `policy:tool`), so policies were kept (the ClientToolPolicy row of B is still there). Another upstream of the same user keeps its snoozes and acknowledgements. Mutation-checked: without the `changedAt` reset the case fails (A is forwarded). |
+| TC-87 | ⚡ At 390×844: edit a HEADER upstream; changing only the name keeps Save enabled without a value; a new URL shows "Neue Adresse: Header-Wert bitte neu eingeben." at the header value field and disables Save until a value is entered (back to the old URL: enabled again without one); save → success, the row has the new URL and value. No horizontal scroll. |
+| TC-88 | DCR cleanup. Rows inserted straight into the e2e DB: unbound OAUTH clients 25 h and 1 h old, a bound OAUTH and a TOKEN client both 25 h old. One `POST /mcp/register` → the 25 h unbound one is gone; the 1 h one, the bound one, the TOKEN one and the new one exist. Cap (e2e with the real 100, plus unit with small caps): after registering with the cap reached, unbound clients ≤ 100, the oldest unbound one was evicted, the set of bound clients is unchanged. `/oauth/authorize` for a pruned client_id → 400 "Unbekannter oder abgelaufener client_id-Parameter." (no 500); `/mcp/token` with it → `invalid_grant`. Unit (`apps/api/src/mcp/unboundClients.test.ts`): 24 h edge (exactly 24 h stays), oldest-first eviction with id tie-break, `reserve` for the new row, expired-then-cap order. |
+| TC-89 | KnownTool cap. Unit (`apps/api/src/upstream/toolCap.test.ts`, injected cap, in-memory Prisma stand-in): stale rows beyond the cap are removed oldest-`lastSeenAt` first; rows in the current list are never removed even if they alone exceed the cap; under the cap nothing goes; a removed tool that comes back is new (not acknowledged); the removed tool's TOOL snooze goes. e2e (`cleanup.spec.ts`, real cap 1000): 1000 stale rows + 3 current → a refresh leaves 1000 with the 3 current ones and without the 3 oldest stale; the oldest returning to the list is new (`acknowledgedAt` null) and the next-oldest stale row goes. |
+
 ## Manual gates
 
 Things no script can prove. Run on the deployed instance before calling
@@ -246,6 +259,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 14 | 2026-10-05 | TC-01…89, unit 226 (api 216 + web 10) (`v0.4.1`: ADR-0021, DCR cleanup, KnownTool cap) | all passed (implementer, then lead independently: e2e 108). TC-86 mutation (no `changedAt` reset) fails as expected. TC-41/82 now send `headerValue` on their URL PATCH. |
 | 13 | 2026-10-05 | TC-01…84, unit 212 (api 202 + web 10) (`v0.4.0`: ADR-0020) | all passed (implementer, then lead independently: e2e 101). TC-84 checks visibility by geometry (ratio 1 flaked at 0.9999). TC-07 key list gains `allowInternal`. |
 | 12 | 2026-10-05 | MG-01…04, MG-06 (deployed `v0.3.x`) | MG-01…04 passed (Matthias, reported). MG-06 answered by measurements 1+2 (ADR-0016): nothing identifies a chat → time-gap grouping (ADR-0019). MG-05 and MG-07 not yet run. |
 | 1 | 2026-10-04 | TC-01…04 (scaffold) | 4 passed |
