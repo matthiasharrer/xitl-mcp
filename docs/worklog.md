@@ -3,6 +3,21 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-05 — Fault push + Freigaben card; browser origins per token
+
+- Matthias dropped the `xitl-status` placeholder ("remove that extra tool")
+  for push + an entry in the Freigaben work list; ADR-0022 revised in place
+  (unreleased). He then asked for CORS for the llama.cpp web UI, per token
+  (ADR-0023). He pushed back on "breaks my daily connector" (the project is
+  a day old); the reason for leaving OAuth clients alone stands: Claude.ai's
+  `Origin` behaviour is unmeasured.
+- One Opus agent built both slices; lead reviewed mount.ts gate order,
+  cors.ts, origins.ts, the conditional state writes and the SSE fault event
+  line by line; gates re-run (unit 281, e2e 118) + mutation on the origin
+  check. Nothing needed changing.
+- Gotcha: Prisma generated a table rebuild for the `allowedOrigins` column;
+  the agent hand-wrote a plain `ADD COLUMN … DEFAULT '[]'`.
+
 ## 2026-10-05 — Failing upstream visible on `/mcp`
 
 - Roadmap "Next" 1. Lead wrote ADR-0022 and TC-90…93; a Sonnet agent built

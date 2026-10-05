@@ -5,7 +5,9 @@
 //
 //   GET  /            my pending calls
 //   GET  /stream      SSE: `snapshot` (my pending list) on connect, then
-//                     `pending` / `resolved` events for my calls only
+//                     `upstreams` (my upstream faults, ADR-0022), then
+//                     `pending` / `resolved` events for my calls only and
+//                     `upstreams` again whenever my fault list may have changed
 //   GET  /:id         one call: pending, or its outcome once resolved
 //   POST /:id         { decision: 'approve'|'deny', via: 'page'|'push',
 //                       snoozeMinutes? | snoozeUntilMidnight?,
@@ -20,6 +22,8 @@ import { systemClock, type Clock } from '../lib/clock.js';
 import { approvals as defaultHub, ApprovalHub, type PendingCall, type ResolvedEvent } from '../approval/pending.js';
 import { MAX_SNOOZE_MINUTES, snoozeUntil } from '../approval/budget.js';
 import { MAX_APPROVAL_STREAMS_PER_USER } from '../lib/limits.js';
+import { faultList } from '../upstream/faults.js';
+import { upstreamStates as defaultStates, type UpstreamStateEvents } from '../upstream/stateEvents.js';
 
 const NOT_FOUND = { error: 'Nicht gefunden.' };
 const GONE = { error: 'Diese Freigabe ist nicht mehr offen.' };
@@ -97,9 +101,10 @@ async function resolvedView(userId: number, id: string) {
 export function makeApprovalRoutes(
   hub: ApprovalHub = defaultHub,
   clock: Clock = systemClock,
-  opts: { maxStreamsPerUser?: number } = {},
+  opts: { maxStreamsPerUser?: number; states?: UpstreamStateEvents } = {},
 ) {
   const r = new Hono<AppEnv>();
+  const states = opts.states ?? defaultStates;
   const maxStreams = opts.maxStreamsPerUser ?? MAX_APPROVAL_STREAMS_PER_USER;
   /** Open streams per user (TC-45). */
   const openStreams = new Map<number, number>();
@@ -142,6 +147,20 @@ export function makeApprovalRoutes(
       const onResolved = (ev: ResolvedEvent) => {
         if (ev.userId === userId) push('resolved', { id: ev.id, kind: ev.decision.kind });
       };
+      // Fault list (ADR-0022): recomputed from the DB on every event of this
+      // user's upstreams; chained so the lists arrive in order.
+      let faults: Promise<void> = Promise.resolve();
+      const sendFaults = () => {
+        faults = faults
+          .then(async () => {
+            const list = await faultList(userId);
+            if (open) push('upstreams', list);
+          })
+          .catch((e) => console.warn(`approval stream: fault list failed: ${e instanceof Error ? e.name : 'unknown'}`));
+      };
+      const offStates = states.on((ev) => {
+        if (ev.userId === userId) sendFaults();
+      });
       const close = () => {
         open = false;
         wake?.();
@@ -154,6 +173,7 @@ export function makeApprovalRoutes(
       try {
         const now = clock.now();
         await stream.writeSSE({ event: 'snapshot', data: JSON.stringify(hub.list(userId).map((p) => serializePending(p, now))) });
+        sendFaults();
         while (open) {
           while (queue.length > 0 && open) {
             const next = queue.shift()!;
@@ -171,6 +191,7 @@ export function makeApprovalRoutes(
           if (timedOut && open) await stream.write(': keepalive\n\n');
         }
       } finally {
+        offStates();
         hub.off('pending', onPending);
         hub.off('resolved', onResolved);
         hub.off('shutdown', close);

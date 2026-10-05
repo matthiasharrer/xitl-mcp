@@ -9,7 +9,10 @@ import { checkUrlHost } from '../lib/outbound.js';
 import { ConnectError, finishConnect, startConnect, errorTag } from '../upstream/oauthClient.js';
 import { approvals } from '../approval/pending.js';
 import { createTokenClient } from './mcpClients.js';
+import { parseAllowedOrigins } from '../lib/origins.js';
 import { systemClock } from '../lib/clock.js';
+import { faultList } from '../upstream/faults.js';
+import { upstreamStates } from '../upstream/stateEvents.js';
 
 // /api/upstreams: the user's registry of upstream MCP servers (ADR-0013).
 // Mounted under /api, so it sits behind the identity middleware. Every query is
@@ -170,6 +173,13 @@ upstreams.get('/', async (c) => {
   return c.json(rows.map(serializeUpstream));
 });
 
+// GET /api/upstreams/faults: the "Störung" list of Freigaben (ADR-0022), the
+// same list the approval stream sends as its `upstreams` event.
+upstreams.get('/faults', async (c) => {
+  noStore(c);
+  return c.json(await faultList(c.get('user').id));
+});
+
 upstreams.post('/', async (c) => {
   noStore(c);
   const body = await c.req.json().catch(() => null);
@@ -318,6 +328,8 @@ upstreams.patch('/:id', async (c) => {
   if (urlChanged || authChanged) {
     Object.assign(data, {
       status: auth === 'OAUTH' ? 'NOT_CONNECTED' : 'CONNECTED',
+      // The failure belonged to the old server / login (ADR-0022).
+      lastFailureAt: null,
       oauthClient: null,
       oauthMetadata: null,
       accessToken: null,
@@ -354,6 +366,9 @@ upstreams.patch('/:id', async (c) => {
     // A held call was approved for the old server / login: never forward it
     // to the new one.
     if (urlChanged || authChanged) approvals.cancelWhere((call) => call.userId === userId && call.upstreamId === id);
+    // The fault list may have changed (name, or a reset state): Freigaben
+    // recomputes it. Not a transition: nothing is pushed.
+    upstreamStates.emit({ userId, upstreamId: id, state: 'ok', cause: 'edit' });
   } catch (e) {
     if (isUniqueViolation(e)) return c.json({ error: SLUG_TAKEN }, 409);
     throw e;
@@ -371,10 +386,11 @@ upstreams.delete('/:id', async (c) => {
   if (res.count === 0) return c.json({ error: 'Nicht gefunden.' }, 404);
   // Its held calls end denied right away ("+revoked", TC-41).
   approvals.cancelWhere((call) => call.userId === userId && call.upstreamId === id);
+  upstreamStates.emit({ userId, upstreamId: id, state: 'ok', cause: 'edit' });
   return c.body(null, 204);
 });
 
-// POST /api/upstreams/:id/tokens - body { name } -> 201 { client, token }
+// POST /api/upstreams/:id/tokens - body { name, allowedOrigins? } -> 201 { client, token }
 // (ADR-0015). The ONLY response that ever contains the token; only its SHA-256
 // is stored. The new row is an McpClient of kind TOKEN, bound at creation to
 // this user and this upstream. Someone else's upstream is a 404.
@@ -387,9 +403,12 @@ upstreams.post('/:id/tokens', async (c) => {
   if (!upstream) return c.json({ error: 'Nicht gefunden.' }, 404);
 
   const body = await c.req.json().catch(() => null);
-  const parsed = z.object({ name: nameSchema }).safeParse(body);
+  const parsed = z.object({ name: nameSchema, allowedOrigins: z.unknown().optional() }).safeParse(body);
   if (!parsed.success) return c.json({ error: firstMessage(parsed.error) }, 400);
+  // ADR-0023: optional browser origins, validated and normalized.
+  const origins = parsed.data.allowedOrigins === undefined ? { ok: true as const, origins: [] } : parseAllowedOrigins(parsed.data.allowedOrigins);
+  if (!origins.ok) return c.json({ error: origins.error, code: 'invalid_origin' }, 400);
 
-  const { client, token } = await createTokenClient(userId, parsed.data.name, { upstreamId: upstream.id });
+  const { client, token } = await createTokenClient(userId, parsed.data.name, { upstreamId: upstream.id }, origins.origins);
   return c.json({ client, token }, 201);
 });

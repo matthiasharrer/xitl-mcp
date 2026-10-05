@@ -44,6 +44,7 @@ import {
 import { limitResponse } from '../lib/limitedResponse.js';
 import { outboundFetch, upstreamAllowance } from '../lib/outbound.js';
 import { MAX_OAUTH_RESPONSE_BYTES } from '../lib/limits.js';
+import { upstreamStates } from './stateEvents.js';
 
 /** Timeout for every OAuth request to an upstream's AS. */
 const OAUTH_TIMEOUT_MS = 15_000;
@@ -302,6 +303,8 @@ export async function finishConnect(
     where: { id, userId, url: row.url, auth: 'OAUTH' },
     data: {
       status: 'CONNECTED',
+      // A fresh connection: whatever failed before is history (ADR-0022).
+      lastFailureAt: null,
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token ?? null,
       tokenExpiresAt: expiryFrom(tokens.expires_in, clock.now()),
@@ -309,17 +312,24 @@ export async function finishConnect(
   });
   if (saved.count !== 1) return { kind: 'failed', upstreamId: id, reason: 'fehler' };
   console.log(`upstream ${id}: connected`);
+  upstreamStates.emit({ userId, upstreamId: id, state: 'ok', cause: 'transition' });
   return { kind: 'connected', upstreamId: id };
 }
 
 /** Drop the tokens and ask the user to reconnect (TC-17). Keeps the client
  * registration and metadata, which a reconnect reuses. */
 export async function markNeedsReconnect(id: number, userId: number): Promise<void> {
-  await prisma.upstream.updateMany({
-    where: { id, userId, auth: 'OAUTH' },
+  // Conditional (ADR-0022): only the write that changes the row is the
+  // transition into `reconnect`. A row already NEEDS_RECONNECT has no tokens
+  // left to drop.
+  const res = await prisma.upstream.updateMany({
+    where: { id, userId, auth: 'OAUTH', status: { not: 'NEEDS_RECONNECT' } },
     data: { status: 'NEEDS_RECONNECT', accessToken: null, refreshToken: null, tokenExpiresAt: null },
   });
-  console.warn(`upstream ${id}: needs reconnect`);
+  if (res.count === 1) {
+    console.warn(`upstream ${id}: needs reconnect`);
+    upstreamStates.emit({ userId, upstreamId: id, state: 'reconnect', cause: 'transition' });
+  }
 }
 
 // One refresh per upstream at a time (single replica, ADR-0002): two proxied

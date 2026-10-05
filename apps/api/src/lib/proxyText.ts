@@ -61,46 +61,6 @@ export function unifiedInstructions(sections: UnifiedSection[]): string {
   return parts.join('\n\n');
 }
 
-/** The placeholder tool of the unified `/mcp` (ADR-0022). No `_` in the name:
- * it can never be an upstream's `<slug>_<tool>`. */
-export const STATUS_TOOL_NAME = 'xitl-status';
-
-export interface FailingUpstream {
-  name: string;
-  state: 'reconnect' | 'unreachable';
-}
-
-/** One line per failing upstream: only the user-chosen display name and a
- * fixed sentence, never an error, URL or status code (ADR-0007, ADR-0022). */
-export function statusText(failing: FailingUpstream[]): string {
-  // A client that cached an older list may still call it after recovery.
-  if (failing.length === 0) return '[xitl] Zurzeit fehlen keine Upstreams. / No upstream is missing right now.';
-  const lines = failing.map((f) => {
-    const name = f.name.replace(/\s+/g, ' ').trim();
-    return f.state === 'reconnect'
-      ? `- ${name}: muss in xitl neu verbunden werden. / must be reconnected in xitl.`
-      : `- ${name}: gerade nicht erreichbar. / currently unreachable.`;
-  });
-  return (
-    `[xitl] Diese Upstreams liefern zurzeit keine Tools / These upstreams currently provide no tools:\n${lines.join('\n')}\n\n` +
-    'Sag dem Nutzer Bescheid: „in xitl neu verbinden“ bzw. „gerade nicht erreichbar“. ' +
-    '/ Tell the user: "reconnect in xitl" or "currently unreachable".'
-  );
-}
-
-/** The `xitl-status` entry of `tools/list` (read-only, takes nothing). */
-export function statusTool(failing: FailingUpstream[]) {
-  return {
-    name: STATUS_TOOL_NAME,
-    description:
-      'Zeigt, welche Upstreams gerade fehlen und warum (neu verbinden oder nicht erreichbar). Ruf es auf, wenn dir Tools fehlen. ' +
-      '/ Shows which upstreams are missing and why (reconnect or unreachable). Call it when tools are missing.\n\n' +
-      statusText(failing),
-    inputSchema: { type: 'object' as const, properties: {} },
-    annotations: { readOnlyHint: true },
-  };
-}
-
 /** The ASK stamp appended to a tool's description (ADR-0014). */
 export function askStamp(displayName: string): string {
   return (

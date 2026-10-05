@@ -11,10 +11,10 @@
 //   the policy for THIS client: DENY tools are dropped, ASK tools get the
 //   approval stamp in their description; name/inputSchema/annotations pass
 //   through unchanged. `/mcp` does this for every usable upstream in parallel,
-//   prefixes the names `<slug>_` and leaves out an upstream that fails; while
-//   one needs a reconnect or is unreachable it appends the placeholder tool
-//   `xitl-status` (ADR-0022), which `tools/call` answers from the stored
-//   state (no contact, no audit; also when nothing is failing any more).
+//   prefixes the names `<slug>_` and leaves out an upstream that fails
+//   (ADR-0017 degrade). No tool is added for a failing upstream: the user is
+//   told by push and on Freigaben (ADR-0022, upstream/stateEvents.ts), the
+//   agent only by the state line in the instructions.
 // - tools/call: re-evaluates the policy (never trusts that the client saw the
 //   list; a live snooze can turn ASK into ALLOW), writes the audit row FIRST
 //   (PENDING), then forwards (ALLOW), refuses (DENY) or holds the call for the
@@ -38,16 +38,12 @@ import { systemClock, type Clock } from '../lib/clock.js';
 import { awaitingReview, evaluatePolicy, type Policy, type PolicyTool } from '../lib/policy.js';
 import {
   MSG,
-  STATUS_TOOL_NAME,
   errorResult,
   instructionsFor,
   resultExcerpt,
   scrubSecrets,
   stampedDescription,
-  statusText,
-  statusTool,
   unifiedInstructions,
-  type FailingUpstream,
   type UpstreamState,
 } from '../lib/proxyText.js';
 import { splitUnifiedName, unifiedName } from '../lib/unifiedNames.js';
@@ -162,8 +158,7 @@ const MAX_TOOL_NAME_IN_AUDIT = 200;
 /** Generic, internals-free JSON-RPC error for a failed upstream list. */
 function upstreamListError(name: string, e: unknown): ProtocolError {
   const text = e instanceof UpstreamNeedsReconnect ? MSG.reconnect(name) : e instanceof UpstreamNotConnected ? MSG.notConnected(name) : MSG.upstreamError(name);
-  // The cause stays on the server (the unified list reads the state from it).
-  return Object.assign(new ProtocolError(ProtocolErrorCode.InternalError, text), { cause: e });
+  return new ProtocolError(ProtocolErrorCode.InternalError, text);
 }
 
 /** The KnownTool fields the policy engine needs. */
@@ -533,41 +528,21 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
       // Degrade per upstream: one that fails is left out, the rest is listed.
       const results = await Promise.allSettled(rows.map((u) => listFor(u, mcpClientId, displayName)));
       const tools: Tool[] = [];
-      const failing: FailingUpstream[] = [];
       results.forEach((r, i) => {
         const u = rows[i]!;
-        if (r.status === 'rejected') {
-          // logged in listFor
-          const cause = (r.reason as { cause?: unknown } | null)?.cause;
-          failing.push({ name: u.name, state: cause instanceof UpstreamNeedsReconnect ? 'reconnect' : 'unreachable' });
-          return;
-        }
-        // Not usable: not contacted; a reconnect is told, a never-connected one is not.
-        if (!isUsable(u) && storedState(u) === 'reconnect') failing.push({ name: u.name, state: 'reconnect' });
+        if (r.status === 'rejected') return; // logged in listFor; state in lastFailureAt/status
         for (const t of r.value) {
           const name = unifiedName(u.slug, t.name);
           if (name) tools.push({ ...t, name });
           else console.warn(`proxy: upstream ${u.id}: tool name not listable on /mcp (MCP name rules)`);
         }
       });
-      // ADR-0022: one placeholder tells the agent why upstreams are missing.
-      if (failing.length > 0) tools.push(statusTool(failing) as Tool);
       return { tools };
     });
 
     server.setRequestHandler('tools/call', async (request, reqCtx) => {
       const name = request.params.name;
       const args = request.params.arguments ?? {};
-      if (name === STATUS_TOOL_NAME) {
-        // From the stored state: nothing is contacted, nothing is audited.
-        const rows = await prisma.upstream.findMany({ where: { userId }, orderBy: { slug: 'asc' } });
-        const failing = rows.flatMap((u): FailingUpstream[] => {
-          const state = storedState(u);
-          return state === 'reconnect' || state === 'unreachable' ? [{ name: u.name, state }] : [];
-        });
-        // Also answered when nothing fails: a client may call it from a cached list.
-        return { content: [{ type: 'text', text: statusText(failing) }] };
-      }
       const split = splitUnifiedName(name);
       // Resolved ONLY among this user's upstreams; another user's slug is unknown.
       const upstream = split

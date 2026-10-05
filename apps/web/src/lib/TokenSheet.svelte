@@ -1,10 +1,11 @@
 <script lang="ts">
   // Bottom-sheet dialog to create an access token (ADR-0015, ADR-0018) for one
   // upstream, or for all upstreams (`upstream` null: endpoint /mcp).
-  // Step 1 asks for a name; step 2 shows the token ONCE with a copy button and
-  // a ready-made client config. Same shell as UpstreamSheet.
+  // Step 1 asks for a name and, optionally, the web pages that may use the
+  // token from a browser (ADR-0023); step 2 shows the token ONCE with a copy
+  // button and a ready-made client config. Same shell as UpstreamSheet.
   import { onMount } from 'svelte';
-  import { api, messageOf, type Upstream } from './api';
+  import { api, ApiError, messageOf, originLines, type Upstream } from './api';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -17,8 +18,11 @@
   let { upstream, onclose, oncreated }: Props = $props();
 
   let name = $state('');
+  let origins = $state('');
   let busy = $state(false);
   let error = $state<string | null>(null);
+  /** A 400 about the origins, shown at their field. */
+  let originsError = $state<string | null>(null);
   let token = $state<string | null>(null);
   let copied = $state<string | null>(null);
   let dialog: HTMLDialogElement;
@@ -41,12 +45,17 @@
     if (name.trim() === '' || busy) return;
     busy = true;
     error = null;
+    originsError = null;
+    const allowed = originLines(origins);
     try {
-      const res = upstream ? await api.createUpstreamToken(upstream.id, name.trim()) : await api.createAllUpstreamsToken(name.trim());
+      const res = upstream
+        ? await api.createUpstreamToken(upstream.id, name.trim(), allowed)
+        : await api.createAllUpstreamsToken(name.trim(), allowed);
       token = res.token;
       oncreated();
     } catch (err) {
-      error = messageOf(err);
+      if (err instanceof ApiError && err.code === 'invalid_origin') originsError = err.message;
+      else error = messageOf(err);
     } finally {
       busy = false;
     }
@@ -103,6 +112,25 @@
             autocomplete="off"
             placeholder="z. B. Claude Code Laptop"
           />
+        </label>
+        <label class="field">
+          <span class="label">Erlaubte Web-Adressen (Browser-Clients)</span>
+          <textarea
+            bind:value={origins}
+            rows="2"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            placeholder="http://localhost:8080"
+            aria-invalid={originsError ? 'true' : undefined}
+          ></textarea>
+          {#if originsError}
+            <span class="field-error" role="alert">{originsError}</span>
+          {/if}
+          <span class="hint">
+            Optional. Nur für Clients, die im Browser laufen (z. B. die Web-Oberfläche von llama.cpp): eine Adresse pro
+            Zeile, wie <code>http://localhost:8080</code>. Leer lassen für Claude Code und andere Programme.
+          </span>
         </label>
         {#if error}<p class="error" role="alert">{error}</p>{/if}
       {:else}

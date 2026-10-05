@@ -23,4 +23,5 @@
 | 0019 | [Calls grouped by day and time gaps; pauses for a tool, read-only tools or an upstream](0019-grouping-and-pause-scopes.md) | Accepted |
 | 0020 | [Outbound address policy: no server-side requests to internal addresses](0020-outbound-address-policy.md) | Accepted |
 | 0021 | [A URL change of an upstream resets trust](0021-upstream-url-change.md) | Accepted |
-| 0022 | [A failing upstream is visible on `/mcp` and in the app](0022-failing-upstream-on-unified.md) | Accepted |
+| 0022 | [A failing upstream is told to the user (push, Freigaben) and noted in `/mcp`'s instructions](0022-failing-upstream-on-unified.md) | Accepted |
+| 0023 | [Browser clients: allowed origins per access token (CORS on `/mcp*`)](0023-browser-origins-per-token.md) | Accepted |

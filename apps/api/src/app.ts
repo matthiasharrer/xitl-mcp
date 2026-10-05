@@ -13,6 +13,8 @@ import { sessions } from './routes/sessions.js';
 import { push } from './routes/push.js';
 import { approvals } from './approval/pending.js';
 import { wireApprovalPush } from './approval/notify.js';
+import { wireUpstreamPush } from './upstream/notify.js';
+import { upstreamStates } from './upstream/stateEvents.js';
 import { mountMcp } from './mcp/mount.js';
 import { mountStatic } from './static.js';
 import { MAX_API_BODY_BYTES, MAX_MCP_BODY_BYTES } from './lib/limits.js';
@@ -60,6 +62,8 @@ app.route('/api/push', push);
 
 // Every new held call is pushed to its user's devices (ADR-0009).
 wireApprovalPush(approvals);
+// An upstream that becomes unreachable / needs a reconnect is pushed too (ADR-0022).
+wireUpstreamPush(upstreamStates);
 
 app.onError((err, c) => {
   console.error(err);

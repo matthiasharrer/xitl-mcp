@@ -30,6 +30,13 @@ export type PushMessage =
       id: string;
       outcome: 'approved' | 'denied' | 'expired';
     }
+  | {
+      /** ADR-0022: an upstream became unreachable / needs a reconnect (tag upstream-<id>). */
+      type: 'upstream';
+      upstreamId: number;
+      name: string;
+      state: 'unreachable' | 'reconnect';
+    }
   | { type: 'test'; title: string; body: string };
 
 export interface SendOptions {

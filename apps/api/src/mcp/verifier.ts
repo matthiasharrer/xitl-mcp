@@ -51,14 +51,8 @@ export async function verifyAccessToken(token: string, slug: string | null): Pro
   }
 
   const now = clock.now();
-  // Cheap "last used": a conditional UPDATE that matches at most once a minute.
-  void prisma.mcpClient
-    .updateMany({
-      where: { id: client.id, OR: [{ lastUsedAt: null }, { lastUsedAt: { lt: new Date(now.getTime() - LAST_USED_MIN_INTERVAL_MS) } }] },
-      data: { lastUsedAt: now },
-    })
-    .catch(() => undefined);
-
+  // "last used" is NOT bumped here: mount.ts does it (touchTokenLastUsed) only
+  // after the browser-origin check passed (ADR-0023, TC-98).
   return {
     token,
     clientId: client.clientId,
@@ -66,6 +60,24 @@ export async function verifyAccessToken(token: string, slug: string | null): Pro
     expiresAt: Math.floor(now.getTime() / 1000) + TOKEN_REQUEST_TTL_S,
     extra: { userId: client.userId, clientName: client.name, mcpClientId: client.id },
   };
+}
+
+/** Cheap "last used" of a TOKEN client: a conditional UPDATE that matches at
+ * most once a minute. Fire and forget; called by mount.ts once the request is
+ * let through (token verified, origin allowed). */
+export function touchTokenLastUsed(mcpClientId: number, userId: number): void {
+  const now = clock.now();
+  void prisma.mcpClient
+    .updateMany({
+      where: {
+        id: mcpClientId,
+        userId,
+        kind: 'TOKEN',
+        OR: [{ lastUsedAt: null }, { lastUsedAt: { lt: new Date(now.getTime() - LAST_USED_MIN_INTERVAL_MS) } }],
+      },
+      data: { lastUsedAt: now },
+    })
+    .catch(() => undefined);
 }
 
 /** The verifier for one request to `/mcp/<slug>` (slug) or `/mcp` (null):

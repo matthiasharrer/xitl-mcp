@@ -25,6 +25,13 @@ export const ST_API = { 'Remote-User': 'st-api', 'Remote-Name': 'Sara' };
 export const ST_LIST = { 'Remote-User': 'st-list', 'Remote-Name': 'Silke' };
 export const ST_INIT = { 'Remote-User': 'st-init', 'Remote-Name': 'Sven' };
 export const ST_UI = { 'Remote-User': 'st-ui', 'Remote-Name': 'Susi' };
+// TC-94 (push on transitions) and TC-95 (Freigaben "Störung" cards).
+export const ST_PUSH = { 'Remote-User': 'st-push', 'Remote-Name': 'Paula' };
+export const ST_FAULT = { 'Remote-User': 'st-fault', 'Remote-Name': 'Frieda' };
+// Identities of cors.spec.ts (TC-96…99).
+export const CO_A = { 'Remote-User': 'co-a', 'Remote-Name': 'Conni' };
+export const CO_B = { 'Remote-User': 'co-b', 'Remote-Name': 'Carl' };
+export const CO_UI = { 'Remote-User': 'co-ui', 'Remote-Name': 'Cora' };
 export const UNI_EMPTY = { 'Remote-User': 'uni-empty', 'Remote-Name': 'Emil' };
 
 let counter = 0;

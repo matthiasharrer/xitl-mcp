@@ -3,6 +3,7 @@
   import ConfirmDialog from '../lib/ConfirmDialog.svelte';
   import UpstreamSheet from '../lib/UpstreamSheet.svelte';
   import TokenSheet from '../lib/TokenSheet.svelte';
+  import OriginsSheet from '../lib/OriginsSheet.svelte';
   import { api, ApiError, messageOf, STATUS_LABEL, type McpClient, type Upstream, type UpstreamInput } from '../lib/api';
   import { showToast } from '../lib/store.svelte';
   import {
@@ -38,6 +39,8 @@
   let deleting = $state<Upstream | null>(null);
   /** Token dialog: for one upstream, for all (`'all'`), or closed (null). */
   let tokenFor = $state<Upstream | 'all' | null>(null);
+  /** ADR-0023: the token whose browser origins are being edited. */
+  let originsFor = $state<McpClient | null>(null);
   /** The running build (APP_VERSION from CI: `0.3.1`, `main`, or `dev`). */
   let version = $state<string | null>(null);
   api.getHealth().then((h) => (version = h.version), () => undefined);
@@ -459,11 +462,17 @@
                       ? `zuletzt benutzt ${dateTime.format(new Date(c.lastUsedAt))}`
                       : 'noch nie benutzt'}
                   </span>
+                  {#if c.kind === 'TOKEN' && c.allowedOrigins.length > 0}
+                    <span data-testid="token-origins">Im Browser erlaubt: {c.allowedOrigins.join(', ')}</span>
+                  {/if}
                 </div>
                 <div class="item-actions">
                   <button type="button" class="btn" onclick={() => startRename(c)}>Umbenennen</button>
                   <button type="button" class="btn danger-outline" onclick={() => (revoking = c)}>Trennen</button>
                 </div>
+                {#if c.kind === 'TOKEN'}
+                  <button type="button" class="btn wide origins-btn" onclick={() => (originsFor = c)}>Web-Adressen bearbeiten</button>
+                {/if}
               {/if}
             </li>
           {/each}
@@ -484,6 +493,9 @@
 </div>
 
 <style>
+  .origins-btn {
+    margin-top: 0.5rem;
+  }
   .app-version {
     margin: 1.5rem 0 0.5rem;
     text-align: center;
@@ -511,6 +523,18 @@
 
 {#if tokenFor}
   <TokenSheet upstream={tokenFor === 'all' ? null : tokenFor} onclose={() => (tokenFor = null)} oncreated={load} />
+{/if}
+
+{#if originsFor}
+  <OriginsSheet
+    client={originsFor}
+    onclose={() => (originsFor = null)}
+    onsaved={async () => {
+      originsFor = null;
+      showToast('Web-Adressen gespeichert');
+      await load();
+    }}
+  />
 {/if}
 
 {#if deleting}

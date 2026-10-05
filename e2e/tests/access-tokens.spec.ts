@@ -272,7 +272,7 @@ test('TC-54 Nur der SHA-256 liegt vor; Token nirgends nach der Antwort; Sec-Fetc
   };
   const list = await request.get('/api/mcp/clients', { headers: MATTHIAS });
   const listed = JSON.parse(await secretsOk(list)).find((c: any) => c.id === client.id);
-  expect(listed).toEqual({ id: client.id, name, kind: 'TOKEN', upstream: { id: up.id, slug: up.slug, name: up.name }, allUpstreams: false, tokenPrefix: token.slice(0, 12), createdAt: expect.any(String), lastUsedAt: null });
+  expect(listed).toEqual({ id: client.id, name, kind: 'TOKEN', upstream: { id: up.id, slug: up.slug, name: up.name }, allUpstreams: false, tokenPrefix: token.slice(0, 12), allowedOrigins: [], createdAt: expect.any(String), lastUsedAt: null });
   await secretsOk(await request.get(`/api/upstreams`, { headers: MATTHIAS }));
   await secretsOk(await request.get(`/api/upstreams/${up.id}/tools`, { headers: MATTHIAS }));
   await secretsOk(await request.patch(`/api/mcp/clients/${client.id}`, { headers: MATTHIAS, data: { name: name + ' b' } }));

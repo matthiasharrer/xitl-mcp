@@ -231,8 +231,25 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   the cap), runs `fn`, closes. ADR-0022: any failure after the connection
   states (refresh, connect, `fn`, other than NotConnected/NeedsReconnect) sets
   `Upstream.lastFailureAt` (Clock), a success clears it if it was set; the
-  bookkeeping write never changes the outcome. Settings shows such a
-  CONNECTED row as "Nicht erreichbar" + "Erneut prüfen" (= tools refresh). It stores the upstream's instructions in
+  bookkeeping write never changes the outcome. Both writes are conditional
+  (`recordFailure`: where `lastFailureAt: null`, so "since" is the first
+  failure; `recordSuccess`: where not null); count 1 = a transition, emitted
+  on `upstream/stateEvents.ts` (`upstreamStates`, in-process, cause
+  `transition`). `markNeedsReconnect` is conditional on status not already
+  `NEEDS_RECONNECT` (→ `reconnect` transition); `finishConnect` clears
+  `lastFailureAt` and emits `ok`. Upstream PATCH (rename, URL/auth change —
+  which also clears `lastFailureAt`) and DELETE emit cause `edit`.
+  Listeners: `upstream/notify.ts` `wireUpstreamPush` (transitions into
+  unreachable/reconnect only → push `{type:'upstream', upstreamId, name,
+  state}`, TTL 1 h, `PushCooldown` 1 h per upstream across both states, in
+  memory; `sw.js` shows it with tag `upstream-<id>`, tap → `/#/`), and the
+  approval SSE stream (`upstreams` event = `faults.faultList(userId)`
+  `[{id,name,state,since}]`, sent after `snapshot` and on every event of the
+  user's upstreams, chained in order; also `GET /api/upstreams/faults`).
+  Freigaben renders them as `FaultCard` ("Störung": Erneut prüfen = tools
+  refresh / Neu verbinden = OAuth connect, which returns to Einstellungen).
+  Settings shows such a CONNECTED row as "Nicht erreichbar" + "Erneut
+  prüfen". It stores the upstream's instructions in
   `Upstream.instructions` when they change, scrubbed of our own credentials
   first (they are handed to agents, TC-48).
 - `initialize`: instructions = prefix line ("Über xitl vermittelt … / Proxied
@@ -288,17 +305,11 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   one set per user whichever endpoint a call came through.
 - `tools/list`: `Promise.allSettled` over all of the user's upstreams (rows
   read fresh, ordered by slug); unusable ones return `[]` without contact; a
-  rejected one is left out (logged in `listFor`; its `ProtocolError` carries
-  the original error as `cause`, server-side only: the SDK serializes only
-  code/message/data). ADR-0022: a rejected one (`cause` NeedsReconnect →
-  reconnect, else unreachable) and an unusable `NEEDS_RECONNECT` one are
-  collected; if any, the placeholder `xitl-status` (`proxyText.statusTool`,
-  read-only, no args, no `_` so never an upstream name) is appended. Names via
+  rejected one is left out (logged in `listFor`; ADR-0022: the user is told
+  by push and the Freigaben card, the agent only by the instructions' state
+  line; no placeholder tool). Names via
   `unifiedName(slug, tool)`; a name breaking `^[A-Za-z0-9_.-]{1,128}$` is
   skipped with a log line.
-- `tools/call` `xitl-status` (checked first): text from the stored state
-  (`connection.storedState`: status + `lastFailureAt`) of the user's
-  upstreams; an all-clear text when none fails. No contact, no audit.
 - `tools/call`: `splitUnifiedName` (first `_`; slug must pass `isUpstreamSlug`)
   -> `upstream.findUnique({userId_slug})` -> `callTool` with the upstream's own
   tool name and `endpoint: '/mcp'`. No split / no such upstream ->
@@ -313,6 +324,30 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
 - Sessions: `McpSession.upstreamId` is null for `/mcp`; `findOwnSession`
   matches `upstreamId` exactly, so the two kinds never match each other.
   UI shows "Alle Upstreams".
+
+### Browser origins per token (ADR-0023, TC-96…99)
+
+- `McpClient.allowedOrigins` (JSON text, default `[]`): TOKEN clients only.
+  Set via both token-create routes (`allowedOrigins`) and `PATCH
+  /api/mcp/clients/:id {name?, allowedOrigins?}` (OAuth row → 400
+  `origins_token_only`; invalid → 400 `invalid_origin`). Validation in
+  `lib/origins.ts` (`normalizeOrigin`: regex `scheme://authority/?` first,
+  then `new URL().origin`; ≤ 10, deduped).
+- `mcp/mount.ts` `serve()` order: (1) `OPTIONS` + `Origin` → `cors.preflight`
+  before the bearer gate (204 + fixed headers if ANY token lists it —
+  `originListedByAnyToken`: SQL `contains` narrows, exact JS check decides —
+  else 403 bare); (2) bearer gate; a 401 gets CORS headers when the origin is
+  listed by any token; (3) client row re-read `{id, userId}`; TOKEN + Origin
+  not listed → 403 `origin_not_allowed`; (4) `touchTokenLastUsed` (moved out
+  of the verifier so a refused request doesn't bump it); (5) slug, peek,
+  sessions, handler — every response through `withCors` (headers only, body
+  streamed) when allowed. OAuth clients: no check, no headers.
+- No `cors()` middleware anywhere; nothing outside `/mcp` and `/mcp/<slug>`
+  sends `Access-Control-*` (TC-97 checks `/api`, `/oauth`, `/mcp/token`,
+  `/mcp/register`, `/.well-known`, static).
+- UI: TokenSheet field "Erlaubte Web-Adressen (Browser-Clients)", Settings
+  token rows show "Im Browser erlaubt: …" + "Web-Adressen bearbeiten"
+  (`OriginsSheet`).
 
 ### MCP sessions (ADR-0016, TC-55…60)
 
@@ -368,8 +403,8 @@ What the SDK (v2.2.0) and the protocol do — the reason for this shape:
 - Body peeking needs a declared Content-Length: a chunked `initialize` gets
   no session; a chunked request with a valid session is accepted but its
   `_meta` keys / call count are not recorded.
-- No CORS on `/mcp*` (server-side clients only), so no
-  `Access-Control-Expose-Headers: Mcp-Session-Id` either.
+- CORS only for browser clients with an access token (ADR-0023, below);
+  then `Mcp-Session-Id` is exposed.
 - API (`routes/sessions.ts`, user-scoped, 404 for others): `GET
   /api/sessions?before=<id>` (newest first by createdAt, 50 per page, cursor
   must be the caller's own session), `GET /api/sessions/:id` (+ `headerNames`,

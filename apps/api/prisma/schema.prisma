@@ -198,6 +198,11 @@ model McpClient {
   /// TOKEN scope (ADR-0018): true = all of the user's upstreams (upstreamId
   /// must then be null); false = the one upstream in upstreamId.
   allUpstreams   Boolean            @default(false)
+  /// ADR-0023: JSON array of normalized browser origins
+  /// (`http(s)://host[:port]`, lib/origins.ts) that may use this access token
+  /// from a web page (CORS on /mcp and /mcp/<slug>). TOKEN clients only;
+  /// always "[]" for OAUTH. At most 10.
+  allowedOrigins String             @default("[]")
   tokenHash      String?            @unique
   tokenPrefix    String?
   createdAt      DateTime           @default(now())

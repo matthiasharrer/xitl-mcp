@@ -9,9 +9,6 @@ import {
   scrubSecrets,
   stampedDescription,
   toolHint,
-  STATUS_TOOL_NAME,
-  statusText,
-  statusTool,
   unifiedInstructions,
   UNIFIED_SECTION_MAX,
 } from './proxyText.js';
@@ -105,33 +102,5 @@ describe('unifiedInstructions (ADR-0017)', () => {
 
   test('is just the header without upstreams', () => {
     expect(unifiedInstructions([]).split('\n\n')).toHaveLength(2);
-  });
-});
-
-describe('xitl-status (ADR-0022)', () => {
-  const failing = [
-    { name: 'Haushalt', state: 'reconnect' as const },
-    { name: 'Rezepte  \n Küche', state: 'unreachable' as const },
-  ];
-
-  test('names each failing upstream with its state and what to tell the user', () => {
-    const text = statusText(failing);
-    expect(text).toContain('- Haushalt: muss in xitl neu verbunden werden.');
-    expect(text).toContain('- Rezepte Küche: gerade nicht erreichbar.');
-    expect(text).toContain('in xitl neu verbinden');
-    expect(text).toContain('gerade nicht erreichbar');
-  });
-
-  test('nothing failing: an all-clear answer (a cached list may still call it)', () => {
-    expect(statusText([])).toContain('Zurzeit fehlen keine Upstreams');
-  });
-
-  test('the tool: no underscore in the name, read-only, no arguments, same text in the description', () => {
-    const t = statusTool(failing);
-    expect(t.name).toBe(STATUS_TOOL_NAME);
-    expect(t.name).not.toContain('_');
-    expect(t.inputSchema).toEqual({ type: 'object', properties: {} });
-    expect(t.annotations).toEqual({ readOnlyHint: true });
-    expect(t.description).toContain(statusText(failing));
   });
 });

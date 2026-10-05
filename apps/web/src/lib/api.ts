@@ -72,8 +72,19 @@ export interface McpClient {
   allUpstreams: boolean;
   /** First characters of a TOKEN client's token, e.g. "xitl_abc1234". */
   tokenPrefix: string | null;
+  /** ADR-0023: web pages that may use this token from a browser (TOKEN only; [] for OAuth). */
+  allowedOrigins: string[];
   createdAt: string;
   lastUsedAt: string | null;
+}
+
+/** An upstream that needs the user (ADR-0022): a "Störung" card on Freigaben. */
+export interface UpstreamFault {
+  id: number;
+  name: string;
+  state: 'reconnect' | 'unreachable';
+  /** Since when it fails (unreachable only), ISO; else null. */
+  since: string | null;
 }
 
 /** The MCP session a call came in on (ADR-0016); null when sessionless. */
@@ -234,9 +245,13 @@ export const api = {
   renameMcpClient: (id: number, name: string) => request<McpClient>('PATCH', `/api/mcp/clients/${id}`, { name }),
   revokeMcpClient: (id: number) => request<void>('DELETE', `/api/mcp/clients/${id}`),
   /** The response is the only one that ever contains the token. */
-  createUpstreamToken: (id: number, name: string) =>
-    request<{ client: McpClient; token: string }>('POST', `/api/upstreams/${id}/tokens`, { name }),
-  createAllUpstreamsToken: (name: string) => request<{ client: McpClient; token: string }>('POST', '/api/mcp/tokens', { name }),
+  createUpstreamToken: (id: number, name: string, allowedOrigins: string[] = []) =>
+    request<{ client: McpClient; token: string }>('POST', `/api/upstreams/${id}/tokens`, { name, allowedOrigins }),
+  createAllUpstreamsToken: (name: string, allowedOrigins: string[] = []) =>
+    request<{ client: McpClient; token: string }>('POST', '/api/mcp/tokens', { name, allowedOrigins }),
+  /** ADR-0023: replaces a token's browser origins (also with []). */
+  setClientOrigins: (id: number, allowedOrigins: string[]) =>
+    request<McpClient>('PATCH', `/api/mcp/clients/${id}`, { allowedOrigins }),
   getHealth: () => request<{ status: string; version: string }>('GET', '/api/health'),
   getMcpConfig: () => request<{ configured: boolean }>('GET', '/api/mcp/config'),
   connectUpstream: (id: number) => request<{ authorizationUrl: string }>('POST', `/api/upstreams/${id}/connect`),
@@ -251,6 +266,7 @@ export const api = {
   clearClientPolicy: (id: number, toolId: number, clientId: number) =>
     request<ToolsView>('DELETE', `/api/upstreams/${id}/tools/${toolId}/clients/${clientId}`),
   listApprovals: () => request<PendingApproval[]>('GET', '/api/approvals'),
+  listUpstreamFaults: () => request<UpstreamFault[]>('GET', '/api/upstreams/faults'),
   getApproval: (id: string) => request<PendingApproval | ResolvedApproval>('GET', `/api/approvals/${encodeURIComponent(id)}`),
   decideApproval: (id: string, d: ApprovalDecision) =>
     request<{ id: string; state: 'approved' | 'denied'; snoozeUntil: string | null }>('POST', `/api/approvals/${encodeURIComponent(id)}`, {
@@ -330,4 +346,12 @@ const dayAndTime = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-
 export function sessionSinceText(createdAt: string, now = new Date()): string {
   const d = new Date(createdAt);
   return `Sitzung seit ${d.toDateString() === now.toDateString() ? timeOnly.format(d) : dayAndTime.format(d)}`;
+}
+
+/** One origin per line (blank lines ignored), as the origin fields take them. */
+export function originLines(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l !== '');
 }

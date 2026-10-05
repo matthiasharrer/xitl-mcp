@@ -1,10 +1,12 @@
 <script lang="ts">
-  // Start = "Freigaben": the user's held calls, live (SSE), oldest first.
+  // Start = "Freigaben": the user's held calls, live (SSE), newest first, and
+  // above them one "Störung" card per upstream that needs the user (ADR-0022).
   import { onDestroy } from 'svelte';
   import ApprovalCard from '../lib/ApprovalCard.svelte';
+  import FaultCard from '../lib/FaultCard.svelte';
   import { groupCalls } from '../lib/grouping';
   import Spinner from '../lib/Spinner.svelte';
-  import { api, messageOf, type Me, type PendingApproval } from '../lib/api';
+  import { api, messageOf, type Me, type PendingApproval, type UpstreamFault } from '../lib/api';
   import { openApprovalStream } from '../lib/approvalStream';
 
   let { me }: { me: Me | null } = $props();
@@ -13,6 +15,14 @@
   let loaded = $state(false);
   let loadError = $state<string | null>(null);
   let live = $state(true);
+  let faults = $state<UpstreamFault[]>([]);
+
+  const loadFaults = () =>
+    api.listUpstreamFaults().then(
+      (l) => (faults = l),
+      () => undefined, // the stream's list follows; a card is a hint, not a gate
+    );
+  loadFaults();
 
   // First paint from the plain list; the stream's snapshot then takes over.
   api.listApprovals().then(
@@ -38,6 +48,7 @@
     resolved: ({ id }) => {
       list = list.filter((p) => p.id !== id);
     },
+    upstreams: (l) => (faults = l),
     connected: (ok) => (live = ok),
   });
   onDestroy(close);
@@ -53,12 +64,17 @@
   {#if !live}
     <p class="hint" role="status">Verbindung unterbrochen, verbinde neu…</p>
   {/if}
+  <!-- ADR-0022: faults first; they are not approvals (no decision, no deadline). -->
+  {#each faults as fault (fault.id)}
+    <FaultCard {fault} onchange={loadFaults} />
+  {/each}
   {#if !loaded}
     <Spinner />
   {:else if loadError}
     <p class="error" role="alert">{loadError}</p>
   {:else if list.length === 0}
-    <p class="empty">Keine offenen Freigaben.</p>
+    <!-- "Nothing open" would be wrong while a fault card asks for something. -->
+    {#if faults.length === 0}<p class="empty">Keine offenen Freigaben.</p>{/if}
   {:else}
     {#each groups as g (g.key)}
       {#if groups.length > 1}

@@ -9,6 +9,10 @@
 //                actions, so that path must always work).
 //   resolved  -> the call was decided in the app or expired: replace the
 //                notification with the outcome (same tag, silent).
+//   upstream  -> an upstream became unreachable or needs a reconnect
+//                (ADR-0022): one notification per upstream (tag
+//                upstream-<id>, a newer one replaces it); tapping opens
+//                Freigaben, where its "Störung" card is.
 //   test      -> the "Test-Push" from Einstellungen.
 //
 // An action makes the SAME request the app does (TC-33):
@@ -83,6 +87,19 @@ self.addEventListener('push', (event) => {
       self.registration.getNotifications({ tag: tagOf(data.id) }).then((open) => {
         const label = open[0] && open[0].data ? open[0].data.label : '';
         return showOutcome(data.id, data.outcome, label);
+      }),
+    );
+    return;
+  }
+  if (data.type === 'upstream' && (typeof data.upstreamId === 'number' || typeof data.upstreamId === 'string')) {
+    const name = `„${String(data.name || 'Upstream')}“`;
+    const title = data.state === 'reconnect' ? `${name} muss in xitl neu verbunden werden` : `${name} ist nicht erreichbar`;
+    event.waitUntil(
+      show(title, {
+        body: 'Claude sieht dessen Tools gerade nicht. Tippen für Details.',
+        tag: `upstream-${data.upstreamId}`,
+        renotify: true,
+        data: { url: '/#/' },
       }),
     );
     return;

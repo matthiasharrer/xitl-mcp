@@ -1,11 +1,12 @@
 // ADR-0022 (unit): withUpstream records a failed contact in lastFailureAt and
 // leaves the connection states alone; bookkeeping never changes the outcome.
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const findFirst = vi.fn();
 const updateMany = vi.fn();
 vi.mock('../db.js', () => ({ prisma: { upstream: { findFirst, updateMany } } }));
-const { withUpstream, UpstreamNeedsReconnect, UpstreamNotConnected, storedState } = await import('./connection.js');
+const { withUpstream, UpstreamNeedsReconnect, UpstreamNotConnected, storedState, recordFailure, recordSuccess } = await import('./connection.js');
+const { upstreamStates } = await import('./stateEvents.js');
 
 const NOW = new Date('2026-10-05T12:00:00Z');
 const clock = { now: () => NOW } as never;
@@ -27,7 +28,8 @@ describe('withUpstream failure bookkeeping (TC-90)', () => {
     findFirst.mockResolvedValue(row());
     const err = await run().catch((e) => e);
     expect(err).not.toBeInstanceOf(UpstreamNeedsReconnect);
-    expect(updateMany).toHaveBeenCalledWith({ where: { id: 7, userId: 1 }, data: { lastFailureAt: NOW } });
+    // Conditional: only a healthy row is set (keeps "since", one transition).
+    expect(updateMany).toHaveBeenCalledWith({ where: { id: 7, userId: 1, lastFailureAt: null }, data: { lastFailureAt: NOW } });
   });
 
   test('a failing bookkeeping write does not mask the error', async () => {
@@ -45,6 +47,56 @@ describe('withUpstream failure bookkeeping (TC-90)', () => {
     findFirst.mockResolvedValue(null);
     await expect(run()).rejects.toBeInstanceOf(UpstreamNotConnected);
     expect(updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('transitions (TC-94)', () => {
+  const events: unknown[] = [];
+  let off: () => void;
+  beforeEach(() => {
+    events.length = 0;
+    off = upstreamStates.on((e) => events.push(e));
+  });
+  afterEach(() => off());
+
+  test('first failure: count 1 -> one unreachable transition; already failing: count 0 -> none', async () => {
+    expect(await recordFailure(7, 1, NOW)).toBe(true);
+    expect(events).toEqual([{ userId: 1, upstreamId: 7, state: 'unreachable', cause: 'transition' }]);
+    updateMany.mockResolvedValue({ count: 0 });
+    expect(await recordFailure(7, 1, NOW)).toBe(false);
+    expect(events).toHaveLength(1);
+  });
+
+  test('clearing: conditional on a set lastFailureAt; count 1 -> ok transition', async () => {
+    expect(await recordSuccess(7, 1)).toBe(true);
+    expect(updateMany).toHaveBeenCalledWith({ where: { id: 7, userId: 1, lastFailureAt: { not: null } }, data: { lastFailureAt: null } });
+    expect(events).toEqual([{ userId: 1, upstreamId: 7, state: 'ok', cause: 'transition' }]);
+    updateMany.mockResolvedValue({ count: 0 });
+    expect(await recordSuccess(7, 1)).toBe(false);
+    expect(events).toHaveLength(1);
+  });
+
+  test('a failing write or a throwing listener never reaches the caller', async () => {
+    const offBad = upstreamStates.on(() => {
+      throw new Error('listener');
+    });
+    try {
+      await expect(recordFailure(7, 1, NOW)).resolves.toBe(true);
+      updateMany.mockRejectedValue(new Error('db locked'));
+      await expect(recordFailure(7, 1, NOW)).resolves.toBe(false);
+      await expect(recordSuccess(7, 1)).resolves.toBe(false);
+    } finally {
+      offBad();
+    }
+  });
+
+  test('withUpstream: a failure of a row that already failed keeps its timestamp, no transition', async () => {
+    findFirst.mockResolvedValue(row({ lastFailureAt: new Date('2026-10-05T11:00:00Z') }));
+    updateMany.mockResolvedValue({ count: 0 });
+    await run().catch(() => undefined);
+    expect(updateMany).toHaveBeenCalledTimes(1);
+    expect(updateMany.mock.calls[0]![0].where).toEqual({ id: 7, userId: 1, lastFailureAt: null });
+    expect(events).toHaveLength(0);
   });
 });
 

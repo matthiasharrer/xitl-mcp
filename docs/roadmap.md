@@ -5,7 +5,7 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-05 (failing upstream visible on `/mcp`, ADR-0022; unreleased)_
+_Last updated: 2026-10-05 (fault push + Freigaben card, ADR-0022; browser origins per token, ADR-0023; unreleased)_
 
 ## Next
 
@@ -56,13 +56,22 @@ stay behind Authelia.
 - Boot sweep labels an ALLOW call that crashed mid-forward `DENIED +restart`,
   though it may have reached the upstream.
 - **Unified `/mcp`:** `tools/list` fans out to every usable upstream per call
-  (no cache, ideas.md); a failing upstream is left out but named by the
-  `xitl-status` placeholder (ADR-0022); no `list_changed` there either.
+  (no cache, ideas.md); a failing upstream is left out (the user gets a push +
+  Freigaben card, ADR-0022); no `list_changed` there either.
 - **Failure state (ADR-0022):** `lastFailureAt` lags: a recovered upstream
   stays "nicht erreichbar" until its next contact; a row can hold a stale
   `lastFailureAt` next to `NEEDS_RECONNECT` (reconnect wins in UI/agent text,
   cleared by the first successful contact after reconnecting). A tool call
-  timing out (120 s) counts as a failure.
+  timing out (120 s) counts as a failure. No background probing: a failure is
+  only noticed at the next contact. Push cooldown is in memory (a restart
+  can push again). "Neu verbinden" from a Freigaben card returns to
+  Einstellungen, not Freigaben.
+- **CORS (ADR-0023):** the preflight is unauthenticated and does one DB query
+  (narrowed `contains`); fine at household scale. The 403
+  `origin_not_allowed` carries no CORS headers, so the page sees a CORS
+  failure, not the body. OAuth clients have no origins yet.
+- Static files answer `OPTIONS` with a Content-Length but no body (pre-existing;
+  clients hang until keep-alive closes).
 - Only `tools` are proxied (no resources/prompts); no `list_changed`
   notifications (stateless endpoint; next `tools/list` sees changes).
 - DCR cleanup (TC-88): prune-then-create isn't atomic, so concurrent

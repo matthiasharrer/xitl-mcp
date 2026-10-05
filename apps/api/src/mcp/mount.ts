@@ -27,6 +27,25 @@
 // challenge there), and the server
 // (server.ts) resolves each call's `<slug>_` prefix among the user's upstreams.
 //
+// Browser clients (ADR-0023, cors.ts), on `/mcp` and `/mcp/<slug>` only. The
+// order per request is:
+//   1. `OPTIONS` with an `Origin` (preflight, no token): answered BEFORE the
+//      bearer gate - 204 + CORS headers when some token lists the origin,
+//      else 403 without any `Access-Control-*`. (OPTIONS without Origin: as
+//      before, through the gate.)
+//   2. Bearer gate (token verified; verifier.ts no longer writes anything).
+//      A rejection carrying an Origin that some token lists gets the CORS
+//      headers too, so the page can read the 401.
+//   3. Origin check: the client row is re-read (scoped by user). A TOKEN
+//      client whose list doesn't contain the request's Origin -> 403
+//      `origin_not_allowed`, before anything else happens. OAuth clients:
+//      no check, no CORS headers.
+//   4. `lastUsedAt` of a TOKEN client (verifier.touchTokenLastUsed).
+//   5. Slug resolution, body peek, sessions, the MCP handler. Every response
+//      from here on carries the CORS headers when the origin was allowed
+//      (withCors wraps the headers, the body streams through).
+// Requests without `Origin` (every server-side client) skip 1-3's CORS parts.
+//
 // Sessions (ADR-0016, sessions.ts): a 2025-era `initialize` gets an
 // `Mcp-Session-Id` (a DB row, no transport or server kept in memory); a later
 // request carrying it must match user + client + upstream and not be ended, or
@@ -38,7 +57,9 @@ import type { AppEnv } from '../identity.js';
 import type { AuthInfo } from '@modelcontextprotocol/server';
 import { createMcpHandler, getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from '@modelcontextprotocol/server';
 import { buildMcpServer } from './server.js';
-import { makeGateVerifier, makeVerifier } from './verifier.js';
+import { makeGateVerifier, makeVerifier, touchTokenLastUsed } from './verifier.js';
+import { originListedByAnyToken, preflight, withCors } from './cors.js';
+import { normalizeOrigin, originListed } from '../lib/origins.js';
 import { mountMcpOAuth } from './oauthRoutes.js';
 import { externalOrigin } from '../lib/externalOrigin.js';
 import { isUpstreamSlug } from '../lib/slugs.js';
@@ -159,6 +180,9 @@ export function mountMcp(app: Hono<AppEnv>): void {
   /** One request to `/mcp/<slug>` (slug validated) or `/mcp` (slug null). */
   async function serve(c: Context<AppEnv>, slug: string | null): Promise<Response> {
     const path = slug === null ? '/mcp' : `/mcp/${slug}`;
+    // ADR-0023 step 1: a CORS preflight carries no token; answered here.
+    const requestOrigin = c.req.header('origin');
+    if (c.req.method === 'OPTIONS' && requestOrigin !== undefined) return preflight(requestOrigin);
     // Built per request, not once at mount time: `resourceMetadataUrl` is
     // origin-dependent, and the origin can legitimately vary request to request
     // (different `X-Forwarded-Host`, or none in a local curl). The slug is
@@ -172,25 +196,47 @@ export function mountMcp(app: Hono<AppEnv>): void {
       // rather than returning `result` as-is — a foreign Response instance
       // straight out of Hono's own handler is exactly the shape mismatch
       // this whole guard exists to avoid propagating further.
-      return new Response(result.body, { status: result.status, statusText: result.statusText, headers: result.headers });
+      const rejected = new Response(result.body, { status: result.status, statusText: result.statusText, headers: result.headers });
+      // ADR-0023: the 401 challenge is readable by a page whose origin some token lists.
+      if (requestOrigin !== undefined && rejected.status === 401 && (await originListedByAnyToken(requestOrigin))) {
+        return withCors(rejected, normalizeOrigin(requestOrigin)!);
+      }
+      return rejected;
     }
+
+    const userId = result.extra?.userId;
+    if (typeof userId !== 'number') return c.json(NOT_FOUND, 404); // cannot happen after the verifier; fail closed
+    const mcpClientId = result.extra?.mcpClientId;
+    if (typeof mcpClientId !== 'number') return c.json(NOT_FOUND, 404); // cannot happen after the verifier; fail closed
+
+    // ADR-0023 step 3: the browser origin, against the verified client's own
+    // list (read fresh, scoped). Before anything else: no server is built,
+    // nothing is audited or touched, no upstream contacted.
+    const client = await prisma.mcpClient.findFirst({ where: { id: mcpClientId, userId }, select: { kind: true, allowedOrigins: true } });
+    if (!client) return c.json(NOT_FOUND, 404); // revoked mid-request; fail closed
+    let corsOrigin: string | null = null;
+    if (requestOrigin !== undefined && client.kind === 'TOKEN') {
+      if (!originListed(requestOrigin, client.allowedOrigins)) return c.json({ error: 'origin_not_allowed' }, 403);
+      corsOrigin = normalizeOrigin(requestOrigin);
+    }
+    // Every response from here on: readable by the allowed page (OAuth / no Origin: unchanged).
+    const out = (res: Response) => (corsOrigin ? withCors(res, corsOrigin) : res);
+
+    // ADR-0023 step 4 (ADR-0015): "last used", only for a request let through.
+    if (client.kind === 'TOKEN') touchTokenLastUsed(mcpClientId, userId);
 
     // The token's user comes from the client binding (verifier.ts). Resolve the
     // slug ONLY among that user's upstreams: another user's slug is a 404, same
     // as an unknown one.
-    const userId = result.extra?.userId;
-    if (typeof userId !== 'number') return c.json(NOT_FOUND, 404); // cannot happen after the verifier; fail closed
     let upstream: { id: number; slug: string; name: string; description: string | null } | null = null;
     if (slug !== null) {
       upstream = await prisma.upstream.findUnique({
         where: { userId_slug: { userId, slug } },
         select: { id: true, slug: true, name: true, description: true },
       });
-      if (!upstream) return c.json(NOT_FOUND, 404);
+      if (!upstream) return out(c.json(NOT_FOUND, 404));
     }
 
-    const mcpClientId = result.extra?.mcpClientId;
-    if (typeof mcpClientId !== 'number') return c.json(NOT_FOUND, 404); // cannot happen after the verifier; fail closed
     const owner = { userId, mcpClientId, upstreamId: upstream?.id ?? null };
 
     // Peek at the JSON-RPC body (on a clone; the handler reads the original)
@@ -210,14 +256,14 @@ export function mountMcp(app: Hono<AppEnv>): void {
     let session: SessionRow | null = null;
     if (!init && presented !== undefined) {
       session = await findOwnSession(presented, owner);
-      if (!session) return sessionNotFound(echoableId(messages, peek?.isBatch ?? false));
+      if (!session) return out(sessionNotFound(echoableId(messages, peek?.isBatch ?? false)));
     }
 
     if (c.req.method === 'DELETE') {
       // Without a session there is nothing to end: the SDK's stateless answer (405).
-      if (!session) return handler.fetch(c.req.raw);
+      if (!session) return out(await handler.fetch(c.req.raw));
       await endSession(session, systemClock);
-      return new Response(null, { status: 200 });
+      return out(new Response(null, { status: 200 }));
     }
 
     if (session) {
@@ -247,13 +293,13 @@ export function mountMcp(app: Hono<AppEnv>): void {
     if (init && res.ok) {
       try {
         const created = await createSession(owner, init, c.req.raw.headers, systemClock);
-        return withSessionHeader(res, created.id);
+        return out(withSessionHeader(res, created.id));
       } catch (e) {
         // No session is not an error: the client simply stays sessionless.
         console.warn(`mcp: session not created: ${errorTag(e)}`);
       }
     }
-    return res;
+    return out(res);
   }
 
   // All of the caller's upstreams in one (ADR-0017).

@@ -24,6 +24,7 @@ import { outboundFetch, upstreamAllowance } from '../lib/outbound.js';
 import { MAX_UPSTREAM_RESPONSE_BYTES } from '../lib/limits.js';
 import { scrubSecrets, type UpstreamState } from '../lib/proxyText.js';
 import { ReconnectRequired, errorTag, markNeedsReconnect, refreshUpstreamTokens } from './oauthClient.js';
+import { upstreamStates } from './stateEvents.js';
 
 export const CONNECT_TIMEOUT_MS = 15_000;
 export const CALL_TIMEOUT_MS = 120_000;
@@ -50,6 +51,38 @@ export function storedState(row: Pick<Upstream, 'auth' | 'status' | 'accessToken
   if (row.auth === 'OAUTH' && row.status === 'NEEDS_RECONNECT') return 'reconnect';
   if (!isUsable(row)) return 'not-connected';
   return row.lastFailureAt ? 'unreachable' : 'ok';
+}
+
+/**
+ * ADR-0022: a failed contact. Conditional on `lastFailureAt: null`, so only the
+ * first failure of a run counts (one transition among concurrent failures) and
+ * an earlier "since" is kept. Returns whether this was the transition
+ * ok -> unreachable (then emitted). Never throws.
+ */
+export async function recordFailure(upstreamId: number, userId: number, at: Date): Promise<boolean> {
+  try {
+    const res = await prisma.upstream.updateMany({ where: { id: upstreamId, userId, lastFailureAt: null }, data: { lastFailureAt: at } });
+    if (res.count !== 1) return false;
+    upstreamStates.emit({ userId, upstreamId, state: 'unreachable', cause: 'transition' });
+    return true;
+  } catch (err) {
+    console.warn(`upstream ${upstreamId}: failure state not stored: ${errorTag(err)}`);
+    return false;
+  }
+}
+
+/** ADR-0022: a successful contact after a failure. Returns whether this was the
+ * transition unreachable -> ok (then emitted). Never throws. */
+export async function recordSuccess(upstreamId: number, userId: number): Promise<boolean> {
+  try {
+    const res = await prisma.upstream.updateMany({ where: { id: upstreamId, userId, lastFailureAt: { not: null } }, data: { lastFailureAt: null } });
+    if (res.count !== 1) return false;
+    upstreamStates.emit({ userId, upstreamId, state: 'ok', cause: 'transition' });
+    return true;
+  } catch (err) {
+    console.warn(`upstream ${upstreamId}: failure state not cleared: ${errorTag(err)}`);
+    return false;
+  }
 }
 
 export interface UpstreamSession {
@@ -96,19 +129,12 @@ export async function withUpstream<T>(
   // outcomes below are tracked by `status` alone. Bookkeeping never changes
   // the outcome.
   const hadFailure = row.lastFailureAt !== null;
-  const note = async (at: Date | null) => {
-    try {
-      await prisma.upstream.updateMany({ where: { id: upstreamId, userId }, data: { lastFailureAt: at } });
-    } catch (err) {
-      console.warn(`upstream ${upstreamId}: failure state not stored: ${errorTag(err)}`);
-    }
-  };
   try {
     const result = await contact(row);
-    if (hadFailure) await note(null);
+    if (hadFailure) await recordSuccess(upstreamId, userId);
     return result;
   } catch (e) {
-    if (!(e instanceof UpstreamNotConnected) && !(e instanceof UpstreamNeedsReconnect)) await note(clock.now());
+    if (!(e instanceof UpstreamNotConnected) && !(e instanceof UpstreamNeedsReconnect)) await recordFailure(upstreamId, userId, clock.now());
     throw e;
   }
 
