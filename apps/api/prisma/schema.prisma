@@ -91,6 +91,7 @@ model Upstream {
   tools         KnownTool[]
   snoozes       Snooze[]
   auditEntries  AuditEntry[]
+  tokenClients  McpClient[]
 
   @@unique([userId, slug])
 }
@@ -149,16 +150,29 @@ model Snooze {
   @@index([userId, upstreamId, toolName, mcpClientId])
 }
 
-/// An inbound MCP OAuth client (ADR-0012, copied from Haushalt ADR-0006). Only
-/// clients are rows; codes and tokens are stateless signed blobs. userId is null
+enum McpClientKind {
+  OAUTH
+  TOKEN
+}
+
+/// An inbound MCP client. OAUTH (ADR-0012, copied from Haushalt ADR-0006): only
+/// clients are rows; codes and tokens are stateless signed blobs; userId is null
 /// until someone approves the consent page; then it's that user, for good.
+/// TOKEN (ADR-0015): a per-upstream access token; userId and upstreamId are set
+/// at creation, only sha256(token) is stored (tokenHash) plus a recognition
+/// prefix. A TOKEN row never takes part in the OAuth flows.
 model McpClient {
   id             Int                @id @default(autoincrement())
   clientId       String             @unique
   name           String
   redirectUris   String
+  kind           McpClientKind      @default(OAUTH)
   userId         Int?
   user           User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  upstreamId     Int?
+  upstream       Upstream?          @relation(fields: [upstreamId], references: [id], onDelete: Cascade)
+  tokenHash      String?            @unique
+  tokenPrefix    String?
   createdAt      DateTime           @default(now())
   lastUsedAt     DateTime?
   toolPolicies   ClientToolPolicy[]

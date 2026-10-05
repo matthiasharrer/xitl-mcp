@@ -3,6 +3,13 @@
 Shipped roadmap entries, newest first. The reasoning is in `decisions/`, the
 test evidence in `testing.md`'s run log.
 
+## 2026-10-05
+
+- **Per-upstream access tokens (ADR-0015)** (unreleased on `main`), asked for by
+  Matthias: a TOKEN-kind client per user + upstream, `Authorization: Bearer
+  xitl_…`, shown once, SHA-256 stored, revocable; OAuth paths reject TOKEN
+  clients. TC-50…54. Built by a Sonnet agent, gate reviewed by the lead.
+
 ## 2026-10-04
 
 - **Milestone 1, slice 8 + changed-tool rule** (unreleased on `main`): a

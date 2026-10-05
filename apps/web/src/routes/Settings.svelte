@@ -2,6 +2,7 @@
   import Spinner from '../lib/Spinner.svelte';
   import ConfirmDialog from '../lib/ConfirmDialog.svelte';
   import UpstreamSheet from '../lib/UpstreamSheet.svelte';
+  import TokenSheet from '../lib/TokenSheet.svelte';
   import { api, ApiError, messageOf, STATUS_LABEL, type McpClient, type Upstream, type UpstreamInput } from '../lib/api';
   import { showToast } from '../lib/store.svelte';
   import {
@@ -32,6 +33,7 @@
   // `null` = closed, 'new' = adding, an Upstream = editing it.
   let sheet = $state<Upstream | 'new' | null>(null);
   let deleting = $state<Upstream | null>(null);
+  let tokenFor = $state<Upstream | null>(null);
 
   async function load() {
     try {
@@ -298,6 +300,13 @@
                 {/if}
                 <a class="btn" href={`#/regeln/${u.id}`} aria-label={`Regeln für ${u.name}`}>Regeln</a>
               </div>
+              {#if mcpConfigured}
+                <div class="item-actions">
+                  <button type="button" class="btn" aria-label={`Token für ${u.name} erstellen`} onclick={() => (tokenFor = u)}>
+                    Token erstellen
+                  </button>
+                </div>
+              {/if}
               <div class="item-actions">
                 <button type="button" class="btn" onclick={() => (sheet = u)}>Bearbeiten</button>
                 <button type="button" class="btn danger-outline" onclick={() => (deleting = u)}>Löschen</button>
@@ -352,9 +361,17 @@
                   <button type="submit" class="btn primary">Speichern</button>
                 </form>
               {:else}
-                <div class="item-name">{c.name}</div>
+                <div class="item-head">
+                  <span class="item-name">{c.name}</span>
+                  <span class="badge" class:kind-token={c.kind === 'TOKEN'}>
+                    {c.kind === 'TOKEN' ? `Token für ${c.upstream?.name ?? 'Upstream'}` : 'OAuth'}
+                  </span>
+                </div>
                 <div class="sub">
-                  <span>verbunden seit {date.format(new Date(c.createdAt))}</span>
+                  {#if c.kind === 'TOKEN' && c.tokenPrefix}
+                    <span class="url" data-testid="token-prefix">{c.tokenPrefix}…</span>
+                  {/if}
+                  <span>{c.kind === 'TOKEN' ? 'erstellt' : 'verbunden seit'} {date.format(new Date(c.createdAt))}</span>
                   <span>
                     {c.lastUsedAt
                       ? `zuletzt benutzt ${dateTime.format(new Date(c.lastUsedAt))}`
@@ -378,7 +395,9 @@
   {@const target = revoking}
   <ConfirmDialog
     title={`„${target.name}“ trennen?`}
-    message="Dieser Client verliert sofort den Zugriff. Er kann sich jederzeit neu verbinden."
+    message={target.kind === 'TOKEN'
+      ? 'Dieses Token funktioniert sofort nicht mehr. Wartende Freigaben werden abgelehnt. Das lässt sich nicht rückgängig machen.'
+      : 'Dieser Client verliert sofort den Zugriff. Er kann sich jederzeit neu verbinden.'}
     confirmLabel="Trennen"
     onconfirm={() => revoke(target)}
     oncancel={() => (revoking = null)}
@@ -387,6 +406,10 @@
 
 {#if sheet}
   <UpstreamSheet upstream={sheet === 'new' ? undefined : sheet} onclose={() => (sheet = null)} onsave={save} />
+{/if}
+
+{#if tokenFor}
+  <TokenSheet upstream={tokenFor} onclose={() => (tokenFor = null)} oncreated={load} />
 {/if}
 
 {#if deleting}

@@ -59,6 +59,11 @@ export interface ToolsView {
 export interface McpClient {
   id: number;
   name: string;
+  /** OAUTH: registered via OAuth; TOKEN: a per-upstream access token (ADR-0015). */
+  kind: 'OAUTH' | 'TOKEN';
+  upstream: { id: number; slug: string; name: string } | null;
+  /** First characters of a TOKEN client's token, e.g. "xitl_abc1234". */
+  tokenPrefix: string | null;
   createdAt: string;
   lastUsedAt: string | null;
 }
@@ -168,6 +173,9 @@ export const api = {
   listMcpClients: () => request<McpClient[]>('GET', '/api/mcp/clients'),
   renameMcpClient: (id: number, name: string) => request<McpClient>('PATCH', `/api/mcp/clients/${id}`, { name }),
   revokeMcpClient: (id: number) => request<void>('DELETE', `/api/mcp/clients/${id}`),
+  /** The response is the only one that ever contains the token. */
+  createUpstreamToken: (id: number, name: string) =>
+    request<{ client: McpClient; token: string }>('POST', `/api/upstreams/${id}/tokens`, { name }),
   getMcpConfig: () => request<{ configured: boolean }>('GET', '/api/mcp/config'),
   connectUpstream: (id: number) => request<{ authorizationUrl: string }>('POST', `/api/upstreams/${id}/connect`),
   getTools: (id: number) => request<ToolsView>('GET', `/api/upstreams/${id}/tools`),

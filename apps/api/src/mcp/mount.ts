@@ -5,6 +5,11 @@
 // an Authelia session, which means the gate below is the *only* thing standing
 // between this route and the open internet. Get it right, fail closed.
 //
+// Two bearer shapes (ADR-0015): `xitl_…` is a per-upstream access token, checked
+// ONLY against its hash and the slug in the URL (verifier.ts, makeGateVerifier);
+// anything else is checked ONLY as an OAuth blob. Both fail with the same 401
+// challenge.
+//
 // The gate is the SDK's own `requireBearerAuth` rather than a hand-rolled header
 // check: it accepts only a signed OAuth access-token blob (verifier.ts) —
 // `MCP_TOKEN` is the HMAC signing secret, NOT an accepted bearer (MCP is
@@ -23,7 +28,7 @@ import type { AppEnv } from '../identity.js';
 import type { AuthInfo } from '@modelcontextprotocol/server';
 import { createMcpHandler, getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from '@modelcontextprotocol/server';
 import { buildMcpServer } from './server.js';
-import { makeVerifier } from './verifier.js';
+import { makeGateVerifier, makeVerifier } from './verifier.js';
 import { mountMcpOAuth } from './oauthRoutes.js';
 import { externalOrigin } from '../lib/externalOrigin.js';
 import { isUpstreamSlug } from '../lib/slugs.js';
@@ -84,7 +89,7 @@ export function mountMcp(app: Hono<AppEnv>): void {
   // per-request factory it calls internally, with the request's authInfo), so
   // there's nothing to gain from rebuilding the handler itself on every call.
   const handler = createMcpHandler(buildMcpServer);
-  const verifier = makeVerifier(token);
+  const oauthVerifier = makeVerifier(token);
 
   // First: /mcp/register and /mcp/token (and the other OAuth routes) must win
   // over `/mcp/:slug` below. Hono matches in registration order.
@@ -105,7 +110,7 @@ export function mountMcp(app: Hono<AppEnv>): void {
     // (different `X-Forwarded-Host`, or none in a local curl). The slug is
     // validated above, so echoing it into the challenge is safe.
     const resourceMetadataUrl = getOAuthProtectedResourceMetadataUrl(new URL(`${externalOrigin(c)}/mcp/${slug}`));
-    const gate = requireBearerAuth({ verifier, requiredScopes: ['mcp'], resourceMetadataUrl });
+    const gate = requireBearerAuth({ verifier: makeGateVerifier(oauthVerifier, slug), requiredScopes: ['mcp'], resourceMetadataUrl });
 
     const result = await gate(c.req.raw);
     if (!isAuthInfo(result)) {

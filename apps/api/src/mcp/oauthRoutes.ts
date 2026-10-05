@@ -400,7 +400,7 @@ export function mountMcpOAuth(app: Hono<AppEnv>, secret: string): void {
     const client_id = crypto.randomBytes(24).toString('base64url');
     const name = client_name?.trim() ? client_name.trim() : 'Unbenannter Client';
     await prisma.mcpClient.create({
-      data: { clientId: client_id, name, redirectUris: JSON.stringify(redirect_uris) },
+      data: { clientId: client_id, kind: 'OAUTH', name, redirectUris: JSON.stringify(redirect_uris) },
     });
 
     const registration = OAuthClientInformationFullSchema.parse({
@@ -435,7 +435,7 @@ export function mountMcpOAuth(app: Hono<AppEnv>, secret: string): void {
     const q = c.req.query();
 
     const clientId = q.client_id ?? '';
-    const client = clientId ? await prisma.mcpClient.findUnique({ where: { clientId } }) : null;
+    const client = clientId ? await prisma.mcpClient.findUnique({ where: { clientId, kind: 'OAUTH' } }) : null;
     if (!client) {
       return c.html(renderErrorPage('Unbekannter oder abgelaufener client_id-Parameter.'), 400);
     }
@@ -505,7 +505,7 @@ export function mountMcpOAuth(app: Hono<AppEnv>, secret: string): void {
     }
 
     const clientId = field(body.client_id);
-    const client = clientId ? await prisma.mcpClient.findUnique({ where: { clientId } }) : null;
+    const client = clientId ? await prisma.mcpClient.findUnique({ where: { clientId, kind: 'OAUTH' } }) : null;
     if (!client) {
       return c.html(renderErrorPage('Unbekannter oder abgelaufener client_id-Parameter.'), 400);
     }
@@ -556,11 +556,11 @@ export function mountMcpOAuth(app: Hono<AppEnv>, secret: string): void {
     // matches a client that is still unbound or already bound to THIS user.
     // count 0 = bound to someone else in the meantime, or revoked.
     const bound = await prisma.mcpClient.updateMany({
-      where: { clientId, OR: [{ userId: null }, { userId: user.id }] },
+      where: { clientId, kind: 'OAUTH', OR: [{ userId: null }, { userId: user.id }] },
       data: { userId: user.id, ...(submittedName ? { name: submittedName } : {}) },
     });
     if (bound.count === 0) {
-      const now = await prisma.mcpClient.findUnique({ where: { clientId } });
+      const now = await prisma.mcpClient.findUnique({ where: { clientId, kind: 'OAUTH' } });
       return now
         ? c.html(renderErrorPage(BOUND_MESSAGE), 403)
         : c.html(renderErrorPage('Unbekannter oder abgelaufener client_id-Parameter.'), 400);
@@ -613,7 +613,7 @@ export function mountMcpOAuth(app: Hono<AppEnv>, secret: string): void {
       // Revoked since the code was issued (revoke = delete the
       // McpClient row) → refuse the mint outright, rather than handing back a
       // token that would just fail at the /mcp gate a moment later.
-      const client = await prisma.mcpClient.findUnique({ where: { clientId: claims.cid } });
+      const client = await prisma.mcpClient.findUnique({ where: { clientId: claims.cid, kind: 'OAUTH' } });
       if (!client) return tokenError(c, 'invalid_grant', 'This client has been revoked.');
       // The code's user must still be the client's bound user (ADR-0012).
       if (client.userId === null || client.userId !== claims.uid) {
@@ -649,7 +649,7 @@ export function mountMcpOAuth(app: Hono<AppEnv>, secret: string): void {
       if (clientId !== claims.cid) return tokenError(c, 'invalid_grant', 'client_id does not match the refresh token.');
       // Same revocation check as the authorization_code grant above — a
       // revoked client's refresh token must not mint a fresh access token.
-      const client = await prisma.mcpClient.findUnique({ where: { clientId: claims.cid } });
+      const client = await prisma.mcpClient.findUnique({ where: { clientId: claims.cid, kind: 'OAUTH' } });
       if (!client) return tokenError(c, 'invalid_grant', 'This client has been revoked.');
       // The binding survives a refresh unchanged, and a refresh token whose
       // uid no longer matches the client's bound user is dead (ADR-0012).

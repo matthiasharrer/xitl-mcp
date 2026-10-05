@@ -11,23 +11,49 @@ import { approvals } from '../approval/pending.js';
 //
 // Clients are addressed by numeric `id`, never the opaque `clientId` (a live
 // OAuth value that must stay out of URLs). Responses never include `clientId`,
-// `redirectUris` or `userId`.
+// `redirectUris`, `userId` or the token hash (TOKEN clients, ADR-0015, are listed
+// with their upstream and display prefix).
 export const mcpClients = new Hono<AppEnv>();
 
-const listSelect = { id: true, name: true, createdAt: true, lastUsedAt: true } as const;
+export const clientSelect = {
+  id: true,
+  name: true,
+  kind: true,
+  tokenPrefix: true,
+  createdAt: true,
+  lastUsedAt: true,
+  upstream: { select: { id: true, slug: true, name: true } },
+} as const;
+const listSelect = clientSelect;
 
 function noStore(c: { header: (name: string, value: string) => void }) {
   c.header('Cache-Control', 'no-store');
 }
 
-function serialize(row: { id: number; name: string; createdAt: Date; lastUsedAt: Date | null }) {
+type ClientRow = {
+  id: number;
+  name: string;
+  kind: 'OAUTH' | 'TOKEN';
+  tokenPrefix: string | null;
+  createdAt: Date;
+  lastUsedAt: Date | null;
+  upstream: { id: number; slug: string; name: string } | null;
+};
+
+// The one serializer: never the token hash, clientId, redirectUris or userId.
+export function serializeClient(row: ClientRow) {
+  const isToken = row.kind === 'TOKEN';
   return {
     id: row.id,
     name: row.name,
+    kind: row.kind,
+    upstream: isToken ? row.upstream : null,
+    tokenPrefix: isToken ? row.tokenPrefix : null,
     createdAt: row.createdAt.toISOString(),
     lastUsedAt: row.lastUsedAt ? row.lastUsedAt.toISOString() : null,
   };
 }
+const serialize = serializeClient;
 
 function parseId(raw: string | undefined): number | null {
   return raw !== undefined && /^\d{1,9}$/.test(raw) ? Number(raw) : null;

@@ -3,6 +3,15 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-05 — Per-upstream access tokens
+
+- Matthias asked for static-header tokens per upstream as a second inbound
+  method. Lead flagged that it reverses the siblings' "no static bearer" rule
+  and shaped it to keep what that rule protected (ADR-0015); CLAUDE.md rule
+  narrowed to "no *shared* static token".
+- Unreleased on `main` together with slice 8. Open question to Matthias:
+  upstream URL change vs existing allow rules (roadmap).
+
 ## 2026-10-04 (late) — Scheduled run: changed-tool rule, malicious-client suite
 
 - Matthias answered before the run: changed tool vs explicit allow → ask (built);

@@ -59,7 +59,7 @@ async function toolsView(upstreamId: number, userId: number) {
       include: { clientPolicies: { where: { mcpClient: { userId } } } },
       orderBy: [{ name: 'asc' }],
     }),
-    prisma.mcpClient.findMany({ where: { userId }, select: { id: true, name: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }] }),
+    prisma.mcpClient.findMany({ where: { userId, OR: [{ kind: 'OAUTH' }, { upstreamId }] }, select: { id: true, name: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }] }),
   ]);
   return {
     upstream: { id: upstream.id, name: upstream.name, defaultPolicy: upstream.defaultPolicy, status: upstream.status, auth: upstream.auth },
@@ -143,9 +143,14 @@ upstreamTools.post('/:id/tools/:toolId/acknowledge', async (c) => {
   return c.json(await toolsView(upstream.id, userId));
 });
 
-async function ownClient(mcpClientId: number | null, userId: number) {
+/** A client that can use this upstream: the user's OAuth clients, or a token
+ * client of exactly this upstream (a token client never reaches another). */
+async function ownClient(mcpClientId: number | null, userId: number, upstreamId: number) {
   if (mcpClientId === null) return null;
-  return prisma.mcpClient.findFirst({ where: { id: mcpClientId, userId }, select: { id: true } });
+  return prisma.mcpClient.findFirst({
+    where: { id: mcpClientId, userId, OR: [{ kind: 'OAUTH' }, { upstreamId }] },
+    select: { id: true },
+  });
 }
 
 upstreamTools.put('/:id/tools/:toolId/clients/:mcpClientId', async (c) => {
@@ -154,7 +159,7 @@ upstreamTools.put('/:id/tools/:toolId/clients/:mcpClientId', async (c) => {
   const upstream = await ownUpstream(parseId(c.req.param('id')), userId);
   if (!upstream) return c.json(NOT_FOUND, 404);
   const tool = await ownTool(upstream.id, parseId(c.req.param('toolId')));
-  const client = await ownClient(parseId(c.req.param('mcpClientId')), userId);
+  const client = await ownClient(parseId(c.req.param('mcpClientId')), userId, upstream.id);
   if (!tool || !client) return c.json(NOT_FOUND, 404);
   const parsed = policyOnly.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'Die Regel ist ungültig.' }, 400);
@@ -172,7 +177,7 @@ upstreamTools.delete('/:id/tools/:toolId/clients/:mcpClientId', async (c) => {
   const upstream = await ownUpstream(parseId(c.req.param('id')), userId);
   if (!upstream) return c.json(NOT_FOUND, 404);
   const tool = await ownTool(upstream.id, parseId(c.req.param('toolId')));
-  const client = await ownClient(parseId(c.req.param('mcpClientId')), userId);
+  const client = await ownClient(parseId(c.req.param('mcpClientId')), userId, upstream.id);
   if (!tool || !client) return c.json(NOT_FOUND, 404);
   await prisma.clientToolPolicy.deleteMany({ where: { toolId: tool.id, mcpClientId: client.id } });
   return c.json(await toolsView(upstream.id, userId));

@@ -7,6 +7,9 @@ import type { Upstream } from '../generated/prisma/client.js';
 import { externalOrigin } from '../lib/externalOrigin.js';
 import { ConnectError, finishConnect, startConnect, errorTag } from '../upstream/oauthClient.js';
 import { approvals } from '../approval/pending.js';
+import { generateAccessToken, hashAccessToken, tokenDisplayPrefix } from '../lib/accessToken.js';
+import { serializeClient, clientSelect } from './mcpClients.js';
+import crypto from 'node:crypto';
 
 // /api/upstreams: the user's registry of upstream MCP servers (ADR-0013).
 // Mounted under /api, so it sits behind the identity middleware. Every query is
@@ -316,4 +319,37 @@ upstreams.delete('/:id', async (c) => {
   // Its held calls end denied right away ("+revoked", TC-41).
   approvals.cancelWhere((call) => call.userId === userId && call.upstreamId === id);
   return c.body(null, 204);
+});
+
+// POST /api/upstreams/:id/tokens - body { name } -> 201 { client, token }
+// (ADR-0015). The ONLY response that ever contains the token; only its SHA-256
+// is stored. The new row is an McpClient of kind TOKEN, bound at creation to
+// this user and this upstream. Someone else's upstream is a 404.
+upstreams.post('/:id/tokens', async (c) => {
+  noStore(c);
+  const id = parseId(c.req.param('id'));
+  if (id === null) return c.json({ error: 'Nicht gefunden.' }, 404);
+  const userId = c.get('user').id;
+  const upstream = await prisma.upstream.findFirst({ where: { id, userId }, select: { id: true } });
+  if (!upstream) return c.json({ error: 'Nicht gefunden.' }, 404);
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = z.object({ name: nameSchema }).safeParse(body);
+  if (!parsed.success) return c.json({ error: firstMessage(parsed.error) }, 400);
+
+  const token = generateAccessToken();
+  const row = await prisma.mcpClient.create({
+    data: {
+      kind: 'TOKEN',
+      clientId: crypto.randomBytes(24).toString('base64url'),
+      name: parsed.data.name,
+      redirectUris: '[]',
+      userId,
+      upstreamId: upstream.id,
+      tokenHash: hashAccessToken(token),
+      tokenPrefix: tokenDisplayPrefix(token),
+    },
+    select: clientSelect,
+  });
+  return c.json({ client: serializeClient(row), token }, 201);
 });
