@@ -5,6 +5,9 @@ test evidence in `testing.md`'s run log.
 
 ## 2026-10-05
 
+- **`v0.3.1` released** (Matthias's call): sessions for chunked `initialize`
+  (bug: no sessions behind the HTTP/2 ingress), per-call diagnostics on every
+  audit row. TC-73/74. Next measurement: MG-06 with "Diagnose" per call.
 - **`v0.3.0` released** (Matthias's call): unified `/mcp` + token scope.
 - **Token scope (ADR-0018):** access tokens for one or all upstreams; every
   endpoint takes OAuth and tokens ("all kinds of auth for all kinds of

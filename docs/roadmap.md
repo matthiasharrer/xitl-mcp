@@ -5,7 +5,7 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-05 (`v0.3.0`: unified `/mcp`, token scope)_
+_Last updated: 2026-10-05 (`v0.3.1`: chunked-initialize sessions, per-call diagnostics)_
 
 ## Next
 
@@ -14,7 +14,7 @@ Nothing scheduled; Matthias picks. Candidates: deploy + manual gates
 
 ## Milestone 1 status
 
-`v0.3.0` (2026-10-05) adds the unified `/mcp` and token scopes (MG-07). `v0.2.0` contains slices 1–8, the changed-tool rule, per-upstream
+`v0.3.1` (2026-10-05) fixes sessions behind the HTTP/2 ingress and adds per-call diagnostics (MG-06 reads them per call). `v0.3.0` adds the unified `/mcp` and token scopes (MG-07). `v0.2.0` contains slices 1–8, the changed-tool rule, per-upstream
 access tokens (ADR-0015) and MCP sessions (ADR-0016). Waiting on Matthias:
 deploy and manual gates **MG-01…06** (`testing.md`); MG-06 decides call
 grouping (sessions vs time gaps, ADR-0016).
