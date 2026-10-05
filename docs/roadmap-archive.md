@@ -5,6 +5,8 @@ test evidence in `testing.md`'s run log.
 
 ## 2026-10-05
 
+- **`v0.3.3` released** (Matthias's call): grouping by day and time gaps,
+  pause scopes (ADR-0019).
 - **Grouping + pause scopes (ADR-0019):** Verlauf day separators and groups
   per session/client by 10-min gaps, Freigaben groups; pauses for one tool,
   all read-only tools or all tools of an upstream. TC-75/76 (Sonnet agent).

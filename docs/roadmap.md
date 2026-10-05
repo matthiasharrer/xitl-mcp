@@ -5,7 +5,7 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-05 (`v0.3.2`: trace ids per call, version footer)_
+_Last updated: 2026-10-05 (`v0.3.3`: grouping, pause scopes)_
 
 ## Next
 
