@@ -216,3 +216,35 @@ export function echoableId(messages: Record<string, unknown>[], isBatch: boolean
   const { id, method } = messages[0]!;
   return typeof method === 'string' && (typeof id === 'string' || typeof id === 'number') ? id : null;
 }
+
+/** The `_meta` key carrying clientInfo on 2026-07-28-era requests. */
+export const CLIENT_INFO_META_KEY = 'io.modelcontextprotocol/clientInfo';
+
+/** What one request says about its client, stored on each audit row so calls
+ * can be told apart even without a session (ADR-0016 measurement). Untrusted,
+ * clipped; header NAMES only, plus the values of User-Agent and
+ * MCP-Protocol-Version (never Authorization or cookies). */
+export interface RequestDiagnostics {
+  protocolVersion: string | null;
+  clientName: string | null;
+  clientVersion: string | null;
+  userAgent: string | null;
+  headerNames: string[];
+  metaKeys: string[];
+}
+
+export function requestDiagnostics(headers: Headers, messages: Record<string, unknown>[]): RequestDiagnostics {
+  const call = messages.find((m) => m.method === 'tools/call') ?? messages[0];
+  const meta = call ? metaOf(call) : null;
+  const info = meta && isObject(meta[CLIENT_INFO_META_KEY]) ? (meta[CLIENT_INFO_META_KEY] as Record<string, unknown>) : {};
+  return {
+    protocolVersion:
+      clip(headers.get('mcp-protocol-version'), MAX_PROTOCOL_VERSION_CHARS) ??
+      clip(meta?.[PROTOCOL_VERSION_META_KEY], MAX_PROTOCOL_VERSION_CHARS),
+    clientName: clip(info.name, MAX_CLIENT_INFO_CHARS),
+    clientVersion: clip(info.version, MAX_CLIENT_INFO_CHARS),
+    userAgent: clip(headers.get('user-agent'), MAX_USER_AGENT_CHARS),
+    headerNames: mergeNames('[]', headerNamesOf(headers), MAX_HEADER_NAMES, MAX_NAME_CHARS),
+    metaKeys: mergeNames('[]', toolCallsOf(messages).metaKeys, MAX_META_KEYS, MAX_META_KEY_CHARS),
+  };
+}

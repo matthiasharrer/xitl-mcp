@@ -153,6 +153,14 @@ export interface AuditDetail extends AuditRow {
   resultText: string | null;
   decidedAt: string | null;
   finishedAt: string | null;
+  /** What this request said about its client (names only; ADR-0016). */
+  diagnostics: {
+    protocolVersion: string | null;
+    clientInfo: string | null;
+    userAgent: string | null;
+    headerNames: string[];
+    metaKeys: string[];
+  };
 }
 
 /** An API failure with a message that is safe to show to the user. */

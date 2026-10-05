@@ -155,6 +155,8 @@ proxy, the audit says so. Complements TC-11/12/16/18/26/31.
 | TC-58 | `DELETE /mcp/<slug>` with the session id ends the session (`endedAt`); later use → 404. Sessions survive a server restart (stored, not in memory). |
 | TC-59 | ⚡ At 390×844: Einstellungen → "Sitzungen" lists the user's sessions newest first (client, upstream, clientInfo, start, last seen, number of calls, protocol version); tapping one shows its calls. Another user's sessions never appear. |
 | TC-60 | Diagnostics for the measurement: per session, the names (not values) of request headers seen and the `_meta` keys (not values) seen in `tools/call` are recorded and shown in the session detail. No header values except User-Agent, `MCP-Protocol-Version` and `Mcp-Session-Id`; never `Authorization`. |
+| TC-73 | An `initialize` sent chunked (no `Content-Length`, as behind HTTP/2 ingresses) still gets an `Mcp-Session-Id` and a session row. |
+| TC-74 | Every audit row carries per-request diagnostics, with or without a session: protocol version (header or 2026 `_meta`), `clientInfo` from 2026 `_meta`, User-Agent, header names and `_meta` key names, never their values (nor the token); the Verlauf call detail shows them ("Diagnose"). |
 
 ### Unified endpoint (ADR-0014, 0017): `e2e/tests/unified.spec.ts`
 
@@ -208,6 +210,7 @@ app stopped the case proving anything.
 | - | ---- | ----- | ------ |
 | 1 | 2026-10-04 | TC-01…04 (scaffold) | 4 passed |
 | 2 | 2026-10-04 | TC-01…14 (+1 extra: no `MCP_TOKEN` → 404), unit 13 | all passed (implementer and lead, separately) |
+| 10 | 2026-10-05 | TC-01…74, unit 102 | all passed (lead; TC-73/74 written by the lead, deviation: small diagnostics change). TC-73 fails against the old peek (verified), i.e. the bug was real. |
 | 9 | 2026-10-05 | TC-01…72, unit 100 (`v0.3.0`: token scope) | all passed (spec author and lead, separately). TC-54's exact field list updated for `allUpstreams`. Manual gates MG-01…07 still need the deployed instance. |
 | 8 | 2026-10-05 | TC-01…68, unit 100 (unified `/mcp`) | all passed (spec author and lead, separately). TC-64 uses needs-reconnect + 307 as the broken upstreams (no 500 mode needed). MG-07 needs the deployed instance. |
 | 7 | 2026-10-05 | TC-01…60, unit 93 (`v0.2.0`) | all passed (implementer and lead, separately). Manual gates MG-01…06 not yet run: need the deployed instance. |

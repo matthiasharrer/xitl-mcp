@@ -7,6 +7,7 @@
 import { Hono } from 'hono';
 import { prisma } from '../db.js';
 import type { AppEnv } from '../identity.js';
+import { parseNames } from '../mcp/sessions.js';
 
 export const audit = new Hono<AppEnv>();
 
@@ -86,5 +87,13 @@ audit.get('/:id', async (c) => {
     decidedAt: a.decidedAt?.toISOString() ?? null,
     finishedAt: a.finishedAt?.toISOString() ?? null,
     session: sessionRef(a.session),
+    // Per-call diagnostics (names only; ADR-0016 measurement).
+    diagnostics: {
+      protocolVersion: a.protocolVersion,
+      clientInfo: a.clientInfo,
+      userAgent: a.userAgent,
+      headerNames: a.headerNames ? parseNames(a.headerNames) : [],
+      metaKeys: a.metaKeys ? parseNames(a.metaKeys) : [],
+    },
   });
 });

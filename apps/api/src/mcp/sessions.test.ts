@@ -10,6 +10,7 @@ import {
   messagesOf,
   newSessionId,
   parseNames,
+  requestDiagnostics,
   toolCallsOf,
 } from './sessions.js';
 
@@ -88,5 +89,34 @@ describe('echoableId', () => {
     expect(echoableId(messagesOf({ jsonrpc: '2.0', id: 7, method: 'tools/list' }), false)).toBe(7);
     expect(echoableId(messagesOf([{ jsonrpc: '2.0', id: 7, method: 'tools/list' }]), true)).toBeNull();
     expect(echoableId([], false)).toBeNull();
+  });
+});
+
+describe('requestDiagnostics', () => {
+  it('2026-era call: version and clientInfo from _meta, names only', () => {
+    const headers = new Headers({ 'User-Agent': 'Claude-User', Authorization: 'Bearer secret', 'X-Trace': 'v' });
+    const d = requestDiagnostics(headers, [
+      {
+        method: 'tools/call',
+        params: {
+          name: 'x',
+          _meta: {
+            'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+            'io.modelcontextprotocol/clientInfo': { name: 'claude-ai', version: '1' },
+            'claude/conversationId': 'abc',
+          },
+        },
+      },
+    ]);
+    expect(d).toMatchObject({ protocolVersion: '2026-07-28', clientName: 'claude-ai', clientVersion: '1', userAgent: 'Claude-User' });
+    expect(d.headerNames).toEqual(['authorization', 'user-agent', 'x-trace']);
+    expect(JSON.stringify(d)).not.toContain('secret');
+    expect(d.metaKeys).toContain('claude/conversationId');
+    expect(JSON.stringify(d)).not.toContain('abc');
+  });
+
+  it('2025-era: version from the header, nothing else required', () => {
+    const d = requestDiagnostics(new Headers({ 'MCP-Protocol-Version': '2025-06-18' }), [{ method: 'tools/call', params: { name: 'x' } }]);
+    expect(d).toMatchObject({ protocolVersion: '2025-06-18', clientName: null, userAgent: null, metaKeys: [] });
   });
 });

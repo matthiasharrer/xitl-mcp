@@ -229,6 +229,14 @@ model AuditEntry {
   /// clients. The session is diagnostics, never authority.
   sessionId    String?
   session      McpSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  /// Per-request diagnostics (sessions.requestDiagnostics), so calls can be
+  /// told apart without a session: untrusted, clipped, header NAMES only.
+  protocolVersion String?
+  clientInfo      String?
+  userAgent       String?
+  /// JSON arrays of names.
+  headerNames     String?
+  metaKeys        String?
 
   @@index([userId, receivedAt])
   @@index([sessionId])

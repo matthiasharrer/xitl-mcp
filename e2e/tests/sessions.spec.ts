@@ -1,6 +1,7 @@
 // MCP sessions (ADR-0016): TC-55…TC-60. Pure helpers (ids, header/meta
 // extraction, caps) are unit tests in apps/api/src/mcp/sessions.test.ts.
 import { spawn } from 'node:child_process';
+import http from 'node:http';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { ANNA, MATTHIAS, createUpstream, dbAll, dbRun, uniq } from '../support/db.js';
@@ -354,4 +355,78 @@ test.describe('im Browser', () => {
     await expect(diag).not.toContainText('geheim');
     expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
   });
+});
+
+/** POSTs a JSON-RPC body with `Transfer-Encoding: chunked` (no Content-Length),
+ * as clients behind HTTP/2 ingresses arrive. */
+function postChunked(path: string, token: string, body: unknown): Promise<{ status: number; headers: http.IncomingHttpHeaders; text: string }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(`${BASE_URL}${path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json, text/event-stream',
+        'Content-Type': 'application/json',
+        'Transfer-Encoding': 'chunked',
+      },
+    });
+    req.on('response', (res) => {
+      let text = '';
+      res.setEncoding('utf8');
+      res.on('data', (d) => (text += d));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, text }));
+    });
+    req.on('error', reject);
+    const json = JSON.stringify(body);
+    // Two chunks, so the body really arrives without a declared length.
+    req.write(json.slice(0, 10));
+    req.end(json.slice(10));
+  });
+}
+
+test('TC-73 initialize ohne Content-Length (chunked) bekommt trotzdem eine Sitzung', async ({ request }) => {
+  const { up, token } = await allowUpstream(request, 'tc73');
+  const res = await postChunked(`/mcp/${up.slug}`, token, {
+    ...INITIALIZE,
+    params: { ...INITIALIZE.params, clientInfo: { name: 'chunked-client', version: '9' } },
+  });
+  expect(res.status).toBe(200);
+  const id = res.headers['mcp-session-id'];
+  expect(typeof id === 'string' && /^[A-Za-z0-9_-]{43}$/.test(id)).toBe(true);
+  expect(sessionRow(id as string)).toMatchObject({ upstreamId: up.id, clientName: 'chunked-client' });
+});
+
+test('TC-74 Diagnose je Aufruf auch ohne Sitzung: Protokoll, clientInfo aus _meta, User-Agent, nur Namen von Headern und _meta', async ({ request }) => {
+  const { up, token } = await allowUpstream(request, 'tc74');
+  const res = await postMcp(
+    request,
+    up.slug,
+    token,
+    {
+      jsonrpc: '2.0',
+      id: 74,
+      method: 'tools/call',
+      params: {
+        name: 'list_items',
+        arguments: {},
+        _meta: {
+          'io.modelcontextprotocol/clientInfo': { name: 'claude-ai', version: '2.0' },
+          'example/conversationId': 'conv-secret-value',
+        },
+      },
+    },
+    { headers: { 'User-Agent': 'Claude-User/2.0 (e2e)', 'MCP-Protocol-Version': '2025-11-25', 'X-Chat-Hint': 'header-secret-value' } },
+  );
+  expect(res.status()).toBe(200);
+  expect((await parseRpc(res)).result.isError ?? false).toBe(false);
+  const row = dbAll('select * from AuditEntry where userId = ? order by id desc limit 1', userId('matthias'))[0];
+  expect(row).toMatchObject({ sessionId: null, protocolVersion: '2025-11-25', clientInfo: 'claude-ai 2.0', userAgent: 'Claude-User/2.0 (e2e)' });
+  expect(JSON.parse(row.headerNames)).toEqual(expect.arrayContaining(['authorization', 'x-chat-hint', 'user-agent']));
+  expect(JSON.parse(row.metaKeys)).toEqual(['example/conversationId', 'io.modelcontextprotocol/clientInfo']);
+  const stored = JSON.stringify(row);
+  for (const secret of ['conv-secret-value', 'header-secret-value', token]) expect(stored).not.toContain(secret);
+
+  // ...and the call detail in Verlauf shows it.
+  const detail = await (await request.get(`/api/audit/${row.id}`, { headers: MATTHIAS })).json();
+  expect(detail.diagnostics).toMatchObject({ protocolVersion: '2025-11-25', clientInfo: 'claude-ai 2.0', metaKeys: ['example/conversationId', 'io.modelcontextprotocol/clientInfo'] });
 });

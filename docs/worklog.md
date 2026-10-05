@@ -3,6 +3,17 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-05 — No sessions on the deployed instance
+
+- Matthias: no sessions show up after deploying. No cluster access from here,
+  so from the code: (1) the body peek skipped bodies without Content-Length,
+  so a chunked `initialize` (HTTP/2 ingress) never created a session — real
+  bug, fixed, TC-73 proves it; (2) a 2026-07-28-era client has no sessions by
+  design. Added per-call diagnostics on every audit row (TC-74) so the next
+  real calls show protocol version, clientInfo, header and `_meta` names.
+- Grouping candidates for 2026-era clients: client-specific `_meta` keys or
+  headers (diagnostics will tell), else time gaps per client.
+
 ## 2026-10-05 — Unified `/mcp`, token scope, `v0.3.0`
 
 - Built the unified endpoint per ADR-0014; open points settled in ADR-0017

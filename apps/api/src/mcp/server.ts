@@ -41,6 +41,7 @@ import { approvals, ApprovalHub, type Decision } from '../approval/pending.js';
 import { approvalDeadline, approvalTimeoutFromEnv, upstreamTimeoutMs } from '../approval/budget.js';
 import { createSnooze, liveSnoozeUntil, liveSnoozesFor } from '../approval/snooze.js';
 import type { Upstream } from '../generated/prisma/client.js';
+import type { RequestDiagnostics } from './sessions.js';
 
 export const UNIFIED_ENDPOINT = '/mcp';
 
@@ -64,6 +65,8 @@ export interface McpCallContext {
   /** The caller's own MCP session (ADR-0016), checked by mount.ts; null when
    * sessionless. Diagnostics/grouping only, never authority. */
   session: { id: string; createdAt: Date } | null;
+  /** What this request said about its client (mount.ts); null if absent. */
+  diagnostics: RequestDiagnostics | null;
 }
 
 function sessionFrom(raw: unknown): McpCallContext['session'] {
@@ -71,6 +74,33 @@ function sessionFrom(raw: unknown): McpCallContext['session'] {
   if (!s || typeof s.id !== 'string' || typeof s.createdAt !== 'string') return null;
   const createdAt = new Date(s.createdAt);
   return Number.isNaN(createdAt.getTime()) ? null : { id: s.id, createdAt };
+}
+
+function diagnosticsFrom(raw: unknown): RequestDiagnostics | null {
+  const d = raw as Partial<RequestDiagnostics> | null | undefined;
+  if (!d || !Array.isArray(d.headerNames) || !Array.isArray(d.metaKeys)) return null;
+  const str = (v: unknown) => (typeof v === 'string' ? v : null);
+  return {
+    protocolVersion: str(d.protocolVersion),
+    clientName: str(d.clientName),
+    clientVersion: str(d.clientVersion),
+    userAgent: str(d.userAgent),
+    headerNames: d.headerNames.filter((n): n is string => typeof n === 'string'),
+    metaKeys: d.metaKeys.filter((n): n is string => typeof n === 'string'),
+  };
+}
+
+/** The audit row's diagnostics columns (ADR-0016 measurement). */
+function auditDiagnostics(d: RequestDiagnostics | null) {
+  if (!d) return {};
+  const info = [d.clientName, d.clientVersion].filter(Boolean).join(' ');
+  return {
+    protocolVersion: d.protocolVersion,
+    clientInfo: info || null,
+    userAgent: d.userAgent,
+    headerNames: JSON.stringify(d.headerNames),
+    metaKeys: JSON.stringify(d.metaKeys),
+  };
 }
 
 /** Reads the call context out of `AuthInfo.extra`. Fails closed. */
@@ -96,6 +126,7 @@ export function callContextFrom(ctx: McpRequestContext): McpCallContext {
     upstream: single ? upstream! : null,
     wantsInstructions: extra.wantsInstructions === true,
     session: sessionFrom(extra.session),
+    diagnostics: diagnosticsFrom(extra.diagnostics),
   };
 }
 
@@ -211,6 +242,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         decidedAt: receivedAt,
         finishedAt: receivedAt,
         sessionId: call.session?.id ?? null,
+        ...auditDiagnostics(call.diagnostics),
       },
     });
     return errorResult(text);
@@ -269,6 +301,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         receivedAt,
         approvalId,
         sessionId: call.session?.id ?? null,
+        ...auditDiagnostics(call.diagnostics),
       },
     });
     const shownName = name.slice(0, 100);

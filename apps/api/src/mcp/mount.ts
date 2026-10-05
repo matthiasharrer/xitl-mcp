@@ -53,6 +53,7 @@ import {
   findOwnSession,
   legacyInitializeOf,
   messagesOf,
+  requestDiagnostics,
   sessionNotFound,
   touchSession,
   type SessionRow,
@@ -80,7 +81,7 @@ function isAuthInfo(value: AuthInfo | Response): value is AuthInfo {
 const NOT_FOUND = { error: 'Not found' };
 
 /** Bodies larger than this are not peeked at (the body limit middleware
- * refuses anything above MAX_MCP_BODY_BYTES before we get here anyway). */
+ * refuses anything above MAX_MCP_BODY_BYTES anyway). */
 const PEEK_MAX_BYTES = MAX_MCP_BODY_BYTES;
 
 interface Peek {
@@ -88,18 +89,37 @@ interface Peek {
   isBatch: boolean;
 }
 
+/** Reads at most `max` bytes of a stream as text; null when it is longer. */
+async function readCapped(body: ReadableStream<Uint8Array>, max: number): Promise<string | null> {
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 /** Parses a POST body from a clone (the handler reads the original). A hint
- * for instructions and session bookkeeping only: never decides who may do
- * what. null when not peekable (no declared length, too large, not JSON). */
+ * for instructions, session bookkeeping and diagnostics only: never decides
+ * who may do what. Bodies without a declared length (chunked; common behind
+ * HTTP/2 ingresses) are read too, capped at PEEK_MAX_BYTES. null when not
+ * peekable (too large, not JSON). */
 async function peekBody(req: Request): Promise<Peek | null> {
-  if (req.method !== 'POST') return null;
-  // No declared length (chunked): don't buffer an unknown amount; the stored
-  // instructions are used instead, and the session is not touched by the body.
+  if (req.method !== 'POST' || !req.body) return null;
   const declared = req.headers.get('content-length');
-  const length = declared === null ? NaN : Number(declared);
-  if (!Number.isFinite(length) || length > PEEK_MAX_BYTES) return null;
+  if (declared !== null && !(Number(declared) <= PEEK_MAX_BYTES)) return null;
   try {
-    const body = (await req.clone().json()) as unknown;
+    const text = await readCapped(req.clone().body!, PEEK_MAX_BYTES);
+    if (text === null) return null;
+    const body = JSON.parse(text) as unknown;
     return { messages: messagesOf(body), isBatch: Array.isArray(body) };
   } catch {
     return null;
@@ -218,6 +238,8 @@ export function mountMcp(app: Hono<AppEnv>): void {
           unified: slug === null,
           wantsInstructions,
           session: session ? { id: session.id, createdAt: session.createdAt.toISOString() } : null,
+          // Per-call diagnostics for the audit row (names only, clipped).
+          diagnostics: requestDiagnostics(c.req.raw.headers, messages),
         },
       },
     });

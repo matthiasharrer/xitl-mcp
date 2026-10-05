@@ -66,6 +66,31 @@
       {:else}
         <p class="hint">Kein Ergebnis.</p>
       {/if}
+      <details class="diagnose" aria-label="Diagnose">
+        <summary>Diagnose</summary>
+        <p class="hint">Was der Client bei diesem Aufruf mitgeschickt hat, nur Namen, keine Werte.</p>
+        <dl class="facts">
+          <dt>Protokoll</dt><dd class="mono">{e.diagnostics.protocolVersion ?? '–'}</dd>
+          <dt>Client meldet</dt><dd>{e.diagnostics.clientInfo ?? '–'}</dd>
+          <dt>User-Agent</dt><dd class="mono">{e.diagnostics.userAgent ?? '–'}</dd>
+        </dl>
+        <h4 class="diagnose-title">Header</h4>
+        {#if e.diagnostics.headerNames.length === 0}
+          <p class="hint">Keine.</p>
+        {:else}
+          <ul class="name-list" aria-label="Header-Namen">
+            {#each e.diagnostics.headerNames as n (n)}<li>{n}</li>{/each}
+          </ul>
+        {/if}
+        <h4 class="diagnose-title"><code>_meta</code></h4>
+        {#if e.diagnostics.metaKeys.length === 0}
+          <p class="hint">Keine.</p>
+        {:else}
+          <ul class="name-list" aria-label="_meta-Schlüssel">
+            {#each e.diagnostics.metaKeys as n (n)}<li>{n}</li>{/each}
+          </ul>
+        {/if}
+      </details>
     </article>
   {/if}
 </div>

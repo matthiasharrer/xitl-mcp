@@ -166,8 +166,9 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
 
 - `/mcp/<slug>` (and `/mcp`, next section) request handling stays stateless: `createMcpHandler(buildMcpServer)`;
   the factory is async and loads the upstream + user per request. mount.ts
-  peeks at the JSON-RPC body (clone, ≤ 1 MiB = the body limit, declared
-  length only) so only `initialize`/`server/discover` contacts the upstream
+  peeks at the JSON-RPC body (clone, ≤ 1 MiB = the body limit; chunked bodies
+  without Content-Length are read too, capped — before v0.3.1 they were
+  skipped, so `initialize` behind an HTTP/2 ingress got no session, TC-73) so only `initialize`/`server/discover` contacts the upstream
   for its instructions, and for session bookkeeping (next section).
 - Upstream access: `withUpstream(upstreamId, userId, fn)` re-reads the row
   scoped by user, opens a `Client` + `StreamableHTTPClientTransport` with our
@@ -202,6 +203,15 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
 - No `notifications/tools/list_changed` on policy changes: sessions are DB
   rows only (no open server-to-client stream; GET is 405); the next
   `tools/list` sees the change.
+
+- Per-call diagnostics (TC-74): mount.ts computes
+  `sessions.requestDiagnostics(headers, messages)` for every request
+  (protocol version from header or 2026 `_meta`, `clientInfo` from 2026
+  `_meta`, User-Agent, header names, `tools/call` `_meta` key names) and passes
+  it in `AuthInfo.extra.diagnostics`; every AuditEntry stores it
+  (`protocolVersion`, `clientInfo`, `userAgent`, `headerNames`, `metaKeys`).
+  Shown under "Diagnose" in the Verlauf call detail. Purpose: find what
+  identifies a chat when the client has no session (ADR-0016 measurement).
 
 ### Unified endpoint `/mcp` (ADR-0014, ADR-0017, TC-61…68)
 
