@@ -145,6 +145,17 @@ proxy, the audit says so. Complements TC-11/12/16/18/26/31.
 | TC-53 | Revoking the token client → the next request 401; a held call of it ends denied `+revoked` (as TC-41). Deleting the upstream deletes its token clients. |
 | TC-54 | Only the SHA-256 is stored: no column, API response, audit row or API log line contains the token after the creation response. Creating requires `Sec-Fetch-Site` same-origin (TC-49 rule) and a name (1–100 chars); `anna` can't create a token for Matthias's upstream (404). |
 
+### MCP sessions (ADR-0016): `e2e/tests/sessions.spec.ts`
+
+| ID    | Case |
+| ----- | ---- |
+| TC-55 | `initialize` on `/mcp/<slug>` answers with an `Mcp-Session-Id` header; a session row records user, client, upstream, start, the client's `clientInfo` (name/version), protocol version and User-Agent. |
+| TC-56 | Requests carrying that session id are attributed to it: `lastSeenAt` moves, `tools/call` audit rows and held approvals carry the session; the approval card and Verlauf show it ("Sitzung seit 14:02"). |
+| TC-57 | Clients that never send a session id keep working unchanged (no session on their rows). A session id of another user's or another client's session, an ended one or an unknown one → 404 (spec: the client re-initializes); never attributed to the foreign session. The session id is not a credential: without a valid token → 401 as before. |
+| TC-58 | `DELETE /mcp/<slug>` with the session id ends the session (`endedAt`); later use → 404. Sessions survive a server restart (stored, not in memory). |
+| TC-59 | ⚡ At 390×844: Einstellungen → "Sitzungen" lists the user's sessions newest first (client, upstream, clientInfo, start, last seen, number of calls, protocol version); tapping one shows its calls. Another user's sessions never appear. |
+| TC-60 | Diagnostics for the measurement: per session, the names (not values) of request headers seen and the `_meta` keys (not values) seen in `tools/call` are recorded and shown in the session detail. No header values except User-Agent, `MCP-Protocol-Version` and `Mcp-Session-Id`; never `Authorization`. |
+
 ## Manual gates (to be defined, see roadmap)
 
 Things no script can prove. Run on the deployed instance before calling
@@ -156,6 +167,7 @@ milestone 1 done:
 | MG-02 | In xitl, "Verbinden" on Haushalt goes through Haushalt's consent (behind Authelia) and comes back "Verbunden". |
 | MG-03 | Android: an `ask` call pushes within seconds; "Erlauben" from the lock screen forwards the call and Claude gets the result. |
 | MG-04 | Same with "Ablehnen", and with no reaction: Claude reports the timeout after ~5 min and can retry. |
+| MG-06 | Sessions: open two Claude.ai chats using the connector, one call each; then one Claude Code session. Does each chat get its own session in "Sitzungen"? Result decides the grouping (ADR-0016). |
 | MG-05 | Tina: her own consent, her own Haushalt connection; she sees none of Matthias's calls, and he none of hers. |
 
 ## Run log
