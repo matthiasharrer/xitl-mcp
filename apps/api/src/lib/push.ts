@@ -8,6 +8,7 @@
 // web-push transport for an append-only JSONL file (e2e reads it).
 import fs from 'node:fs';
 import webpush from 'web-push';
+import { pushAgentFor } from './outbound.js';
 
 /** Web Push payloads must stay well below the ~4 KB service limit. */
 export const MAX_PAYLOAD_BYTES = 4000;
@@ -98,7 +99,11 @@ export function outboxTransport(file: string): Transport {
   };
 }
 
+// The endpoint is browser-supplied: the request goes through the outbound
+// address policy (ADR-0020) via an https.Agent with a guarded DNS lookup
+// (pushAgentFor throws OutboundBlocked for a blocked IP literal).
 const webPushTransport: Transport = async (sub, payload, opts) => {
+  const agent = pushAgentFor(sub.endpoint);
   const keys = await getVapid();
   await webpush.sendNotification(
     { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
@@ -108,6 +113,7 @@ const webPushTransport: Transport = async (sub, payload, opts) => {
       TTL: opts.ttl,
       urgency: opts.urgency,
       timeout: 10_000,
+      agent,
     },
   );
 };

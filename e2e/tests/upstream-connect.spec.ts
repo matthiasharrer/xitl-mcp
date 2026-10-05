@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import { test, expect } from '@playwright/test';
 import { ANNA, MATTHIAS, createUpstream, dbAll, uniq, uniqSlug } from '../support/db.js';
-import { API_LOG, FAKE_HEADER_NAME, FAKE_HEADER_SECRET } from '../support/paths.js';
+import { API_LOG, FAKE_HEADER_NAME, FAKE_HEADER_SECRET, FAKE_UPSTREAM } from '../support/paths.js';
 import { runOAuthFlow } from '../support/mcpClient.js';
 import {
   callTool,
@@ -82,7 +82,7 @@ test.describe('im Browser', () => {
       defaultPolicy: 'ALLOW',
     });
     const noneName = uniq('None TC15');
-    const none = await createUpstream(request, MATTHIAS, { name: noneName, url: 'http://127.0.0.1:9/mcp', auth: 'NONE' });
+    const none = await createUpstream(request, MATTHIAS, { name: noneName, url: `${FAKE_UPSTREAM}/unused/tc15-none/mcp`, auth: 'NONE' }); // allowed address (ADR-0020), answers 404
     for (const id of [header.id, none.id]) {
       expect((await (await request.get(`/api/upstreams/${id}`, { headers: MATTHIAS })).json()).status).toBe('CONNECTED');
       const res = await request.post(`/api/upstreams/${id}/connect`, { headers: MATTHIAS });

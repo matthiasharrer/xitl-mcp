@@ -8,6 +8,7 @@ import type { Context } from 'hono';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import type { AppEnv } from '../identity.js';
+import { checkUrlHost } from '../lib/outbound.js';
 import { describeFailure, getVapid, sendToSubscriptions } from '../lib/push.js';
 
 export const push = new Hono<AppEnv>();
@@ -55,6 +56,9 @@ push.get('/config', async (c) => c.json({ publicKey: (await getVapid()).publicKe
 
 push.post('/subscriptions', async (c) => {
   const { endpoint, keys } = await body(c, subscribeSchema);
+  // ADR-0020: a push endpoint on an internal address is refused like any
+  // other bad input (the send itself is guarded too, lib/push.ts).
+  if ((await checkUrlHost(endpoint)) === 'blocked') throw new BadRequest('Ungültige Anfrage.');
   const userId = c.get('user').id;
   await prisma.pushSubscription.upsert({
     where: { endpoint },

@@ -21,3 +21,4 @@
 | 0017 | [The unified `/mcp` endpoint: names, auth, degradation](0017-unified-endpoint.md) | Accepted |
 | 0018 | [Access tokens have a scope: one upstream or all upstreams](0018-token-scope.md) | Accepted |
 | 0019 | [Calls grouped by day and time gaps; pauses for a tool, read-only tools or an upstream](0019-grouping-and-pause-scopes.md) | Accepted |
+| 0020 | [Outbound address policy: no server-side requests to internal addresses](0020-outbound-address-policy.md) | Accepted |

@@ -9,7 +9,9 @@
 //   wherever the upstream points),
 // - OAUTH: refreshed before use when expiring (Clock), and on a 401 refreshed
 //   once and the request retried once; a second 401 means reconnect.
-// Every response is bounded (MAX_UPSTREAM_RESPONSE_BYTES, TC-48), and the
+// Every request goes through the outbound address policy (lib/outbound.ts,
+// ADR-0020: no internal addresses), every response is bounded
+// (MAX_UPSTREAM_RESPONSE_BYTES, TC-48), and the
 // upstream's instructions are scrubbed of our own credentials before they are
 // stored (they are handed to agents).
 import { Client, StreamableHTTPClientTransport, type FetchLike } from '@modelcontextprotocol/client';
@@ -18,6 +20,7 @@ import type { Upstream } from '../generated/prisma/client.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { needsRefresh } from '../lib/upstreamOAuth.js';
 import { limitResponse } from '../lib/limitedResponse.js';
+import { outboundFetch } from '../lib/outbound.js';
 import { MAX_UPSTREAM_RESPONSE_BYTES } from '../lib/limits.js';
 import { scrubSecrets } from '../lib/proxyText.js';
 import { ReconnectRequired, errorTag, markNeedsReconnect, refreshUpstreamTokens } from './oauthClient.js';
@@ -99,7 +102,7 @@ export async function withUpstream<T>(
     const sameOrigin = url.origin === origin;
     const send = (headers: Headers) => {
       const timeout = AbortSignal.timeout(timeoutMs);
-      return fetch(url, {
+      return outboundFetch(url, {
         ...init,
         headers,
         redirect: 'error',

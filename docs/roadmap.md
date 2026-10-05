@@ -9,9 +9,11 @@ _Last updated: 2026-10-05 (deployed; MG-01…04 and MG-06 passed)_
 
 ## Next
 
-Nothing scheduled; Matthias picks. Candidates: the SSRF outbound address
-policy (lead's recommendation), the URL-change question below, the two open
-manual gates.
+Nothing scheduled; Matthias picks. Candidates: the URL-change question
+below, the two open manual gates. Deploy note for the outbound address policy
+(ADR-0020): if the siblings' hostnames resolve to internal addresses inside
+the pod, list them in `OUTBOUND_ALLOW_PRIVATE` before the next release goes
+live.
 
 ## Milestone 1 status
 
@@ -31,9 +33,6 @@ stay behind Authelia.
 
 ## Debt and open points (from slice 1+3 review, 2026-10-04)
 
-- **SSRF:** upstream URLs accept any http(s) address (internal IPs, cluster
-  services). Needs an outbound address policy before the proxy fetches
-  anything; must still allow the sibling apps.
 - **DCR is open** (`/mcp/register`, as in Haushalt): unbound clients pile up if
   spammed. Cleanup of never-approved clients after a day would do.
 - **Dev server proxies only `/api`:** `/mcp`, `/oauth`, `/.well-known` are
@@ -64,9 +63,6 @@ stay behind Authelia.
 - **No caps** on held calls per user or SSE streams per user.
 - Boot sweep labels an ALLOW call that crashed mid-forward `DENIED +restart`,
   though it may have reached the upstream.
-- **SSRF via discovery:** OAuth discovery follows the upstream's metadata URLs
-  from inside the cluster; responses aren't shown, but internal hosts can be
-  probed. Covered by the outbound address policy above.
 - URL change keeps tool policies by tool name (acknowledgements reset).
 - **Unified `/mcp`:** `tools/list` fans out to every usable upstream per call
   (no cache, ideas.md); a failing upstream silently drops its tools (only the

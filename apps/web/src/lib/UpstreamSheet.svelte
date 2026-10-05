@@ -203,7 +203,18 @@
         </label>
       {/if}
 
-      {#if error}<p class="error" role="alert">{error}</p>{/if}
+      <!-- The message sits at the end of a scrolling sheet, under the sticky
+           button on a phone: bring it into view whenever it changes. -->
+      {#if error}<p
+          class="error"
+          role="alert"
+          {@attach (el) => {
+            void error;
+            el.scrollIntoView({ block: 'nearest' });
+          }}
+        >
+          {error}
+        </p>{/if}
     </div>
 
     <footer class="sheet-foot">

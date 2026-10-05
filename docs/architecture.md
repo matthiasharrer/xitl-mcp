@@ -54,6 +54,9 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
                          exchange, refresh (+ per-upstream refresh lock)
   upstream/connection.ts withUpstream(): one short-lived MCP client connection
                          per request, credentials injected by our fetch wrapper
+  lib/outbound.ts        outbound address policy (ADR-0020): outboundFetch (the
+                         only fetch), guarded DNS lookup, web-push agent,
+                         save-time checkUrlHost, OUTBOUND_ALLOW_PRIVATE
   upstream/tools.ts      KnownTool sync from tools/list
   approval/pending.ts    ApprovalHub: in-memory held calls + EventEmitter
   approval/budget.ts     300 s budget, approval deadline, snooze ends,
@@ -83,7 +86,9 @@ e2e/        Playwright against the built server on :3202 with .e2e/e2e.db
             (e2e/support/fakeUpstream.ts) with its sink host on :3211.
             TC-01…TC-68 (TC-37 unit; malicious suite in
             malicious-client.spec.ts / malicious-upstream.spec.ts). The
-            server runs with APPROVAL_TIMEOUT_MS=5000 and PUSH_OUTBOX.
+            server runs with APPROVAL_TIMEOUT_MS=5000, PUSH_OUTBOX and
+            OUTBOUND_ALLOW_PRIVATE=127.0.0.1:3210 (paths.ts; a spec that
+            spawns its own server must pass it too).
 scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
             (Playwright Chromium; rerun after changing the SVG).
 ```
@@ -161,6 +166,28 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   non-https token endpoints except loopback (deploy note: an in-cluster
   `http://…svc` upstream would fail to connect).
 - Logs carry error class/code only (`errorTag`), never messages or bodies.
+
+### Outbound address policy (ADR-0020, TC-77…81)
+
+- Every server-side request to a URL xitl didn't choose goes through
+  `lib/outbound.ts`: `outboundFetch` (used by `withUpstream`'s wrapper and
+  `oauthFetch`; nothing else calls `fetch`, a unit test scans for it) and
+  `pushAgentFor` (the `https.Agent` handed to `web-push`).
+- IP-literal hosts are classified before connecting. Names are checked in the
+  connection's own DNS lookup: an `undici` 6 `Agent({ connect: { lookup } })`
+  passed as `dispatcher` to Node's global fetch (npm undici major = the one
+  bundled in Node 22; a unit test proves the lookup runs), and
+  `https.Agent({ lookup })` for push. Any blocked address among the answers
+  refuses the request (`OutboundBlocked`, logged with the hostname only).
+  `outboundFetch` forces `redirect: 'error'` itself.
+- `OUTBOUND_ALLOW_PRIVATE` (`host`, `host:port`, `[v6]:port`): a URL whose
+  host (+port) matches skips the check and uses a plain dispatcher/agent.
+  Parsed once at boot (malformed entries warn). By name, not by address.
+- Save time (UX only): upstream create/PATCH URL and push subscribe call
+  `checkUrlHost` (resolve all addresses; unresolvable is ok) -> German 400.
+- Request time: a blocked upstream fails like an unreachable one (generic
+  agent error); during connect -> German `ConnectError`; during refresh ->
+  `RefreshUnavailable` (transient, tokens kept, not "reconnect").
 
 ### Proxy core (ADR-0004, ADR-0008, ADR-0014, TC-19…23)
 
@@ -570,11 +597,16 @@ name (rug pull), expire all access
 tokens, state: calls, refresh count, issued tokens, registered clients).
 Malicious modes per tenant (`config` `{ malice: {…} }`, type `Malice`):
 `issuer`, `authorizationEndpoint`, `resource` overrides; `redirectDiscovery`
-/ `redirectMcp` / `redirectToken` (307 to the sink); `echoInError`,
+/ `redirectMcp` / `redirectToken` (307 to the sink); `asOnSink` (PRM names
+an AS on the sink, TC-79); `echoInError`,
 `echoInErrorResult`, `echoInList`, `echoInInstructions`; `toolCount`
 (extra `bulk_<i>` tools), `padBytes` (one huge description). The **sink** is
 a second listener on :3211 in the same process that answers 200 to anything
-and records method, path, credential headers and body;
+and records method, path, credential headers and body (tenant = the
+`/sink/<tenant>` segment anywhere in the path). The e2e server runs with
+`OUTBOUND_ALLOW_PRIVATE=127.0.0.1:3210`, so the sink is also "internal";
+TC-47's redirects still prove redirect refusal because the sink is an IP
+literal (the connect-time lookup never runs for literals);
 `GET /control/sink/<tenant>` on :3210 lists them. Hand-rolled rather than
 built on `@modelcontextprotocol/server` because that package is installed
 under `apps/api/node_modules` only and e2e must not reach into a workspace.

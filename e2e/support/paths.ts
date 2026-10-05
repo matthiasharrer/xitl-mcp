@@ -30,6 +30,10 @@ export const MCP_TOKEN = 'e2e-test-mcp-token';
 // second Playwright webServer. Tenants live under /t/<tenant>/.
 export const FAKE_UPSTREAM_PORT = 3210;
 export const FAKE_UPSTREAM = `http://127.0.0.1:${FAKE_UPSTREAM_PORT}`;
+/** ADR-0020 exception list of the e2e server: only the fake upstream, by this
+ * exact host:port. The sink below stays blocked ("internal"). Any server a
+ * spec spawns itself needs it too. */
+export const OUTBOUND_ALLOW_PRIVATE = `127.0.0.1:${FAKE_UPSTREAM_PORT}`;
 /** A second fake host (same process, another port) that only records what it
  * receives: the target of the fake's malicious redirects (TC-47). */
 export const FAKE_SINK_PORT = 3211;

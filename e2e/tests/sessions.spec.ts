@@ -8,7 +8,7 @@ import { ANNA, MATTHIAS, createUpstream, dbAll, dbRun, uniq } from '../support/d
 import { deleteMcp, openMcpSession, parseRpc, postMcp, runOAuthFlow, LIST, INITIALIZE } from '../support/mcpClient.js';
 import { fakeState } from '../support/upstream.js';
 import { askUpstream, decide, lastAudit, waitPending } from '../support/approval.js';
-import { BASE_URL, DATABASE_URL, MCP_TOKEN, ROOT, SERVER_ENTRY, WEB_DIST } from '../support/paths.js';
+import { BASE_URL, DATABASE_URL, MCP_TOKEN, OUTBOUND_ALLOW_PRIVATE, ROOT, SERVER_ENTRY, WEB_DIST } from '../support/paths.js';
 
 test.use({ extraHTTPHeaders: {} });
 
@@ -184,7 +184,7 @@ test('TC-58 DELETE beendet die Sitzung; danach 404. Sitzungen überleben einen N
   const port = 3203;
   const proc = spawn('node', [SERVER_ENTRY], {
     cwd: ROOT,
-    env: { ...process.env, DATABASE_URL, PORT: String(port), WEB_DIST, MCP_TOKEN },
+    env: { ...process.env, DATABASE_URL, PORT: String(port), WEB_DIST, MCP_TOKEN, OUTBOUND_ALLOW_PRIVATE },
     stdio: 'ignore',
   });
   try {

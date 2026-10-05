@@ -193,6 +193,34 @@ Unit (`apps/api/src/lib/unifiedNames.test.ts`): prefix/split round-trip,
 first-`_` split, invalid names (no `_`, empty parts, bad slug, over 128 chars,
 characters outside the MCP set) → null.
 
+### Outbound address policy (ADR-0020): `e2e/tests/outbound.spec.ts`, `apps/api/src/lib/outbound.test.ts`
+
+e2e runs the server with `OUTBOUND_ALLOW_PRIVATE=127.0.0.1:3210`: the fake
+upstream is allowed, the sink (`127.0.0.1:3211`) stands in for "internal".
+
+| ID    | Case |
+| ----- | ---- |
+| TC-77 | Create upstream (API) with a blocked URL → 400 with a German message, no row: `http://127.0.0.1:3211/mcp`, `http://localhost:3210/mcp` (name not listed, though the address/port is), `http://[::1]:3211/`, `http://[::ffff:127.0.0.1]:3211/`, `http://2130706433:3211/`, `http://169.254.169.254/`, `http://10.0.0.1/`, `http://192.168.1.1/`. `http://127.0.0.1:3210/t/<t>/mcp` → 201. The same message shows in the form at 390×844. |
+| TC-78 | PATCH an existing upstream's URL to a blocked one → 400, the row keeps its old URL. |
+| TC-79 | Discovery steered inward: the fake upstream's protected-resource document names an authorization server on the sink (`http://127.0.0.1:3211/sink/<t>`) → "Verbinden" fails with a German message, the sink records **nothing**, the upstream stays not connected. |
+| TC-80 | Request-time enforcement without the save check: an upstream row written straight into the DB with `http://localhost:3210/t/<t>/mcp` (HEADER auth; simulates DNS changing after save) → `tools/list`/`tools/call` through xitl fail with the generic upstream error, the fake upstream counts **0** calls for that tenant, the header secret appears nowhere in the response, and `api.log` has a "blocked" line naming `localhost` but no path. |
+| TC-81 | Push subscribe with an endpoint on a blocked address (`https://127.0.0.1/x`, `https://10.0.0.1/x`) → 400; a public endpoint (`https://fcm.googleapis.com/fcm/send/x`) still works. |
+
+Unit (`apps/api/src/lib/outbound.test.ts`):
+
+- **Classifier:** every range in ADR-0020 at its edges, inside and just
+  outside (e.g. `100.63.255.255` ok, `100.64.0.0` blocked, `172.15.255.255`
+  ok, `172.16.0.0` and `172.31.255.255` blocked, `172.32.0.0` ok); IPv6 `::1`,
+  `fe80::1`, `fd00::1`, `ff02::1`; embedded IPv4 (`::ffff:10.0.0.1`,
+  `::ffff:a00:1`, `64:ff9b::7f00:1`, `2002:7f00:1::`) blocked;
+  `::ffff:8.8.8.8` and `2001:4860::1` ok.
+- **Exception list parsing:** `host`, `host:port`, `[::1]:3210`, case and
+  whitespace; garbage entries are ignored; the match is by URL host (+port).
+- **Lookup wrapper:** with `all: true` and `all: false`; one blocked address
+  among several → error; an allowed host skips the check.
+- **Guard coverage:** no `fetch(` call in `apps/api/src` (non-generated,
+  non-test) outside `lib/outbound.ts`.
+
 ## Manual gates
 
 Things no script can prove. Run on the deployed instance before calling

@@ -5,6 +5,7 @@ import type { AppEnv } from '../identity.js';
 import { RESERVED_SLUGS, SLUG_PATTERN } from '../lib/slugs.js';
 import type { Upstream } from '../generated/prisma/client.js';
 import { externalOrigin } from '../lib/externalOrigin.js';
+import { checkUrlHost } from '../lib/outbound.js';
 import { ConnectError, finishConnect, startConnect, errorTag } from '../upstream/oauthClient.js';
 import { approvals } from '../approval/pending.js';
 import { createTokenClient } from './mcpClients.js';
@@ -112,6 +113,10 @@ const patchSchema = z.object({
   headerValue: headerValueSchema.nullish(),
 });
 
+/** Save-time half of ADR-0020 (UX only; the request-time guard in
+ * lib/outbound.ts is the enforcement). */
+export const BLOCKED_URL = 'Diese Adresse ist intern und für Upstreams nicht freigegeben.';
+
 function noStore(c: { header: (name: string, value: string) => void }) {
   c.header('Cache-Control', 'no-store');
 }
@@ -146,6 +151,7 @@ upstreams.post('/', async (c) => {
   if (!parsed.success) return c.json({ error: firstMessage(parsed.error) }, 400);
   const v = parsed.data;
   const userId = c.get('user').id;
+  if ((await checkUrlHost(v.url)) === 'blocked') return c.json({ error: BLOCKED_URL }, 400);
 
   const clash = await prisma.upstream.findUnique({ where: { userId_slug: { userId, slug: v.slug } } });
   if (clash) return c.json({ error: SLUG_TAKEN }, 409);
@@ -246,6 +252,9 @@ upstreams.patch('/:id', async (c) => {
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: firstMessage(parsed.error) }, 400);
   const v = parsed.data;
+  if (v.url !== undefined && v.url !== existing.url && (await checkUrlHost(v.url)) === 'blocked') {
+    return c.json({ error: BLOCKED_URL }, 400);
+  }
 
   const data: Record<string, unknown> = {};
   if (v.name !== undefined) data.name = v.name;

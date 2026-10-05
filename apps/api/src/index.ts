@@ -3,10 +3,13 @@ import { app } from './app.js';
 import { initDb, prisma } from './db.js';
 import { approvals } from './approval/pending.js';
 import { systemClock } from './lib/clock.js';
+import { allowListFromEnv } from './lib/outbound.js';
 
 const port = Number(process.env.PORT ?? 3002);
 
 await initDb();
+// Parse OUTBOUND_ALLOW_PRIVATE now, so malformed entries warn at boot (ADR-0020).
+allowListFromEnv();
 
 // Single replica: at boot no call can be in flight. Rows still PENDING were
 // cut off by a crash or kill (a clean shutdown finishes them). The agent got

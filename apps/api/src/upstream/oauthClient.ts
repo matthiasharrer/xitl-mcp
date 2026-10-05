@@ -42,6 +42,7 @@ import {
   type PendingAuth,
 } from '../lib/upstreamOAuth.js';
 import { limitResponse } from '../lib/limitedResponse.js';
+import { outboundFetch } from '../lib/outbound.js';
 import { MAX_OAUTH_RESPONSE_BYTES } from '../lib/limits.js';
 
 /** Timeout for every OAuth request to an upstream's AS. */
@@ -105,10 +106,17 @@ export function errorTag(e: unknown): string {
  * and the SDK's `parseErrorResponse` checks `input instanceof Response`. A
  * native fetch Response fails that check, so every token-endpoint error would
  * parse as `server_error` and a rejected refresh would never be recognised as
- * "reconnect needed". (limitResponse builds with the current global.) */
+ * "reconnect needed". (limitResponse builds with the current global.)
+ *
+ * Every request passes the outbound address policy (ADR-0020): discovery hands
+ * out URLs the upstream chose, so an AS or token endpoint on an internal
+ * address is refused at connect time (OutboundBlocked). During connect that
+ * ends in a German ConnectError like any unreachable AS; during refresh it is
+ * not an OAuthError, so it counts as transient (RefreshUnavailable), never as
+ * "reconnect". */
 const oauthFetch: FetchLike = async (input, init) => {
   const timeout = AbortSignal.timeout(OAUTH_TIMEOUT_MS);
-  const res = await fetch(input, {
+  const res = await outboundFetch(input, {
     ...init,
     redirect: 'error',
     signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout,

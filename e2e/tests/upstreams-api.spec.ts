@@ -1,6 +1,7 @@
 // Upstream registry API: TC-05, TC-06, TC-07 (ADR-0010, ADR-0013).
 import { test, expect } from '@playwright/test';
 import { ANNA, MATTHIAS, createUpstream, dbAll, dbRun, uniqSlug } from './../support/db.js';
+import { FAKE_UPSTREAM } from '../support/paths.js';
 
 test.use({ extraHTTPHeaders: {} });
 
@@ -28,7 +29,7 @@ test('TC-05 Upstream anlegen: Felder, Defaults, Validierung (400 deutsch), Slug-
   // defaults: policy ASK, auth OAUTH
   const def = await request.post('/api/upstreams', {
     headers: MATTHIAS,
-    data: { name: 'Defaults', slug: uniqSlug('tc05d'), url: 'http://localhost:9/mcp' },
+    data: { name: 'Defaults', slug: uniqSlug('tc05d'), url: `${FAKE_UPSTREAM}/unused/tc05/mcp` }, // plain http on an allowed address (ADR-0020)
   });
   expect(def.status()).toBe(201);
   expect(await def.json()).toMatchObject({ defaultPolicy: 'ASK', auth: 'OAUTH', description: null });

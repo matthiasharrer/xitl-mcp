@@ -12,6 +12,7 @@ import {
   FAKE_UPSTREAM,
   DATABASE_URL,
   MCP_TOKEN,
+  OUTBOUND_ALLOW_PRIVATE,
   PORT,
   PUSH_OUTBOX,
   REPORT_DIR,
@@ -47,7 +48,17 @@ export default defineConfig({
       url: `${BASE_URL}/api/health`,
       reuseExistingServer: false,
       timeout: 180_000,
-      env: { DATABASE_URL, PORT: String(PORT), WEB_DIST, MCP_TOKEN, PUSH_OUTBOX, APPROVAL_TIMEOUT_MS: String(APPROVAL_TIMEOUT_MS) },
+      // OUTBOUND_ALLOW_PRIVATE (ADR-0020): only the fake upstream is allowed;
+      // the sink (127.0.0.1:3211) stays blocked and stands in for "internal".
+      env: {
+        DATABASE_URL,
+        PORT: String(PORT),
+        WEB_DIST,
+        MCP_TOKEN,
+        PUSH_OUTBOX,
+        APPROVAL_TIMEOUT_MS: String(APPROVAL_TIMEOUT_MS),
+        OUTBOUND_ALLOW_PRIVATE,
+      },
     },
     {
       // OAuth AS + MCP server standing in for real upstreams (docs/testing.md).
