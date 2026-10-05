@@ -5,6 +5,10 @@ test evidence in `testing.md`'s run log.
 
 ## 2026-10-05
 
+- **`v0.3.2` released** (Matthias's call): trace ids and `x-anthropic-client`
+  per call (grouping candidates), version footer in Einstellungen. Verified
+  live before tagging: Claude Code (own client, all-upstreams token) called
+  `haushalt-todos_list_tasks` on `/mcp` successfully.
 - **`v0.3.1` released** (Matthias's call): sessions for chunked `initialize`
   (bug: no sessions behind the HTTP/2 ingress), per-call diagnostics on every
   audit row. TC-73/74. Next measurement: MG-06 with "Diagnose" per call.
