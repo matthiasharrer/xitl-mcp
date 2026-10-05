@@ -54,6 +54,8 @@ export interface PendingCall {
   deadline: Date;
   /** false for new/changed tools: those are looked at in the rules, not snoozed. */
   snoozable: boolean;
+  /** The MCP session the call came in on (ADR-0016), null when sessionless. */
+  session: { id: string; createdAt: Date } | null;
 }
 
 export interface ResolvedEvent {

@@ -94,12 +94,80 @@ export async function runOAuthFlow(
   return { clientId, accessToken: body.access_token, refreshToken: body.refresh_token };
 }
 
+export interface McpRequestOptions {
+  /** Sent as `Mcp-Session-Id` (ADR-0016). Omitted = sessionless, the default
+   * every older spec relies on. */
+  sessionId?: string;
+  /** Extra request headers (e.g. a User-Agent or a diagnostic header). */
+  headers?: Record<string, string>;
+}
+
+function mcpHeaders(token: string | null, opts: McpRequestOptions = {}): Record<string, string> {
+  return {
+    ...MCP_HEADERS,
+    ...(token !== null ? { Authorization: `Bearer ${token}` } : {}),
+    ...(opts.sessionId !== undefined ? { 'Mcp-Session-Id': opts.sessionId } : {}),
+    ...opts.headers,
+  };
+}
+
 /** POSTs one JSON-RPC message to /mcp/<slug> with the given bearer (null = none). */
-export function postMcp(request: APIRequestContext, slug: string, token: string | null, body: unknown) {
-  return request.post(`/mcp/${slug}`, {
-    headers: token !== null ? { ...MCP_HEADERS, Authorization: `Bearer ${token}` } : MCP_HEADERS,
-    data: body,
+export function postMcp(request: APIRequestContext, slug: string, token: string | null, body: unknown, opts: McpRequestOptions = {}) {
+  return request.post(`/mcp/${slug}`, { headers: mcpHeaders(token, opts), data: body });
+}
+
+/** DELETE /mcp/<slug> (ends a session, Streamable HTTP). */
+export function deleteMcp(request: APIRequestContext, slug: string, token: string | null, opts: McpRequestOptions = {}) {
+  return request.delete(`/mcp/${slug}`, { headers: mcpHeaders(token, opts) });
+}
+
+let sessionRpcId = 1000;
+
+/** A 2025-era client that keeps its session: `initialize` (expects an
+ * `Mcp-Session-Id` back), then every request carries the id, like the SDK's
+ * StreamableHTTPClientTransport. */
+export async function openMcpSession(
+  request: APIRequestContext,
+  slug: string,
+  token: string,
+  init: { clientInfo?: { name: string; version: string }; protocolVersion?: string; headers?: Record<string, string> } = {},
+) {
+  const res = await postMcp(
+    request,
+    slug,
+    token,
+    {
+      ...INITIALIZE,
+      params: {
+        ...INITIALIZE.params,
+        ...(init.protocolVersion ? { protocolVersion: init.protocolVersion } : {}),
+        ...(init.clientInfo ? { clientInfo: init.clientInfo } : {}),
+      },
+    },
+    { headers: init.headers },
+  );
+  expect(res.status()).toBe(200);
+  const sessionId = res.headers()['mcp-session-id'];
+  expect(sessionId, 'initialize must return Mcp-Session-Id').toBeTruthy();
+  const initResult = await parseRpc(res);
+  const version: string = initResult.result.protocolVersion;
+  const withSession = (headers: Record<string, string> = {}): McpRequestOptions => ({
+    sessionId,
+    headers: { 'MCP-Protocol-Version': version, ...headers },
   });
+  return {
+    sessionId: sessionId!,
+    initResult,
+    /** Raw POST with the session (status not checked). */
+    post: (body: unknown, headers?: Record<string, string>) => postMcp(request, slug, token, body, withSession(headers)),
+    /** One request; expects 200 and returns the JSON-RPC message. */
+    async rpc(method: string, params: unknown = {}, headers?: Record<string, string>) {
+      const r = await postMcp(request, slug, token, { jsonrpc: '2.0', id: ++sessionRpcId, method, params }, withSession(headers));
+      expect(r.status(), `${method} in session`).toBe(200);
+      return parseRpc(r);
+    },
+    end: () => deleteMcp(request, slug, token, withSession()),
+  };
 }
 
 export const INITIALIZE = {

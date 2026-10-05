@@ -1,9 +1,10 @@
 # Architecture
 
 > How the system fits together **right now**. Target design lives in the ADRs;
-> this file describes what exists. _Last updated: 2026-10-04 (changed tools vs
-> explicit allow; malicious-client suite TC-38…49 and its fixes: revoke ends
-> held calls, caps, body/response limits, no OAuth redirects, scrubbed lists)._
+> this file describes what exists. _Last updated: 2026-10-05 (MCP sessions,
+> ADR-0016: `Mcp-Session-Id` on 2025-era `initialize`, DB-backed, diagnostics;
+> before that: changed tools vs explicit allow; malicious-client suite
+> TC-38…49 and its fixes)._
 
 ## Current state: proxy with allow / deny / ask (held for approval on page or push)
 
@@ -24,11 +25,13 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
     /api/mcp/clients     routes/mcpClients.ts: list/rename/revoke own clients (OAUTH and TOKEN kind)
     /api/approvals       routes/approvals.ts: my held calls, SSE stream, decide
     /api/audit           routes/audit.ts: my call history (Verlauf)
+    /api/sessions        routes/sessions.ts: my MCP sessions + diagnostics
     /api/push            routes/push.ts: VAPID key, subscriptions, test push
   /mcp/register, /mcp/token, /oauth/authorize, /.well-known/*
                          mcp/oauthRoutes.ts: DCR, PKCE, consent page
   /mcp/<slug>            mcp/mount.ts: bearer gate -> slug resolved among the
-                         token user's upstreams -> mcp/server.ts (proxy core)
+                         token user's upstreams -> session check/creation
+                         (mcp/sessions.ts) -> mcp/server.ts (proxy core)
   /mcp                   404 (aggregated endpoint comes with the 2nd upstream)
   lib/policy.ts          THE policy function (pure, policy.test.ts = TC-24)
   lib/limits.ts          every abuse limit in one place (TC-44/45/48)
@@ -59,13 +62,14 @@ apps/web/   Svelte 5 SPA (Vite), German UI, mobile-first, installable PWA
             the push deep link), Verlauf (#/verlauf, #/verlauf/<id>),
             Einstellungen (#/einstellungen: Benachrichtigungen, upstreams with
             status, Verbinden/Neu verbinden, Regeln link, endpoint URL + copy;
-            MCP clients) and Regeln (#/regeln/<id>, routes/Rules.svelte).
+            MCP clients; "Sitzungen ansehen" -> #/sitzungen, #/sitzungen/<id>)
+            and Regeln (#/regeln/<id>, routes/Rules.svelte).
             "#/einstellungen?verbunden=<id>" / "?verbindung=…" carry the OAuth
             callback's result once (toast, then dropped from the URL).
 e2e/        Playwright against the built server on :3202 with .e2e/e2e.db
             (output in .e2e/api.log) plus the fake upstream on :3210
             (e2e/support/fakeUpstream.ts) with its sink host on :3211.
-            TC-01…TC-49 (TC-37 unit; malicious suite in
+            TC-01…TC-60 (TC-37 unit; malicious suite in
             malicious-client.spec.ts / malicious-upstream.spec.ts). The
             server runs with APPROVAL_TIMEOUT_MS=5000 and PUSH_OUTBOX.
 scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
@@ -148,10 +152,11 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
 
 ### Proxy core (ADR-0004, ADR-0008, ADR-0014, TC-19…23)
 
-- `/mcp/<slug>` stays stateless: `createMcpHandler(buildMcpServer)`; the
-  factory is async and loads the upstream + user per request. mount.ts peeks
-  at the JSON-RPC method (clone, ≤ 64 KiB, declared length only) so only
-  `initialize`/`server/discover` contacts the upstream for its instructions.
+- `/mcp/<slug>` request handling stays stateless: `createMcpHandler(buildMcpServer)`;
+  the factory is async and loads the upstream + user per request. mount.ts
+  peeks at the JSON-RPC body (clone, ≤ 1 MiB = the body limit, declared
+  length only) so only `initialize`/`server/discover` contacts the upstream
+  for its instructions, and for session bookkeeping (next section).
 - Upstream access: `withUpstream(upstreamId, userId, fn)` re-reads the row
   scoped by user, opens a `Client` + `StreamableHTTPClientTransport` with our
   own `fetch` wrapper (credential only to the upstream's origin, `redirect:
@@ -182,15 +187,84 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   `isError` + `resultText` (≤ 2000 chars), failure -> `UPSTREAM_ERROR`,
   generic message; ASK: held (next section). `forward()` in server.ts is the
   only place a call leaves xitl.
-- No `notifications/tools/list_changed` on policy changes: the endpoint has no
-  sessions; the next `tools/list` sees the change.
+- No `notifications/tools/list_changed` on policy changes: sessions are DB
+  rows only (no open server-to-client stream; GET is 405); the next
+  `tools/list` sees the change.
+
+### MCP sessions (ADR-0016, TC-55…60)
+
+What the SDK (v2.2.0) and the protocol do — the reason for this shape:
+
+- `createMcpHandler` classifies every request by era (body-primary,
+  `classifyInboundRequest`). **2025-era** (`initialize` handshake, versions
+  2024-11-05 … 2025-11-25, `SUPPORTED_PROTOCOL_VERSIONS`): served by the
+  "legacy stateless fallback" — a fresh server + `WebStandardStreamableHTTPServerTransport`
+  with `sessionIdGenerator: undefined` per POST; it never issues or checks
+  `Mcp-Session-Id` (`validateSession` returns early) and answers GET/DELETE
+  with 405. **2026-07-28 era** (`server/discover`, no `initialize`): every
+  request carries a `_meta` envelope (`io.modelcontextprotocol/protocolVersion`,
+  `…/clientCapabilities`, `…/clientInfo`) plus `MCP-Protocol-Version` /
+  `Mcp-Method` headers; the transport is POST-only and **has no sessions at
+  all**. Such clients stay sessionless here.
+- SDK client (v2.2.0): default negotiation is `'legacy'` (initialize); it
+  keeps the `mcp-session-id` from the initialize response, sends it on every
+  request, `terminateSession()` sends DELETE (accepts 405). On a 404 it throws
+  (`SdkHttpError`); it does **not** re-initialize by itself — the spec says
+  the client MUST, so that is up to the client app. `versionNegotiation:
+  {mode:'auto'}` probes `server/discover` first and goes modern against us.
+- Our layer (mount.ts + `mcp/sessions.ts`), after the bearer gate and slug
+  resolution: a 2025-era `initialize` (method `initialize` without the 2026
+  envelope; any session id it carries is ignored) is served, and **if the
+  response is 2xx** an `McpSession` row is created and its id added as
+  `Mcp-Session-Id` to the response (body passed through, SSE keeps
+  streaming). A failed insert just leaves the client sessionless. Any other
+  request with `Mcp-Session-Id`: `findOwnSession` = same user + same McpClient
+  + same upstream + `endedAt` null, else **404** with the SDK's own body
+  (`-32001 "Session not found"`, JSON-RPC id echoed) — unknown, malformed,
+  foreign and ended are indistinguishable. No header: sessionless, unchanged.
+  `DELETE` with a valid id -> `endedAt`, 200 (the SDK's sessionful answer);
+  without a header -> the handler's 405; invalid -> 404. GET -> 405.
+- Ids: 32 random bytes base64url (43 chars). Not a credential: the token
+  decides who acts; the session only labels rows. Stored in plain text.
+- Per request with a session (`touchSession`, errors logged, never blocking):
+  union of request header **names** (lower-cased, ≤ 100, each ≤ 100 chars),
+  union of `_meta` **keys** of `tools/call` params (≤ 100, ≤ 200 chars),
+  `callCount += number of tools/call messages`, `protocolVersion` updated from
+  the `MCP-Protocol-Version` header (the negotiated version; the row starts
+  with what `initialize` asked for), `lastSeenAt` written when anything else
+  changes or at most once a minute otherwise. Values kept: only User-Agent
+  (≤ 500, from initialize), clientInfo name/version (≤ 200), protocol
+  version. Never Authorization or cookie values. Concurrent requests can lose
+  a union update (read-modify-write); the count is atomic.
+- The session goes to the proxy core via `AuthInfo.extra.session`
+  (`{id, createdAt}`): `AuditEntry.sessionId` and the held call
+  (`PendingCall.session`, in `/api/approvals` and the SSE events).
+- Cascades: deleting the user, the McpClient (revoke) or the upstream deletes
+  its sessions; audit rows keep living with `sessionId` set to null. Sessions
+  never expire on their own (no TTL yet). Survive restarts (DB).
+- Body peeking needs a declared Content-Length: a chunked `initialize` gets
+  no session; a chunked request with a valid session is accepted but its
+  `_meta` keys / call count are not recorded.
+- No CORS on `/mcp*` (server-side clients only), so no
+  `Access-Control-Expose-Headers: Mcp-Session-Id` either.
+- API (`routes/sessions.ts`, user-scoped, 404 for others): `GET
+  /api/sessions?before=<id>` (newest first by createdAt, 50 per page, cursor
+  must be the caller's own session), `GET /api/sessions/:id` (+ `headerNames`,
+  `metaKeys`, its audit rows newest first, ≤ 200). Audit and approval APIs
+  carry `session: {id, createdAt} | null`.
+- UI: Einstellungen -> "Sitzungen ansehen" -> `#/sitzungen` (client, upstream,
+  clientInfo, start, last seen, calls, protocol) -> `#/sitzungen/<id>` (facts,
+  "Aufrufe in dieser Sitzung", "Diagnose": User-Agent, header names, `_meta`
+  keys). `lib/SessionLine.svelte` ("Sitzung seit 14:02", a link; plain text
+  inside Verlauf rows) on approval cards, the resolved approval page, Verlauf
+  rows and the Verlauf detail.
 
 ### Approval: held calls (ADR-0004, ADR-0009, TC-27…31, TC-37)
 
 - `approval/pending.ts` `ApprovalHub` (one per process, `approvals`): a Map of
   held calls keyed by a 128-bit random id (base64url, 22 chars) with userId,
   client, upstream, tool, args, audit id, rule path, `receivedAt`,
-  `deadline`, `snoozable`. `hold()` returns a promise that settles **exactly
+  `deadline`, `snoozable`, `session` (ADR-0016, or null). `hold()` returns a promise that settles **exactly
   once**: the first of `decide()` (owner only; another user's id = not found),
   the deadline timer (`setTimeout` from the Clock's delta), `abort()` (the MCP
   request's `ctx.mcpReq.signal`: the client hung up), `cancelWhere(pred)`
@@ -296,7 +370,8 @@ The Regeln view's "Gilt" uses the same function, so it shows "Fragen
 ### Audit API (ADR-0008, TC-35)
 
 `GET /api/audit?before=<id>` (newest first by id, 50 per page, `nextBefore`),
-`GET /api/audit/:id` (arguments parsed, result excerpt, times). User-scoped;
+`GET /api/audit/:id` (arguments parsed, result excerpt, times). Both carry
+`session: {id, createdAt} | null` (ADR-0016). User-scoped;
 another user's id is 404. The UI renders `decisionPath` in German
 (`decisionPathText` in web `lib/api.ts`).
 

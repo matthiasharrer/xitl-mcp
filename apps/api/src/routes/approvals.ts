@@ -48,6 +48,7 @@ export function serializePending(call: PendingCall, now: Date) {
     expiresAt: call.deadline.toISOString(),
     remainingMs: Math.max(0, call.deadline.getTime() - now.getTime()),
     snoozable: call.snoozable,
+    session: call.session ? { id: call.session.id, createdAt: call.session.createdAt.toISOString() } : null,
   };
 }
 
@@ -63,7 +64,11 @@ function parseArgs(raw: string): unknown {
 async function resolvedView(userId: number, id: string) {
   const a = await prisma.auditEntry.findFirst({
     where: { approvalId: id, userId },
-    include: { mcpClient: { select: { name: true } }, upstream: { select: { id: true, slug: true, name: true } } },
+    include: {
+      mcpClient: { select: { name: true } },
+      upstream: { select: { id: true, slug: true, name: true } },
+      session: { select: { id: true, createdAt: true } },
+    },
   });
   if (!a) return null;
   return {
@@ -78,6 +83,7 @@ async function resolvedView(userId: number, id: string) {
     arguments: parseArgs(a.arguments),
     receivedAt: a.receivedAt.toISOString(),
     decidedAt: a.decidedAt?.toISOString() ?? null,
+    session: a.session ? { id: a.session.id, createdAt: a.session.createdAt.toISOString() } : null,
   };
 }
 

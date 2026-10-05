@@ -41,6 +41,16 @@ export interface McpCallContext {
   upstream: { id: number; slug: string; name: string; description: string | null };
   /** mount.ts peeked: this request is `initialize` / `server/discover`. */
   wantsInstructions: boolean;
+  /** The caller's own MCP session (ADR-0016), checked by mount.ts; null when
+   * sessionless. Diagnostics/grouping only, never authority. */
+  session: { id: string; createdAt: Date } | null;
+}
+
+function sessionFrom(raw: unknown): McpCallContext['session'] {
+  const s = raw as { id?: unknown; createdAt?: unknown } | null | undefined;
+  if (!s || typeof s.id !== 'string' || typeof s.createdAt !== 'string') return null;
+  const createdAt = new Date(s.createdAt);
+  return Number.isNaN(createdAt.getTime()) ? null : { id: s.id, createdAt };
 }
 
 /** Reads the call context out of `AuthInfo.extra`. Fails closed. */
@@ -63,6 +73,7 @@ export function callContextFrom(ctx: McpRequestContext): McpCallContext {
     clientName: extra.clientName,
     upstream,
     wantsInstructions: extra.wantsInstructions === true,
+    session: sessionFrom(extra.session),
   };
 }
 
@@ -211,6 +222,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           outcome: 'PENDING',
           receivedAt,
           approvalId,
+          sessionId: call.session?.id ?? null,
         },
       });
       const shownName = name.slice(0, 100);
@@ -282,6 +294,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
             deadline: approvalDeadline(receivedAt, approvalTimeoutMs),
             // New/changed tools are reviewed in the rules, not snoozed (policy.ts).
             snoozable: !awaitingReview(toolState),
+            session: call.session,
           },
           approvalId,
         );

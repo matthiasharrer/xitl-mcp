@@ -32,6 +32,7 @@ model User {
   snoozes           Snooze[]
   auditEntries      AuditEntry[]
   pushSubscriptions PushSubscription[]
+  mcpSessions       McpSession[]
 }
 
 enum Policy {
@@ -92,6 +93,7 @@ model Upstream {
   snoozes       Snooze[]
   auditEntries  AuditEntry[]
   tokenClients  McpClient[]
+  mcpSessions   McpSession[]
 
   @@unique([userId, slug])
 }
@@ -178,6 +180,7 @@ model McpClient {
   toolPolicies   ClientToolPolicy[]
   snoozes        Snooze[]
   auditEntries   AuditEntry[]
+  mcpSessions    McpSession[]
 
   @@index([userId])
 }
@@ -219,8 +222,48 @@ model AuditEntry {
   /// call was held for a decision (ASK). Lets the API answer 409 "nicht mehr
   /// offen" and the deep-link page show the outcome after the call resolved.
   approvalId   String?     @unique
+  /// The MCP session the call came in on (ADR-0016), null for sessionless
+  /// clients. The session is diagnostics, never authority.
+  sessionId    String?
+  session      McpSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
 
   @@index([userId, receivedAt])
+  @@index([sessionId])
+}
+
+/// One MCP session on /mcp/<slug> (ADR-0016): created on a 2025-era
+/// `initialize`, its id sent back as `Mcp-Session-Id`. NOT a credential: every
+/// request still needs a valid bearer, and a session is only accepted from its
+/// own user + client + upstream (mcp/sessions.ts). 2026-07-28-era clients have
+/// no sessions at all and stay sessionless. Diagnostics for MG-06: header
+/// NAMES (never values) and `_meta` keys seen, as JSON arrays; the only header
+/// values kept are User-Agent and the protocol version.
+model McpSession {
+  /// 256 random bits, base64url (also the Mcp-Session-Id value).
+  id              String       @id
+  userId          Int
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mcpClientId     Int
+  mcpClient       McpClient    @relation(fields: [mcpClientId], references: [id], onDelete: Cascade)
+  upstreamId      Int
+  upstream        Upstream     @relation(fields: [upstreamId], references: [id], onDelete: Cascade)
+  /// initialize.params.clientInfo (untrusted, length-capped).
+  clientName      String?
+  clientVersion   String?
+  /// initialize.params.protocolVersion as the client asked for it.
+  protocolVersion String?
+  userAgent       String?
+  /// JSON array of lower-cased request header names (union over the session).
+  headerNames     String       @default("[]")
+  /// JSON array of `_meta` keys seen in tools/call params (union).
+  metaKeys        String       @default("[]")
+  callCount       Int          @default(0)
+  createdAt       DateTime
+  lastSeenAt      DateTime
+  endedAt         DateTime?
+  auditEntries    AuditEntry[]
+
+  @@index([userId, createdAt])
 }
 
 /// Small key/value store for server-generated settings (the VAPID key pair under "vapid").

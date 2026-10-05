@@ -5,6 +5,7 @@
   import { onDestroy } from 'svelte';
   import ApprovalCard from '../lib/ApprovalCard.svelte';
   import Spinner from '../lib/Spinner.svelte';
+  import SessionLine from '../lib/SessionLine.svelte';
   import { api, ApiError, decisionPathText, messageOf, OUTCOME_LABEL, type PendingApproval, type ResolvedApproval } from '../lib/api';
   import { openApprovalStream } from '../lib/approvalStream';
 
@@ -61,6 +62,7 @@
         <span class="approval-upstream">{r.upstream?.name ?? '–'}</span>
         <span class="tool-name">{r.tool}</span>
       </div>
+      <SessionLine session={r.session} />
       <p class="outcome-text">Nicht mehr offen: {decisionPathText(r.decisionPath)}.</p>
       <pre class="args" aria-label="Argumente">{argsText(r.arguments)}</pre>
       <p class="hint">

@@ -68,6 +68,31 @@ export interface McpClient {
   lastUsedAt: string | null;
 }
 
+/** The MCP session a call came in on (ADR-0016); null when sessionless. */
+export type SessionRef = { id: string; createdAt: string } | null;
+
+export interface SessionSummary {
+  id: string;
+  client: { id: number; name: string; kind: 'OAUTH' | 'TOKEN' };
+  upstream: { id: number; slug: string; name: string };
+  /** From the client's `initialize` (untrusted text). */
+  clientInfo: { name: string | null; version: string | null };
+  protocolVersion: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  lastSeenAt: string;
+  endedAt: string | null;
+  callCount: number;
+}
+
+export interface SessionDetail extends SessionSummary {
+  /** Request header names seen in this session (names only). */
+  headerNames: string[];
+  /** `_meta` keys seen in tools/call (keys only). */
+  metaKeys: string[];
+  entries: AuditRow[];
+}
+
 export interface PendingApproval {
   id: string;
   state: 'pending';
@@ -82,6 +107,7 @@ export interface PendingApproval {
   remainingMs: number;
   /** false for new/changed tools: only "Erlauben" once, no snooze. */
   snoozable: boolean;
+  session: SessionRef;
 }
 
 export type Outcome = 'PENDING' | 'FORWARDED' | 'DENIED' | 'TIMED_OUT' | 'UPSTREAM_ERROR';
@@ -98,6 +124,7 @@ export interface ResolvedApproval {
   arguments: unknown;
   receivedAt: string;
   decidedAt: string | null;
+  session: SessionRef;
 }
 
 export type ApprovalDecision =
@@ -113,6 +140,7 @@ export interface AuditRow {
   decisionPath: string;
   isError: boolean | null;
   receivedAt: string;
+  session: SessionRef;
 }
 
 export interface AuditDetail extends AuditRow {
@@ -198,6 +226,12 @@ export const api = {
   listAudit: (before?: number) =>
     request<{ entries: AuditRow[]; nextBefore: number | null }>('GET', `/api/audit${before ? `?before=${before}` : ''}`),
   getAudit: (id: number) => request<AuditDetail>('GET', `/api/audit/${id}`),
+  listSessions: (before?: string) =>
+    request<{ sessions: SessionSummary[]; nextBefore: string | null }>(
+      'GET',
+      `/api/sessions${before ? `?before=${encodeURIComponent(before)}` : ''}`,
+    ),
+  getSession: (id: string) => request<SessionDetail>('GET', `/api/sessions/${encodeURIComponent(id)}`),
   getPushConfig: () => request<{ publicKey: string }>('GET', '/api/push/config'),
   savePushSubscription: (sub: { endpoint: string; keys: { p256dh: string; auth: string } }) =>
     request<unknown>('POST', '/api/push/subscriptions', sub),
@@ -253,4 +287,13 @@ export function decisionPathText(path: string): string {
     .split('+')
     .map((p) => PATH_PART[p] ?? p)
     .join(' → ');
+}
+
+const timeOnly = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' });
+const dayAndTime = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+/** "Sitzung seit 14:02" (today) or "Sitzung seit 04.10., 14:02". */
+export function sessionSinceText(createdAt: string, now = new Date()): string {
+  const d = new Date(createdAt);
+  return `Sitzung seit ${d.toDateString() === now.toDateString() ? timeOnly.format(d) : dayAndTime.format(d)}`;
 }

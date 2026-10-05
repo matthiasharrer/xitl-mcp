@@ -28,7 +28,11 @@ function parseArgs(raw: string): unknown {
 const include = {
   mcpClient: { select: { name: true } },
   upstream: { select: { id: true, slug: true, name: true } },
+  session: { select: { id: true, createdAt: true } },
 } as const;
+
+/** The audit row's MCP session (ADR-0016) as the UI shows it. */
+export const sessionRef = (s: { id: string; createdAt: Date } | null) => (s ? { id: s.id, createdAt: s.createdAt.toISOString() } : null);
 
 audit.use('*', async (c, next) => {
   c.header('Cache-Control', 'no-store');
@@ -55,6 +59,7 @@ audit.get('/', async (c) => {
       decisionPath: a.decisionPath,
       isError: a.isError,
       receivedAt: a.receivedAt.toISOString(),
+      session: sessionRef(a.session),
     })),
     nextBefore: rows.length > PAGE ? page[page.length - 1]!.id : null,
   });
@@ -80,5 +85,6 @@ audit.get('/:id', async (c) => {
     receivedAt: a.receivedAt.toISOString(),
     decidedAt: a.decidedAt?.toISOString() ?? null,
     finishedAt: a.finishedAt?.toISOString() ?? null,
+    session: sessionRef(a.session),
   });
 });

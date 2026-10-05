@@ -23,6 +23,12 @@
 // slug is resolved only after the token is verified and only among the token
 // user's upstreams; anything else is a 404 and never another user's server.
 // `/mcp` (all upstreams in one) does not exist yet: 404.
+//
+// Sessions (ADR-0016, sessions.ts): a 2025-era `initialize` gets an
+// `Mcp-Session-Id` (a DB row, no transport or server kept in memory); a later
+// request carrying it must match user + client + upstream and not be ended, or
+// it gets the SDK's 404 "Session not found"; `DELETE` with it ends the
+// session. Requests without the header are served sessionless, as always.
 import type { Hono } from 'hono';
 import type { AppEnv } from '../identity.js';
 import type { AuthInfo } from '@modelcontextprotocol/server';
@@ -33,6 +39,20 @@ import { mountMcpOAuth } from './oauthRoutes.js';
 import { externalOrigin } from '../lib/externalOrigin.js';
 import { isUpstreamSlug } from '../lib/slugs.js';
 import { prisma } from '../db.js';
+import { systemClock } from '../lib/clock.js';
+import { errorTag } from '../upstream/oauthClient.js';
+import { MAX_MCP_BODY_BYTES } from '../lib/limits.js';
+import {
+  createSession,
+  echoableId,
+  endSession,
+  findOwnSession,
+  legacyInitializeOf,
+  messagesOf,
+  sessionNotFound,
+  touchSession,
+  type SessionRow,
+} from './sessions.js';
 
 /** `requireBearerAuth`'s documented contract is `AuthInfo | Response`, checked
  * with `result instanceof Response` (see the SDK's own example). That check
@@ -55,26 +75,43 @@ function isAuthInfo(value: AuthInfo | Response): value is AuthInfo {
 
 const NOT_FOUND = { error: 'Not found' };
 
-/** Bodies larger than this are not peeked at (the handler still limits them). */
-const PEEK_MAX_BYTES = 64 * 1024;
+/** Bodies larger than this are not peeked at (the body limit middleware
+ * refuses anything above MAX_MCP_BODY_BYTES before we get here anyway). */
+const PEEK_MAX_BYTES = MAX_MCP_BODY_BYTES;
 
-async function peekWantsInstructions(req: Request): Promise<boolean> {
-  if (req.method !== 'POST') return false;
+interface Peek {
+  messages: Record<string, unknown>[];
+  isBatch: boolean;
+}
+
+/** Parses a POST body from a clone (the handler reads the original). A hint
+ * for instructions and session bookkeeping only: never decides who may do
+ * what. null when not peekable (no declared length, too large, not JSON). */
+async function peekBody(req: Request): Promise<Peek | null> {
+  if (req.method !== 'POST') return null;
   // No declared length (chunked): don't buffer an unknown amount; the stored
-  // instructions are used instead.
+  // instructions are used instead, and the session is not touched by the body.
   const declared = req.headers.get('content-length');
   const length = declared === null ? NaN : Number(declared);
-  if (!Number.isFinite(length) || length > PEEK_MAX_BYTES) return false;
+  if (!Number.isFinite(length) || length > PEEK_MAX_BYTES) return null;
   try {
-    const body = (await req.clone().json()) as { method?: unknown } | unknown[];
-    const messages = Array.isArray(body) ? body : [body];
-    return messages.some((m) => {
-      const method = (m as { method?: unknown } | null)?.method;
-      return method === 'initialize' || method === 'server/discover';
-    });
+    const body = (await req.clone().json()) as unknown;
+    return { messages: messagesOf(body), isBatch: Array.isArray(body) };
   } catch {
-    return false;
+    return null;
   }
+}
+
+function wantsInstructionsOf(peek: Peek | null): boolean {
+  return !!peek?.messages.some((m) => m.method === 'initialize' || m.method === 'server/discover');
+}
+
+/** The handler's response with `Mcp-Session-Id` added (body passed through,
+ * so an SSE stream keeps streaming). */
+function withSessionHeader(res: Response, id: string): Response {
+  const headers = new Headers(res.headers);
+  headers.set('Mcp-Session-Id', id);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
 
 export function mountMcp(app: Hono<AppEnv>): void {
@@ -132,15 +169,67 @@ export function mountMcp(app: Hono<AppEnv>): void {
     });
     if (!upstream) return c.json(NOT_FOUND, 404);
 
-    // Peek at the JSON-RPC method (on a clone; the handler reads the original)
-    // so the server factory only contacts the upstream for its instructions
-    // when the client actually asks for them. A hint only: it changes what
-    // instructions say, never who may do what.
-    const wantsInstructions = await peekWantsInstructions(c.req.raw);
+    const mcpClientId = result.extra?.mcpClientId;
+    if (typeof mcpClientId !== 'number') return c.json(NOT_FOUND, 404); // cannot happen after the verifier; fail closed
+    const owner = { userId, mcpClientId, upstreamId: upstream.id };
 
-    return handler.fetch(c.req.raw, {
-      authInfo: { ...result, extra: { ...result.extra, upstream, wantsInstructions } },
+    // Peek at the JSON-RPC body (on a clone; the handler reads the original)
+    // so the server factory only contacts the upstream for its instructions
+    // when the client actually asks for them, and for session bookkeeping.
+    const peek = await peekBody(c.req.raw);
+    const wantsInstructions = wantsInstructionsOf(peek);
+    const messages = peek?.messages ?? [];
+
+    // Sessions (ADR-0016, mcp/sessions.ts) — only AFTER the token check: a
+    // session id is never a credential. A 2025-era `initialize` starts a new
+    // session (any id it carries is ignored, as the spec has it); otherwise a
+    // presented id must be this caller's own open session, or 404. No header
+    // at all: sessionless, exactly as before.
+    const init = legacyInitializeOf(messages);
+    const presented = c.req.header('mcp-session-id');
+    let session: SessionRow | null = null;
+    if (!init && presented !== undefined) {
+      session = await findOwnSession(presented, owner);
+      if (!session) return sessionNotFound(echoableId(messages, peek?.isBatch ?? false));
+    }
+
+    if (c.req.method === 'DELETE') {
+      // Without a session there is nothing to end: the SDK's stateless answer (405).
+      if (!session) return handler.fetch(c.req.raw);
+      await endSession(session, systemClock);
+      return new Response(null, { status: 200 });
+    }
+
+    if (session) {
+      try {
+        await touchSession(session, { headers: c.req.raw.headers, messages }, systemClock);
+      } catch (e) {
+        console.warn(`mcp: session bookkeeping failed: ${errorTag(e)}`);
+      }
+    }
+
+    const res = await handler.fetch(c.req.raw, {
+      authInfo: {
+        ...result,
+        extra: {
+          ...result.extra,
+          upstream,
+          wantsInstructions,
+          session: session ? { id: session.id, createdAt: session.createdAt.toISOString() } : null,
+        },
+      },
     });
+
+    if (init && res.ok) {
+      try {
+        const created = await createSession(owner, init, c.req.raw.headers, systemClock);
+        return withSessionHeader(res, created.id);
+      } catch (e) {
+        // No session is not an error: the client simply stays sessionless.
+        console.warn(`mcp: session not created: ${errorTag(e)}`);
+      }
+    }
+    return res;
   });
 
   // Anything deeper under /mcp (e.g. /mcp/foo/bar) is not an endpoint either;

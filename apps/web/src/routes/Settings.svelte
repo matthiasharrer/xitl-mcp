@@ -388,6 +388,12 @@
         </ul>
       {/if}
     </section>
+
+    <section aria-labelledby="sessions-title">
+      <h2 id="sessions-title">Sitzungen</h2>
+      <a class="btn wide" href="#/sitzungen">Sitzungen ansehen</a>
+      <p class="hint section-hint">Welcher Client wann eine Sitzung geöffnet hat und welche Aufrufe dazugehören.</p>
+    </section>
   {/if}
 </div>
 

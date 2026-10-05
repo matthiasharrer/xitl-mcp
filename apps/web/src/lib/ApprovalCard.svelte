@@ -5,6 +5,7 @@
   import { onDestroy, untrack } from 'svelte';
   import { api, ApiError, messageOf, type ApprovalDecision, type PendingApproval } from './api';
   import { showToast } from './store.svelte';
+  import SessionLine from './SessionLine.svelte';
 
   let {
     approval,
@@ -69,6 +70,7 @@
     <span class="approval-upstream">{approval.upstream.name}</span>
     <span class="tool-name">{approval.tool}</span>
   </div>
+  <SessionLine session={approval.session} />
   {#if !approval.snoozable}
     <p class="hint approval-new">
       Neues oder geändertes Tool. Prüfe es in den <a href={`#/regeln/${approval.upstream.id}`}>Regeln</a>.

@@ -8,6 +8,7 @@ import { mcpClients } from './routes/mcpClients.js';
 import { mcpConfig } from './routes/mcpConfig.js';
 import { approvalRoutes } from './routes/approvals.js';
 import { audit } from './routes/audit.js';
+import { sessions } from './routes/sessions.js';
 import { push } from './routes/push.js';
 import { approvals } from './approval/pending.js';
 import { wireApprovalPush } from './approval/notify.js';
@@ -52,6 +53,7 @@ app.route('/api/mcp', mcpConfig);
 app.route('/api/mcp/clients', mcpClients);
 app.route('/api/approvals', approvalRoutes);
 app.route('/api/audit', audit);
+app.route('/api/sessions', sessions);
 app.route('/api/push', push);
 
 // Every new held call is pushed to its user's devices (ADR-0009).

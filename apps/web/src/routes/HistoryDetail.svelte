@@ -1,6 +1,7 @@
 <script lang="ts">
   // #/verlauf/<id>: one audit entry with arguments and the result excerpt.
   import Spinner from '../lib/Spinner.svelte';
+  import SessionLine from '../lib/SessionLine.svelte';
   import { api, ApiError, decisionPathText, messageOf, OUTCOME_LABEL, POLICY_LABEL, type AuditDetail } from '../lib/api';
 
   let { id }: { id: number } = $props();
@@ -55,6 +56,7 @@
         <dt>Entschieden</dt><dd>{fmt(e.decidedAt)}</dd>
         <dt>Fertig</dt><dd>{fmt(e.finishedAt)}</dd>
       </dl>
+      <SessionLine session={e.session} />
       <h3 class="section-title">Argumente</h3>
       <pre class="args" aria-label="Argumente">{argsText(e.arguments)}</pre>
       <h3 class="section-title">Ergebnis{e.isError ? ' (Fehler)' : ''}</h3>

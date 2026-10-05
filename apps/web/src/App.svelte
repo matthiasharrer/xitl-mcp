@@ -8,6 +8,8 @@
   import Approval from './routes/Approval.svelte';
   import History from './routes/History.svelte';
   import HistoryDetail from './routes/HistoryDetail.svelte';
+  import Sessions from './routes/Sessions.svelte';
+  import SessionDetail from './routes/SessionDetail.svelte';
 
   let me = $state<Me | null>(null);
   let error = $state<string | null>(null);
@@ -24,15 +26,20 @@
     | { name: 'history' }
     | { name: 'audit'; id: number }
     | { name: 'settings' }
+    | { name: 'sessions' }
+    | { name: 'session'; id: string }
     | { name: 'rules'; upstreamId: number };
   function viewOf(hash: string): View {
     const path = hash.split('?')[0];
     if (path === '#/einstellungen') return { name: 'settings' };
     if (path === '#/verlauf') return { name: 'history' };
+    if (path === '#/sitzungen') return { name: 'sessions' };
     let m = /^#\/regeln\/(\d{1,9})$/.exec(path);
     if (m) return { name: 'rules', upstreamId: Number(m[1]) };
     m = /^#\/verlauf\/(\d{1,9})$/.exec(path);
     if (m) return { name: 'audit', id: Number(m[1]) };
+    m = /^#\/sitzungen\/([A-Za-z0-9_-]{43})$/.exec(path);
+    if (m) return { name: 'session', id: m[1] };
     m = /^#\/freigabe\/([A-Za-z0-9_-]{1,64})$/.exec(path);
     if (m) return { name: 'approval', id: m[1] };
     return { name: 'home' };
@@ -57,6 +64,10 @@
       <Settings />
     {:else if view.name === 'rules'}
       {#key view.upstreamId}<Rules upstreamId={view.upstreamId} />{/key}
+    {:else if view.name === 'sessions'}
+      <Sessions />
+    {:else if view.name === 'session'}
+      {#key view.id}<SessionDetail id={view.id} />{/key}
     {:else if view.name === 'history'}
       <History />
     {:else if view.name === 'audit'}

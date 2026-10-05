@@ -1,6 +1,7 @@
 <script lang="ts">
   // "Verlauf" (ADR-0008, TC-35): the user's calls, newest first, 50 per page.
   import Spinner from '../lib/Spinner.svelte';
+  import SessionLine from '../lib/SessionLine.svelte';
   import { api, decisionPathText, messageOf, OUTCOME_LABEL, type AuditRow } from '../lib/api';
 
   let entries = $state<AuditRow[]>([]);
@@ -49,6 +50,7 @@
             <span class="sub">
               <span>{e.upstream?.name ?? '–'} · {e.clientName ?? 'Client'} · {dateTime.format(new Date(e.receivedAt))}</span>
               <span class="history-path">{decisionPathText(e.decisionPath)}</span>
+              <SessionLine session={e.session} link={false} />
             </span>
           </a>
         </li>

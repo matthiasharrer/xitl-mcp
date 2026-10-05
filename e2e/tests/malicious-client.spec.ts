@@ -139,6 +139,7 @@ test('TC-39 /api ignoriert MCP-Tokens (401 ohne Remote-User); ein gefälschter R
     ['GET', '/api/approvals'],
     ['GET', '/api/approvals/stream'],
     ['GET', '/api/audit'],
+    ['GET', '/api/sessions'],
     ['GET', '/api/push/config'],
     ['POST', '/api/push/test'],
     ['GET', '/api/mcp/clients'],
