@@ -5,6 +5,16 @@ test evidence in `testing.md`'s run log.
 
 ## 2026-10-05
 
+- **`v0.5.0` released** (Matthias's call): pause an access, session expiry,
+  static `OPTIONS` fix, resolved push for revoked/paused calls.
+- **Pause an access (ADR-0024, Matthias):** every MCP client (token or OAuth)
+  can be paused and resumed in Einstellungen; the gate answers 403
+  `access_paused` (not 401, no re-auth), held calls end `+paused`, rules,
+  snoozes and the OAuth grant are kept. TC-102…105.
+- **Housekeeping:** MCP sessions expire after 30 days unseen, ≤ 500 per user
+  (ADR-0016 amendment, TC-100); `OPTIONS` on static paths answers 204 instead
+  of hanging (TC-101); revoked/paused held calls replace their stale
+  notification (TC-104).
 - **`v0.4.2` released** (Matthias's call): fault push + Freigaben card
   (ADR-0022), browser origins per token (ADR-0023).
 - **Browser origins per token (ADR-0023, Matthias: llama.cpp web UI):**

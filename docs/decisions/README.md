@@ -17,7 +17,7 @@
 | 0013 | [Upstreams are web MCP servers, connected per user](0013-upstreams.md) | Accepted |
 | 0014 | [Upstreams reach clients two ways: one endpoint each, or all in one](0014-how-upstreams-appear-to-clients.md) | Accepted |
 | 0015 | [Per-upstream access tokens as a second way for clients to authenticate](0015-per-upstream-access-tokens.md) | Accepted |
-| 0016 | [MCP sessions for grouping calls, measured before designing around them](0016-mcp-sessions.md) | Accepted (step 1; Claude.ai measured: 2026-07-28, no sessions) |
+| 0016 | [MCP sessions for grouping calls, measured before designing around them](0016-mcp-sessions.md) | Accepted (step 1; Claude.ai measured: 2026-07-28, no sessions; amended: 30-day expiry) |
 | 0017 | [The unified `/mcp` endpoint: names, auth, degradation](0017-unified-endpoint.md) | Accepted |
 | 0018 | [Access tokens have a scope: one upstream or all upstreams](0018-token-scope.md) | Accepted |
 | 0019 | [Calls grouped by day and time gaps; pauses for a tool, read-only tools or an upstream](0019-grouping-and-pause-scopes.md) | Accepted |
@@ -25,3 +25,4 @@
 | 0021 | [A URL change of an upstream resets trust](0021-upstream-url-change.md) | Accepted |
 | 0022 | [A failing upstream is told to the user (push, Freigaben) and noted in `/mcp`'s instructions](0022-failing-upstream-on-unified.md) | Accepted |
 | 0023 | [Browser clients: allowed origins per access token (CORS on `/mcp*`)](0023-browser-origins-per-token.md) | Accepted |
+| 0024 | [An access (MCP client) can be paused and resumed](0024-pause-an-access.md) | Accepted |

@@ -338,16 +338,36 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   `originListedByAnyToken`: SQL `contains` narrows, exact JS check decides —
   else 403 bare); (2) bearer gate; a 401 gets CORS headers when the origin is
   listed by any token; (3) client row re-read `{id, userId}`; TOKEN + Origin
-  not listed → 403 `origin_not_allowed`; (4) `touchTokenLastUsed` (moved out
-  of the verifier so a refused request doesn't bump it); (5) slug, peek,
+  not listed → 403 `origin_not_allowed`; (4) paused client (ADR-0024,
+  `pausedAt` from the same row, TOKEN and OAuth) → 403 `access_paused`, with
+  CORS only if (3) allowed the origin; (5) `touchTokenLastUsed` (moved out
+  of the verifier so a refused request doesn't bump it); (6) slug, peek,
   sessions, handler — every response through `withCors` (headers only, body
   streamed) when allowed. OAuth clients: no check, no headers.
 - No `cors()` middleware anywhere; nothing outside `/mcp` and `/mcp/<slug>`
   sends `Access-Control-*` (TC-97 checks `/api`, `/oauth`, `/mcp/token`,
-  `/mcp/register`, `/.well-known`, static).
+  `/mcp/register`, `/.well-known`, static). Static/SPA paths answer
+  `OPTIONS` with 204 `Allow: GET, HEAD` (`static.ts`; `serveStatic` skips
+  OPTIONS, which it otherwise treats like HEAD: length, no body, hang).
+  `/api/`, `/oauth/`, `/.well-known/` keep their 404.
 - UI: TokenSheet field "Erlaubte Web-Adressen (Browser-Clients)", Settings
   token rows show "Im Browser erlaubt: …" + "Web-Adressen bearbeiten"
   (`OriginsSheet`).
+
+### Pausing an access (ADR-0024, TC-102…105)
+
+- `McpClient.pausedAt` (Clock). `PATCH /api/mcp/clients/:id {paused}`
+  (combinable with `name`/`allowedOrigins`): `true` sets it only where null
+  (first pause kept) and `approvals.cancelWhere(…, 'paused')` settles held
+  calls (`+paused`, "resolved" push with outcome `paused`); `false` clears
+  it. Serialized as `pausedAt` on every client.
+- Gate step (4) above refuses every request. `server.ts` re-checks after an
+  approval (`stillBound` selects `pausedAt`): paused → `+paused`, not
+  forwarded. `/mcp/token` refresh is untouched and still mints for a paused
+  OAuth client; the gate refuses using it.
+- The "resolved" push also goes out for `revoked` (client revoked, upstream
+  deleted/re-pointed) and `paused`, so the stale notification is replaced.
+  `flood` calls were never announced, so none is sent for them.
 
 ### MCP sessions (ADR-0016, TC-55…60)
 
@@ -380,6 +400,10 @@ What the SDK (v2.2.0) and the protocol do — the reason for this shape:
   + same upstream + `endedAt` null, else **404** with the SDK's own body
   (`-32001 "Session not found"`, JSON-RPC id echoed) — unknown, malformed,
   foreign and ended are indistinguishable. No header: sessionless, unchanged.
+  Expiry (ADR-0016 amendment, TC-100): `pruneSessions` deletes sessions
+  with `lastSeenAt` older than 30 days and, per user, the least recently seen
+  over 500 — at boot (all users) and in `createSession` (that user,
+  `reserve: 1`, failure only logged). Audit rows keep living (`SetNull`).
   `DELETE` with a valid id -> `endedAt`, 200 (the SDK's sessionful answer);
   without a header -> the handler's 405; invalid -> 404. GET -> 405.
 - Ids: 32 random bytes base64url (43 chars). Not a credential: the token

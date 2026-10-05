@@ -5,7 +5,7 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-05 (fault push + Freigaben card, ADR-0022; browser origins per token, ADR-0023; released as `v0.4.2`)_
+_Last updated: 2026-10-05 (pause an access, ADR-0024; session expiry; static OPTIONS; released as `v0.5.0`)_
 
 ## Next
 
@@ -15,7 +15,7 @@ _Last updated: 2026-10-05 (fault push + Freigaben card, ADR-0022; browser origin
 
 ## Milestone 1 status
 
-Deployed (`v0.4.2` is the latest release) and in daily use: Matthias's
+Deployed (`v0.5.0` is the latest release) and in daily use: Matthias's
 Claude.ai uses the unified `/mcp` connector (Haushalt, Rezepte, Einkaufsliste
 behind it) from 2026-10-05 on. Manual gates MG-01…04, MG-06 and MG-07 passed
 (`testing.md` run log). **Open:**
@@ -33,8 +33,6 @@ stay behind Authelia.
 - **Dev server proxies only `/api`:** `/mcp`, `/oauth`, `/.well-known` are
   reachable on :3002 only, not via the Coder URL, so Claude.ai can't be tested
   against the workspace. Add Vite proxy entries if that's wanted.
-- Revoked/flood calls send no "resolved" push; a stale notification answers
-  "Nicht mehr offen" when tapped.
 - Approval stream cap (`MAX_APPROVAL_STREAMS_PER_USER` = 5 per user) counts
   open SSE connections, not devices: every tab takes a slot, and a half-dead
   connection holds its slot until the server notices the abort. In-memory,
@@ -43,7 +41,8 @@ stay behind Authelia.
   parallel on one connector share a group.
 - **READONLY pause trusts `readOnlyHint`** as declared when the tool was first
   seen/acknowledged (ADR-0019 consequence).
-- **Sessions:** no TTL/cleanup (one row per `initialize`); unknown session id →
+- **Sessions:** expire after 30 days unseen, ≤ 500 per user (cleanup at boot
+  and on create, no timer); unknown session id →
   404 per spec — if MG-06 shows Claude.ai breaking on 404, serve unknown ids
   sessionless instead (deliberate deviation); 2026-07-28-era clients have no
   sessions at all (grouping falls back to time gaps for them).
@@ -70,8 +69,10 @@ stay behind Authelia.
   (narrowed `contains`); fine at household scale. The 403
   `origin_not_allowed` carries no CORS headers, so the page sees a CORS
   failure, not the body. OAuth clients have no origins yet.
-- Static files answer `OPTIONS` with a Content-Length but no body (pre-existing;
-  clients hang until keep-alive closes).
+- **Pause (ADR-0024):** a call already past the gate when the pause lands
+  still runs (same window as revoke); Claude.ai's reaction to the 403 is
+  unmeasured. Rename/revoke in the UI still show the API's English "not
+  found" on a 404 (pause has its own German toast).
 - Only `tools` are proxied (no resources/prompts); no `list_changed`
   notifications (stateless endpoint; next `tools/list` sees changes).
 - DCR cleanup (TC-88): prune-then-create isn't atomic, so concurrent

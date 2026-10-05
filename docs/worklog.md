@@ -3,6 +3,21 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-05 — Pause an access; housekeeping
+
+- Matthias asked for the housekeeping (sessions TTL, static OPTIONS) plus
+  pausing an access, and a release at the end (`v0.5.0`). The lead wrote
+  ADR-0024, the ADR-0016 amendment and TC-100…105; one Opus agent built all
+  slices; lead reviewed gate, PATCH, re-check after approval and static.ts
+  line by line, re-ran gates (unit 289, e2e 124) + mutation on the pause check.
+- Decisions: 403 `access_paused` (401 would start re-auth on Claude.ai);
+  pause check after the origin check, so CORS only for an allowed origin;
+  OAuth refresh still mints while paused (grant kept). Sessions: 30 days,
+  500 per user, no timer.
+- Gotcha: `serveStatic` treats OPTIONS like HEAD (200 + Content-Length, no
+  body), which is why clients hung. A `false &&` mutation breaks the build
+  (TS); use a type-safe one.
+
 ## 2026-10-05 — Fault push + Freigaben card; browser origins per token
 
 - `v0.4.2` released and deployed; Matthias confirmed the llama.cpp web UI works

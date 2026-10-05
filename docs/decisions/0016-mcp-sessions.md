@@ -72,3 +72,20 @@ Four headless Claude Code runs ("chats"), two `list_tasks` calls each:
   `toolUseId` and `progressToken` are per call. Grouping falls back to time
   gaps per client (decision with Matthias). The per-call diagnostics stay
   (cheap, and a future client may send a chat id).
+
+## Amendment (2026-10-05): sessions expire
+
+Sessions had no end unless the client sent `DELETE`, which almost no client
+does. One row was added per `initialize`, forever.
+
+- A session not seen for **30 days** (`lastSeenAt`, which an ended session
+  also carries) is deleted: `SESSION_TTL_MS` in `lib/limits.ts`.
+- At most **500 sessions per user** (`MAX_SESSIONS_PER_USER`). Beyond that,
+  the least recently seen are deleted first.
+- Cleanup runs at boot (all users) and before every new session is created
+  (that user only, leaving room for the new one). There is no timer.
+- Audit rows stay. Their `sessionId` becomes null (existing `SetNull`), and
+  Verlauf shows them without a session.
+- A request presenting a deleted id gets the same 404 as an unknown one, and
+  the client re-initializes. 30 days is far beyond any real client's idle
+  time, so this only affects sessions that were abandoned anyway.
