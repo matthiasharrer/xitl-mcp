@@ -231,6 +231,29 @@ export interface RequestDiagnostics {
   userAgent: string | null;
   headerNames: string[];
   metaKeys: string[];
+  /** Correlation candidates for grouping without sessions (MG-06 finding:
+   * Claude.ai speaks 2026-07-28). Only the TRACE part of each trace header
+   * (random ids, not credentials), and the x-anthropic-client value. */
+  traceId: string | null;
+  cloudTraceId: string | null;
+  anthropicClient: string | null;
+}
+
+/** W3C `traceparent`: version-traceid-parentid-flags -> the trace id. */
+export function traceIdOf(raw: string | null): string | null {
+  const m = raw?.trim().toLowerCase().match(/^[0-9a-f]{2}-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}$/);
+  return m && !/^0+$/.test(m[1]!) ? m[1]! : null;
+}
+
+/** GCP `x-cloud-trace-context`: TRACE_ID[/SPAN_ID][;o=N] -> the trace id. */
+export function cloudTraceIdOf(raw: string | null): string | null {
+  const m = raw?.trim().toLowerCase().match(/^([0-9a-f]{32})(?:\/\d{1,20})?(?:;o=\d)?$/);
+  return m ? m[1]! : null;
+}
+
+/** A short printable token, or null (the header value is client-controlled). */
+function tokenValue(raw: string | null, max: number): string | null {
+  return raw && /^[\x21-\x7e]{1,200}$/.test(raw) ? raw.slice(0, max) : null;
 }
 
 export function requestDiagnostics(headers: Headers, messages: Record<string, unknown>[]): RequestDiagnostics {
@@ -246,5 +269,8 @@ export function requestDiagnostics(headers: Headers, messages: Record<string, un
     userAgent: clip(headers.get('user-agent'), MAX_USER_AGENT_CHARS),
     headerNames: mergeNames('[]', headerNamesOf(headers), MAX_HEADER_NAMES, MAX_NAME_CHARS),
     metaKeys: mergeNames('[]', toolCallsOf(messages).metaKeys, MAX_META_KEYS, MAX_META_KEY_CHARS),
+    traceId: traceIdOf(headers.get('traceparent')),
+    cloudTraceId: cloudTraceIdOf(headers.get('x-cloud-trace-context')),
+    anthropicClient: tokenValue(headers.get('x-anthropic-client'), 100),
   };
 }

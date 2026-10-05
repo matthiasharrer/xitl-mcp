@@ -87,6 +87,9 @@ function diagnosticsFrom(raw: unknown): RequestDiagnostics | null {
     userAgent: str(d.userAgent),
     headerNames: d.headerNames.filter((n): n is string => typeof n === 'string'),
     metaKeys: d.metaKeys.filter((n): n is string => typeof n === 'string'),
+    traceId: str(d.traceId),
+    cloudTraceId: str(d.cloudTraceId),
+    anthropicClient: str(d.anthropicClient),
   };
 }
 
@@ -100,6 +103,9 @@ function auditDiagnostics(d: RequestDiagnostics | null) {
     userAgent: d.userAgent,
     headerNames: JSON.stringify(d.headerNames),
     metaKeys: JSON.stringify(d.metaKeys),
+    traceId: d.traceId,
+    cloudTraceId: d.cloudTraceId,
+    anthropicClient: d.anthropicClient,
   };
 }
 

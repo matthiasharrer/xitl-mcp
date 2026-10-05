@@ -94,6 +94,9 @@ audit.get('/:id', async (c) => {
       userAgent: a.userAgent,
       headerNames: a.headerNames ? parseNames(a.headerNames) : [],
       metaKeys: a.metaKeys ? parseNames(a.metaKeys) : [],
+      traceId: a.traceId,
+      cloudTraceId: a.cloudTraceId,
+      anthropicClient: a.anthropicClient,
     },
   });
 });

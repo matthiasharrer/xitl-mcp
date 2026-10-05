@@ -3,6 +3,14 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-05 — Claude.ai measured: 2026-07-28, no sessions
+
+- Matthias sent the "Diagnose" of a real Claude.ai call (v0.3.1): protocol
+  2026-07-28, clientInfo `Anthropic/ClaudeAI 1.0.0`, UA `Claude-User`, no chat
+  id in `_meta`; headers include `traceparent`, `x-cloud-trace-context`,
+  `x-anthropic-client`. Logged in ADR-0016. Now storing their values (trace
+  part only) per call to see whether one is stable per chat (TC-74 extended).
+
 ## 2026-10-05 — No sessions on the deployed instance
 
 - Matthias: no sessions show up after deploying. No cluster access from here,

@@ -10,7 +10,9 @@ import {
   messagesOf,
   newSessionId,
   parseNames,
+  cloudTraceIdOf,
   requestDiagnostics,
+  traceIdOf,
   toolCallsOf,
 } from './sessions.js';
 
@@ -118,5 +120,23 @@ describe('requestDiagnostics', () => {
   it('2025-era: version from the header, nothing else required', () => {
     const d = requestDiagnostics(new Headers({ 'MCP-Protocol-Version': '2025-06-18' }), [{ method: 'tools/call', params: { name: 'x' } }]);
     expect(d).toMatchObject({ protocolVersion: '2025-06-18', clientName: null, userAgent: null, metaKeys: [] });
+  });
+});
+
+describe('trace correlation (grouping candidates)', () => {
+  it('takes only the trace part', () => {
+    expect(traceIdOf('00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01')).toBe('4bf92f3577b34da6a3ce929d0e0e4736');
+    expect(traceIdOf('00-00000000000000000000000000000000-00f067aa0ba902b7-01')).toBeNull();
+    expect(traceIdOf('garbage')).toBeNull();
+    expect(traceIdOf(null)).toBeNull();
+    expect(cloudTraceIdOf('105445aa7843bc8bf206b12000100000/1;o=1')).toBe('105445aa7843bc8bf206b12000100000');
+    expect(cloudTraceIdOf('105445aa7843bc8bf206b12000100000')).toBe('105445aa7843bc8bf206b12000100000');
+    expect(cloudTraceIdOf('x/1')).toBeNull();
+  });
+
+  it('records the x-anthropic-client value only when it is a short token', () => {
+    const d = (v: string) => requestDiagnostics(new Headers({ 'x-anthropic-client': v }), []).anthropicClient;
+    expect(d('claude-ai/1.0')).toBe('claude-ai/1.0');
+    expect(d('has space')).toBeNull();
   });
 });

@@ -68,11 +68,17 @@
       {/if}
       <details class="diagnose" aria-label="Diagnose">
         <summary>Diagnose</summary>
-        <p class="hint">Was der Client bei diesem Aufruf mitgeschickt hat, nur Namen, keine Werte.</p>
+        <p class="hint">
+          Was der Client bei diesem Aufruf mitgeschickt hat: Header nur als Namen; Werte nur von
+          User-Agent, Protokoll, x-anthropic-client und den Trace-Kennungen.
+        </p>
         <dl class="facts">
           <dt>Protokoll</dt><dd class="mono">{e.diagnostics.protocolVersion ?? '–'}</dd>
           <dt>Client meldet</dt><dd>{e.diagnostics.clientInfo ?? '–'}</dd>
           <dt>User-Agent</dt><dd class="mono">{e.diagnostics.userAgent ?? '–'}</dd>
+          <dt>x-anthropic-client</dt><dd class="mono">{e.diagnostics.anthropicClient ?? '–'}</dd>
+          <dt>Trace</dt><dd class="mono trace" data-testid="trace-id">{e.diagnostics.traceId ?? '–'}</dd>
+          <dt>Cloud-Trace</dt><dd class="mono trace">{e.diagnostics.cloudTraceId ?? '–'}</dd>
         </dl>
         <h4 class="diagnose-title">Header</h4>
         {#if e.diagnostics.headerNames.length === 0}

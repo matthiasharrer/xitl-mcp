@@ -160,6 +160,9 @@ export interface AuditDetail extends AuditRow {
     userAgent: string | null;
     headerNames: string[];
     metaKeys: string[];
+    traceId: string | null;
+    cloudTraceId: string | null;
+    anthropicClient: string | null;
   };
 }
 

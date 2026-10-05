@@ -237,6 +237,11 @@ model AuditEntry {
   /// JSON arrays of names.
   headerNames     String?
   metaKeys        String?
+  /// Grouping candidates (Claude.ai has no sessions, 2026-07-28): trace ids
+  /// of `traceparent` / `x-cloud-trace-context`, `x-anthropic-client` value.
+  traceId         String?
+  cloudTraceId    String?
+  anthropicClient String?
 
   @@index([userId, receivedAt])
   @@index([sessionId])

@@ -156,7 +156,7 @@ proxy, the audit says so. Complements TC-11/12/16/18/26/31.
 | TC-59 | ⚡ At 390×844: Einstellungen → "Sitzungen" lists the user's sessions newest first (client, upstream, clientInfo, start, last seen, number of calls, protocol version); tapping one shows its calls. Another user's sessions never appear. |
 | TC-60 | Diagnostics for the measurement: per session, the names (not values) of request headers seen and the `_meta` keys (not values) seen in `tools/call` are recorded and shown in the session detail. No header values except User-Agent, `MCP-Protocol-Version` and `Mcp-Session-Id`; never `Authorization`. |
 | TC-73 | An `initialize` sent chunked (no `Content-Length`, as behind HTTP/2 ingresses) still gets an `Mcp-Session-Id` and a session row. |
-| TC-74 | Every audit row carries per-request diagnostics, with or without a session: protocol version (header or 2026 `_meta`), `clientInfo` from 2026 `_meta`, User-Agent, header names and `_meta` key names, never their values (nor the token); the Verlauf call detail shows them ("Diagnose"). |
+| TC-74 | Every audit row carries per-request diagnostics, with or without a session: protocol version (header or 2026 `_meta`), `clientInfo` from 2026 `_meta`, User-Agent, header names and `_meta` key names, never their values (nor the token); as grouping candidates also the trace id of `traceparent` and of `x-cloud-trace-context` (never the span id) and the `x-anthropic-client` value; the Verlauf call detail shows them ("Diagnose"). |
 
 ### Unified endpoint (ADR-0014, 0017): `e2e/tests/unified.spec.ts`
 

@@ -35,3 +35,21 @@ it sends no chat id that we know of.
 
 - **Group by time gaps only.** Works for every client but is a guess; kept as
   the fallback.
+
+## Measurement result (2026-10-05, deployed `v0.3.1`, one Claude.ai call)
+
+- Claude.ai speaks **2026-07-28**: no `initialize`, so **no sessions**, by
+  design of that protocol revision. `_meta` carries only the standard
+  envelope: `io.modelcontextprotocol/clientCapabilities`, `…/clientInfo`
+  (`Anthropic/ClaudeAI 1.0.0`), `…/protocolVersion`. No chat id in `_meta`.
+- User-Agent `Claude-User`. Headers (names): `accept`, `accept-encoding`,
+  `authorization`, `content-length`, `content-type`, `host`, `mcp-method`,
+  `mcp-name`, `mcp-protocol-version`, `traceparent`, `user-agent`,
+  `x-anthropic-client`, `x-cloud-trace-context`, plus the ingress's
+  `x-forwarded-*` / `x-real-ip`. The body arrived with `content-length`.
+- Grouping candidates: the trace id of `traceparent` (W3C) and of
+  `x-cloud-trace-context` (GCP), and the `x-anthropic-client` value. Since
+  v0.3.2 these values are stored per call (trace part only). Next measurement:
+  several calls in one chat, and in two chats — does a trace id stay the same
+  per chat, per turn, or change per call? If none is stable per chat, the
+  grouping falls back to time gaps per client.

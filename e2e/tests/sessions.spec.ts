@@ -415,12 +415,31 @@ test('TC-74 Diagnose je Aufruf auch ohne Sitzung: Protokoll, clientInfo aus _met
         },
       },
     },
-    { headers: { 'User-Agent': 'Claude-User/2.0 (e2e)', 'MCP-Protocol-Version': '2025-11-25', 'X-Chat-Hint': 'header-secret-value' } },
+    {
+      headers: {
+        'User-Agent': 'Claude-User/2.0 (e2e)',
+        'MCP-Protocol-Version': '2025-11-25',
+        'X-Chat-Hint': 'header-secret-value',
+        traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01',
+        'X-Cloud-Trace-Context': '105445aa7843bc8bf206b12000100000/1;o=1',
+        'X-Anthropic-Client': 'ClaudeAI',
+      },
+    },
   );
   expect(res.status()).toBe(200);
   expect((await parseRpc(res)).result.isError ?? false).toBe(false);
   const row = dbAll('select * from AuditEntry where userId = ? order by id desc limit 1', userId('matthias'))[0];
-  expect(row).toMatchObject({ sessionId: null, protocolVersion: '2025-11-25', clientInfo: 'claude-ai 2.0', userAgent: 'Claude-User/2.0 (e2e)' });
+  expect(row).toMatchObject({
+    sessionId: null,
+    protocolVersion: '2025-11-25',
+    clientInfo: 'claude-ai 2.0',
+    userAgent: 'Claude-User/2.0 (e2e)',
+    // grouping candidates: trace parts only (no span ids), the client token
+    traceId: '4bf92f3577b34da6a3ce929d0e0e4736',
+    cloudTraceId: '105445aa7843bc8bf206b12000100000',
+    anthropicClient: 'ClaudeAI',
+  });
+  expect(JSON.stringify(row)).not.toContain('00f067aa0ba902b7');
   expect(JSON.parse(row.headerNames)).toEqual(expect.arrayContaining(['authorization', 'x-chat-hint', 'user-agent']));
   expect(JSON.parse(row.metaKeys)).toEqual(['example/conversationId', 'io.modelcontextprotocol/clientInfo']);
   const stored = JSON.stringify(row);
@@ -428,5 +447,5 @@ test('TC-74 Diagnose je Aufruf auch ohne Sitzung: Protokoll, clientInfo aus _met
 
   // ...and the call detail in Verlauf shows it.
   const detail = await (await request.get(`/api/audit/${row.id}`, { headers: MATTHIAS })).json();
-  expect(detail.diagnostics).toMatchObject({ protocolVersion: '2025-11-25', clientInfo: 'claude-ai 2.0', metaKeys: ['example/conversationId', 'io.modelcontextprotocol/clientInfo'] });
+  expect(detail.diagnostics).toMatchObject({ traceId: '4bf92f3577b34da6a3ce929d0e0e4736', anthropicClient: 'ClaudeAI', protocolVersion: '2025-11-25', clientInfo: 'claude-ai 2.0', metaKeys: ['example/conversationId', 'io.modelcontextprotocol/clientInfo'] });
 });
