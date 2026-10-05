@@ -29,6 +29,9 @@
 
   /** The MCP URL of one upstream (ADR-0014). */
   const endpointOf = (u: Upstream) => `${location.origin}/mcp/${u.slug}`;
+  /** All upstreams in one (ADR-0017). `*` is never a slug. */
+  const UNIFIED = '*';
+  const unifiedEndpoint = `${location.origin}/mcp`;
 
   // `null` = closed, 'new' = adding, an Upstream = editing it.
   let sheet = $state<Upstream | 'new' | null>(null);
@@ -97,14 +100,15 @@
     await load();
   }
 
-  async function copy(u: Upstream, input: HTMLInputElement | undefined) {
+  /** Copies an endpoint URL; `key` is the upstream slug, or UNIFIED. */
+  async function copy(key: string, url: string, input: HTMLInputElement | undefined) {
     try {
-      await navigator.clipboard.writeText(endpointOf(u));
+      await navigator.clipboard.writeText(url);
     } catch {
       input?.select(); // clipboard unavailable: leave it selected for a manual copy
       return;
     }
-    copiedSlug = u.slug;
+    copiedSlug = key;
     setTimeout(() => (copiedSlug = null), 2000);
   }
 
@@ -252,6 +256,38 @@
       {#if upstreams.length === 0}
         <p class="empty">Noch kein Upstream eingetragen.</p>
       {:else}
+        {#if mcpConfigured}
+          <ul class="list unified" aria-label="Alle Upstreams">
+          <li class="item">
+            <div class="item-head">
+              <span class="item-name">Alle Upstreams</span>
+            </div>
+            <div class="endpoint">
+              <input
+                type="text"
+                readonly
+                value={unifiedEndpoint}
+                aria-label="MCP-Adresse für alle Upstreams"
+                onfocus={(e) => e.currentTarget.select()}
+                bind:this={endpointInputs[UNIFIED]}
+              />
+              <button
+                type="button"
+                class="btn"
+                aria-label="Adresse für alle Upstreams kopieren"
+                onclick={() => copy(UNIFIED, unifiedEndpoint, endpointInputs[UNIFIED])}
+              >
+                {copiedSlug === UNIFIED ? 'Kopiert' : 'Kopieren'}
+              </button>
+            </div>
+            <p class="hint">
+              Ein Konnektor für alle Upstreams; Tool-Namen beginnen mit dem Kürzel (z. B.
+              <code>{upstreams[0]!.slug}_…</code>). Funktioniert mit der Claude-Anmeldung, nicht mit
+              Upstream-Tokens.
+            </p>
+          </li>
+          </ul>
+        {/if}
         <ul class="list" aria-label="Upstreams">
           {#each upstreams as u (u.id)}
             <li class="item" data-slug={u.slug}>
@@ -277,7 +313,7 @@
                     type="button"
                     class="btn"
                     aria-label={`Adresse von ${u.name} kopieren`}
-                    onclick={() => copy(u, endpointInputs[u.slug])}
+                    onclick={() => copy(u.slug, endpointOf(u), endpointInputs[u.slug])}
                   >
                     {copiedSlug === u.slug ? 'Kopiert' : 'Kopieren'}
                   </button>
@@ -320,8 +356,8 @@
       </button>
       {#if mcpConfigured}
         <p class="hint endpoint-note">
-          Jeder Upstream hat eine eigene Adresse für Claude. Alle Upstreams in einem Endpunkt (/mcp)
-          folgt später.
+          Jeder Upstream hat eine eigene Adresse für Claude; „Alle Upstreams“ bündelt sie in einem
+          Konnektor. Regeln und Freigaben gelten für beide gleich.
         </p>
       {:else}
         <p class="hint endpoint-note">

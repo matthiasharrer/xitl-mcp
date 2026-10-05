@@ -74,7 +74,8 @@ export type SessionRef = { id: string; createdAt: string } | null;
 export interface SessionSummary {
   id: string;
   client: { id: number; name: string; kind: 'OAUTH' | 'TOKEN' };
-  upstream: { id: number; slug: string; name: string };
+  /** null: a session on the unified `/mcp` (all upstreams, ADR-0017). */
+  upstream: { id: number; slug: string; name: string } | null;
   /** From the client's `initialize` (untrusted text). */
   clientInfo: { name: string | null; version: string | null };
   protocolVersion: string | null;

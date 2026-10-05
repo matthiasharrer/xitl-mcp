@@ -173,9 +173,10 @@ test('TC-10 Ohne Token: 401 + WWW-Authenticate mit resource_metadata; Metadaten 
   expect((await request.get('/mcp/register')).status()).toBe(404);
   expect((await request.get('/mcp/token')).status()).toBe(404);
 
-  // /mcp (all upstreams in one) is not built yet
-  expect((await request.post('/mcp', { headers: { Accept: 'application/json, text/event-stream' }, data: LIST })).status()).toBe(404);
-  expect((await request.get('/mcp')).status()).toBe(404);
+  // /mcp (all upstreams in one, ADR-0017) challenges like any endpoint (TC-65 has the rest)
+  const unified = await request.post('/mcp', { headers: { Accept: 'application/json, text/event-stream' }, data: LIST });
+  expect(unified.status()).toBe(401);
+  expect(unified.headers()['www-authenticate']).toContain(`resource_metadata="${BASE_URL}/.well-known/oauth-protected-resource/mcp"`);
 });
 
 test('TC-11 Fremder oder unbekannter Slug -> 404, nie ein anderer Nutzer-Server', async ({ request }) => {
@@ -330,7 +331,7 @@ test.describe('Einstellungen im Browser', () => {
   // The built server has no ingress, so the page's own fetches get matthias's identity here.
   test.use({ extraHTTPHeaders: MATTHIAS });
 
-  test('TC-14 Einstellungen: nur eigene MCP-Clients, Endpunkt-URL je Upstream, /mcp "folgt später", Trennen mit Bestätigung', async ({
+  test('TC-14 Einstellungen: nur eigene MCP-Clients, Endpunkt-URL je Upstream und für alle, Trennen mit Bestätigung', async ({
     page,
     request,
   }) => {
@@ -345,10 +346,10 @@ test.describe('Einstellungen im Browser', () => {
     const item = page.locator('li.item', { hasText: 'Haushalt TC14' });
     await expect(item).toBeVisible();
 
-    // both endpoints: /mcp/<slug> per upstream with a copy button, /mcp marked as coming later
+    // both endpoints: /mcp/<slug> per upstream with a copy button, /mcp for all (TC-68)
     await expect(item.getByRole('textbox', { name: /MCP-Adresse von Haushalt TC14/ })).toHaveValue(`${BASE_URL}/mcp/${slug}`);
     await expect(item.getByRole('button', { name: /kopieren/ })).toBeVisible();
-    await expect(page.getByText('Alle Upstreams in einem Endpunkt (/mcp) folgt später.')).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'MCP-Adresse für alle Upstreams' })).toHaveValue(`${BASE_URL}/mcp`);
 
     // only the user's own clients
     const clients = page.getByRole('list', { name: 'MCP-Clients' });

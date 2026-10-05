@@ -5,22 +5,12 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-05 (`v0.2.0` tagged; next: unified `/mcp`)_
+_Last updated: 2026-10-05 (unified `/mcp` built, unreleased)_
 
-## Next — unified `/mcp` endpoint (ADR-0014), agreed with Matthias 2026-10-05
+## Next
 
-`/mcp` serves all of the user's connected upstreams in one connector (ADR-0014
-has the design): tool names prefixed `<slug>_`, generated instructions with one
-section per upstream (its description + its own instructions), policy stamp and
-hidden `deny` tools as on `/mcp/<slug>`, one audit/approval path. Open points to
-settle while slicing:
-- auth: OAuth tokens work on `/mcp` as on any slug; **per-upstream access
-  tokens (ADR-0015) do not** unless Matthias decides otherwise;
-- sessions (ADR-0016) on `/mcp` (owner = user + client, no single upstream);
-- tool-name length/charset after prefixing (MCP name rules), collisions;
-- an upstream that is down or needs reconnect must not break the others'
-  tools (degrade per upstream);
-- fan-out cost: `tools/list` opens one upstream connection per upstream.
+Nothing scheduled; Matthias picks. Candidates: deploy + manual gates
+(MG-01…07), the SSRF outbound address policy, the URL-change question below.
 
 ## Milestone 1 status
 
@@ -72,6 +62,9 @@ and must allow responses up to 300 s on `/mcp/*`. Never set
   from inside the cluster; responses aren't shown, but internal hosts can be
   probed. Covered by the outbound address policy above.
 - URL change keeps tool policies by tool name (acknowledgements reset).
+- **Unified `/mcp`:** `tools/list` fans out to every usable upstream per call
+  (no cache, ideas.md); a failing upstream silently drops its tools (only the
+  log says why); no `list_changed` there either.
 - Only `tools` are proxied (no resources/prompts); no `list_changed`
   notifications (stateless endpoint; next `tools/list` sees changes).
 - KnownTool sync has no cap on tool count.

@@ -61,7 +61,7 @@ in some other way has not passed.
 | TC-11 | Matthias's token on `/mcp/<slug>` that only `anna` has → 404; on an unknown slug → 404. Never 200, never another user's server. |
 | TC-12 | The raw `MCP_TOKEN` as a bearer → 401. A token for a client revoked in Settings → 401. |
 | TC-13 | `/oauth/authorize` without `Remote-User` → 401. The client is bound to the approving user; `anna` approving Matthias's already-bound client → refused. |
-| TC-14 | Settings lists only the user's own MCP clients and shows both endpoint URLs per upstream (`/mcp/<slug>`; `/mcp` marked as coming later); revoke asks for confirmation. |
+| TC-14 | Settings lists only the user's own MCP clients and shows the endpoint URLs (`/mcp/<slug>` per upstream, `/mcp` for all, TC-68); revoke asks for confirmation. |
 
 ### Fake upstream (test fixture)
 
@@ -156,6 +156,25 @@ proxy, the audit says so. Complements TC-11/12/16/18/26/31.
 | TC-59 | ⚡ At 390×844: Einstellungen → "Sitzungen" lists the user's sessions newest first (client, upstream, clientInfo, start, last seen, number of calls, protocol version); tapping one shows its calls. Another user's sessions never appear. |
 | TC-60 | Diagnostics for the measurement: per session, the names (not values) of request headers seen and the `_meta` keys (not values) seen in `tools/call` are recorded and shown in the session detail. No header values except User-Agent, `MCP-Protocol-Version` and `Mcp-Session-Id`; never `Authorization`. |
 
+### Unified endpoint (ADR-0014, 0017): `e2e/tests/unified.spec.ts`
+
+Two upstreams for one user (two fake-upstream tenants, slugs e.g. `ua` and `ub`).
+
+| ID    | Case |
+| ----- | ---- |
+| TC-61 | ⚡ OAuth token → `initialize` on `/mcp` succeeds; the instructions contain the xitl prefix line and one section per upstream with its name, its `<slug>_` prefix, its description and its own instructions (fake tenant `instructions`). `tools/list` returns both upstreams' tools named `<slug>_<tool>`, with the ASK stamp / DENY hiding exactly as on `/mcp/<slug>` (per-tool and per-client rules of each upstream). |
+| TC-62 | `tools/call` `ua_list_items` (allow) is forwarded to `ua`'s tenant only (its call counter moves, `ub`'s doesn't) and returns its result; the audit row has `endpoint` `/mcp`, `upstreamId` of `ua`, `toolName` `list_items`. An `ask` tool on `/mcp` holds for approval like on `/mcp/<slug>` (approval card names the upstream) and is forwarded after "Erlauben"; a snooze given via `/mcp` also applies to the same tool on `/mcp/ua` (shared rules). |
+| TC-63 | Fail closed on names: `tools/call` with `list_items` (no prefix), `zz_list_items` (unknown slug), `ub_nope` (unknown tool), another user's slug + tool, `ua_` and `_list_items` → `isError` "nicht bekannt", **nothing** reaches any tenant, each audited `DENIED` (`unknown-tool`; no upstream for the unresolved ones). A DENY tool called by its prefixed name → denied as on `/mcp/<slug>`. |
+| TC-64 | Degrade: with `ub`'s tenant broken (MCP endpoint answering 500, or `ub` needing reconnect), `tools/list` on `/mcp` still answers 200 with all of `ua`'s tools and none of `ub`'s; an OAuth upstream that was never connected isn't contacted and contributes no tools. |
+| TC-65 | Auth: `/mcp` without a token → 401 with `resource_metadata` pointing at a document with `resource` = `<origin>/mcp`; a per-upstream access token (`xitl_…`, valid on `/mcp/ua`) → 401 on `/mcp`; `MCP_TOKEN` as bearer → 401. A user with no upstreams gets an empty tool list and a prefix-only instruction text, never another user's tools. |
+| TC-66 | Sessions on `/mcp`: `initialize` returns an `Mcp-Session-Id`; the session row has no upstream; calls through it carry the session; that id on `/mcp/ua` → 404, and a `/mcp/ua` session id on `/mcp` → 404; `DELETE /mcp` ends it. The Sitzungen list shows it as "Alle Upstreams". |
+| TC-67 | Revocation/deletion while held: deleting upstream `ub` ends a held `/mcp` call to `ub_add_item` denied (`+revoked`, as TC-41); afterwards `ub_*` names are unknown on `/mcp`. |
+| TC-68 | ⚡ At 390×844: Einstellungen shows the unified address `<origin>/mcp` with a copy button above the upstream list, with a note that it covers all upstreams and works with the Claude login (OAuth), not with per-upstream tokens. No horizontal scroll. |
+
+Unit (`apps/api/src/lib/unifiedNames.test.ts`): prefix/split round-trip,
+first-`_` split, invalid names (no `_`, empty parts, bad slug, over 128 chars,
+characters outside the MCP set) → null.
+
 ## Manual gates (to be defined, see roadmap)
 
 Things no script can prove. Run on the deployed instance before calling
@@ -168,6 +187,7 @@ milestone 1 done:
 | MG-03 | Android: an `ask` call pushes within seconds; "Erlauben" from the lock screen forwards the call and Claude gets the result. |
 | MG-04 | Same with "Ablehnen", and with no reaction: Claude reports the timeout after ~5 min and can retry. |
 | MG-06 | Sessions: open two Claude.ai chats using the connector, one call each; then one Claude Code session. Does each chat get its own session in "Sitzungen"? Result decides the grouping (ADR-0016). |
+| MG-07 | Claude.ai adds `https://<xitl>/mcp` as a second connector: both upstreams' tools appear prefixed; a call to each works; the instructions name both upstreams. |
 | MG-05 | Tina: her own consent, her own Haushalt connection; she sees none of Matthias's calls, and he none of hers. |
 
 ## Run log
@@ -179,6 +199,7 @@ app stopped the case proving anything.
 | - | ---- | ----- | ------ |
 | 1 | 2026-10-04 | TC-01…04 (scaffold) | 4 passed |
 | 2 | 2026-10-04 | TC-01…14 (+1 extra: no `MCP_TOKEN` → 404), unit 13 | all passed (implementer and lead, separately) |
+| 8 | 2026-10-05 | TC-01…68, unit 100 (unified `/mcp`) | all passed (spec author and lead, separately). TC-64 uses needs-reconnect + 307 as the broken upstreams (no 500 mode needed). MG-07 needs the deployed instance. |
 | 7 | 2026-10-05 | TC-01…60, unit 93 (`v0.2.0`) | all passed (implementer and lead, separately). Manual gates MG-01…06 not yet run: need the deployed instance. |
 | 6 | 2026-10-05 | TC-01…54, unit 83 | all passed (implementer and lead, separately). TC-52 note: a token's owner decides, not the path — if another user has the same slug, the token still reaches its owner's upstream. |
 | 5 | 2026-10-04 | TC-01…49, unit 78 | all passed (implementer twice, lead once). Slice 8 found and fixed six gaps (see roadmap archive). |

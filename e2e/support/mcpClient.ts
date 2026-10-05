@@ -111,15 +111,29 @@ function mcpHeaders(token: string | null, opts: McpRequestOptions = {}): Record<
   };
 }
 
-/** POSTs one JSON-RPC message to /mcp/<slug> with the given bearer (null = none). */
-export function postMcp(request: APIRequestContext, slug: string, token: string | null, body: unknown, opts: McpRequestOptions = {}) {
-  return request.post(`/mcp/${slug}`, { headers: mcpHeaders(token, opts), data: body });
+/** The endpoint path: `/mcp/<slug>`, or the unified `/mcp` when slug is null
+ * (ADR-0017). */
+export const mcpPath = (slug: string | null) => (slug === null ? '/mcp' : `/mcp/${slug}`);
+
+/** POSTs one JSON-RPC message to /mcp/<slug> (null slug = the unified /mcp)
+ * with the given bearer (null = none). */
+export function postMcp(request: APIRequestContext, slug: string | null, token: string | null, body: unknown, opts: McpRequestOptions = {}) {
+  return request.post(mcpPath(slug), { headers: mcpHeaders(token, opts), data: body });
 }
 
-/** DELETE /mcp/<slug> (ends a session, Streamable HTTP). */
-export function deleteMcp(request: APIRequestContext, slug: string, token: string | null, opts: McpRequestOptions = {}) {
-  return request.delete(`/mcp/${slug}`, { headers: mcpHeaders(token, opts) });
+/** DELETE /mcp/<slug> or /mcp (ends a session, Streamable HTTP). */
+export function deleteMcp(request: APIRequestContext, slug: string | null, token: string | null, opts: McpRequestOptions = {}) {
+  return request.delete(mcpPath(slug), { headers: mcpHeaders(token, opts) });
 }
+
+/** The unified endpoint, ADR-0017: `postMcp`/`deleteMcp` with no slug. */
+export const postUnified = (request: APIRequestContext, token: string | null, body: unknown, opts: McpRequestOptions = {}) =>
+  postMcp(request, null, token, body, opts);
+export const deleteUnified = (request: APIRequestContext, token: string | null, opts: McpRequestOptions = {}) =>
+  deleteMcp(request, null, token, opts);
+/** Opens a session on the unified `/mcp` (same shape as `openMcpSession`). */
+export const openUnifiedSession = (request: APIRequestContext, token: string, init: Parameters<typeof openMcpSession>[3] = {}) =>
+  openMcpSession(request, null, token, init);
 
 let sessionRpcId = 1000;
 
@@ -128,7 +142,7 @@ let sessionRpcId = 1000;
  * StreamableHTTPClientTransport. */
 export async function openMcpSession(
   request: APIRequestContext,
-  slug: string,
+  slug: string | null,
   token: string,
   init: { clientInfo?: { name: string; version: string }; protocolVersion?: string; headers?: Record<string, string> } = {},
 ) {

@@ -78,14 +78,14 @@ export async function connectedUpstream(
 }
 
 let rpcId = 100;
-export async function mcp(request: APIRequestContext, slug: string, token: string, method: string, params: unknown = {}) {
+export async function mcp(request: APIRequestContext, slug: string | null, token: string, method: string, params: unknown = {}) {
   const res = await postMcp(request, slug, token, { jsonrpc: '2.0', id: ++rpcId, method, params });
   expect(res.status()).toBe(200);
   return parseRpc(res);
 }
 
-export const listTools = async (request: APIRequestContext, slug: string, token: string) =>
+export const listTools = async (request: APIRequestContext, slug: string | null, token: string) =>
   (await mcp(request, slug, token, 'tools/list')).result.tools as { name: string; description?: string; inputSchema: unknown; annotations?: unknown }[];
 
-export const callTool = async (request: APIRequestContext, slug: string, token: string, name: string, args: Record<string, unknown> = {}) =>
+export const callTool = async (request: APIRequestContext, slug: string | null, token: string, name: string, args: Record<string, unknown> = {}) =>
   (await mcp(request, slug, token, 'tools/call', { name, arguments: args })).result as { content: { type: string; text: string }[]; isError?: boolean; structuredContent?: unknown };

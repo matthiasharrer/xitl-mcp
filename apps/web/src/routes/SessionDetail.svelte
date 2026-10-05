@@ -43,7 +43,7 @@
         <span class="chip">{s.endedAt ? 'beendet' : 'offen'}</span>
       </div>
       <dl class="facts">
-        <dt>Upstream</dt><dd>{s.upstream.name}</dd>
+        <dt>Upstream</dt><dd>{s.upstream?.name ?? 'Alle Upstreams'}</dd>
         <dt>Client meldet</dt><dd>{s.clientInfo.name ?? '–'}{s.clientInfo.version ? ` ${s.clientInfo.version}` : ''}</dd>
         <dt>Protokoll</dt><dd>{s.protocolVersion ?? '–'}</dd>
         <dt>Begonnen</dt><dd>{fmt(s.createdAt)}</dd>

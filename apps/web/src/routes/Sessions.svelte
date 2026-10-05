@@ -54,7 +54,7 @@
               <span class="chip">{s.endedAt ? 'beendet' : callsText(s.callCount)}</span>
             </span>
             <span class="sub">
-              <span>{s.upstream.name} · {infoText(s)}</span>
+              <span>{s.upstream?.name ?? 'Alle Upstreams'} · {infoText(s)}</span>
               <span>seit {fmt(s.createdAt)} · zuletzt {fmt(s.lastSeenAt)}</span>
               <span>
                 {s.endedAt ? `${callsText(s.callCount)} · ` : ''}Protokoll {s.protocolVersion ?? '–'}

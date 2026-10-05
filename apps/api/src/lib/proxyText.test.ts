@@ -9,6 +9,8 @@ import {
   scrubSecrets,
   stampedDescription,
   toolHint,
+  unifiedInstructions,
+  UNIFIED_SECTION_MAX,
 } from './proxyText.js';
 
 test('instructions: prefix line, then the upstream own text, else the fallback', () => {
@@ -62,5 +64,31 @@ describe('scrubSecrets', () => {
     const s = 'tok"en\\with-quotes';
     const out = scrubSecrets({ text: `x ${s} y` }, [s]);
     expect(out.text).toBe('x [xitl: entfernt] y');
+  });
+});
+
+describe('unifiedInstructions (ADR-0017)', () => {
+  test('has the prefix, the naming rule and one section per upstream', () => {
+    const text = unifiedInstructions([
+      { slug: 'haushalt', name: 'Haushalt', description: 'Aufgaben', instructions: 'Erst suchen.', usable: true },
+      { slug: 'rezepte', name: 'Rezepte', description: 'Kochen', instructions: null, usable: false },
+    ]);
+    expect(text.startsWith(INSTRUCTIONS_PREFIX)).toBe(true);
+    expect(text).toContain('`<slug>_<tool>`');
+    expect(text).toContain('## Haushalt — Tools `haushalt_…`\n\nAufgaben\n\nErst suchen.');
+    expect(text).toContain('## Rezepte — Tools `rezepte_…`\n\n(In xitl nicht verbunden');
+    expect(text).not.toContain('Kochen'); // not usable: note only
+  });
+
+  test('caps each upstream\'s own instructions', () => {
+    const text = unifiedInstructions([
+      { slug: 'a', name: 'A', description: null, instructions: 'x'.repeat(UNIFIED_SECTION_MAX * 3), usable: true },
+    ]);
+    expect(text.length).toBeLessThan(UNIFIED_SECTION_MAX + 500);
+    expect(text.endsWith('…')).toBe(true);
+  });
+
+  test('is just the header without upstreams', () => {
+    expect(unifiedInstructions([]).split('\n\n')).toHaveLength(2);
   });
 });

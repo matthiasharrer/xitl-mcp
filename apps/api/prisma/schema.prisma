@@ -245,8 +245,9 @@ model McpSession {
   user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   mcpClientId     Int
   mcpClient       McpClient    @relation(fields: [mcpClientId], references: [id], onDelete: Cascade)
-  upstreamId      Int
-  upstream        Upstream     @relation(fields: [upstreamId], references: [id], onDelete: Cascade)
+  /// null: a session on the unified `/mcp` (ADR-0017), not on one upstream.
+  upstreamId      Int?
+  upstream        Upstream?    @relation(fields: [upstreamId], references: [id], onDelete: Cascade)
   /// initialize.params.clientInfo (untrusted, length-capped).
   clientName      String?
   clientVersion   String?

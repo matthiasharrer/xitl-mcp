@@ -5,6 +5,11 @@ test evidence in `testing.md`'s run log.
 
 ## 2026-10-05
 
+- **Unified `/mcp` endpoint (ADR-0014, ADR-0017):** all of a user's upstreams
+  in one connector, `<slug>_` names (first `_` splits, collision-free), OAuth
+  only, degrade per upstream, generated instructions, sessions without
+  upstream, "Alle Upstreams" card in Einstellungen. TC-61…68. Built by the
+  lead (security path), spec written and run by a Sonnet agent. Unreleased.
 - **`v0.2.0` released** (Matthias's call): slice 8 + changed-tool rule,
   per-upstream access tokens, MCP sessions with diagnostics. Manual gates
   MG-01…06 still open (deployed instance).

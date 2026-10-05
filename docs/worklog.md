@@ -3,6 +3,17 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-05 — Unified `/mcp`
+
+- Built the unified endpoint per ADR-0014; open points settled in ADR-0017
+  (lead's calls, none changes the product promise): OAuth only (per-upstream
+  tokens 401), first-`_` split, degrade per upstream, sessions with null
+  upstream. server.ts now has one shared `listFor`/`callTool` for both
+  endpoints. Schema: `McpSession.upstreamId` nullable.
+- Sonnet agent wrote `e2e/tests/unified.spec.ts` (TC-61…68) blind to
+  implementation details; no app defects found. e2e 80, unit 100.
+- Unreleased. Still open with Matthias: deploy + MG-01…07, upstream URL change.
+
 ## 2026-10-05 — Sessions, `v0.2.0`; next session starts on unified `/mcp`
 
 - Matthias asked to group calls "per Claude chat". Built sessions + diagnostics

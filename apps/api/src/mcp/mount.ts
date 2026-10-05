@@ -22,19 +22,22 @@
 // Routing (ADR-0014): `/mcp/<slug>` is one of THE CALLER'S OWN upstreams. The
 // slug is resolved only after the token is verified and only among the token
 // user's upstreams; anything else is a 404 and never another user's server.
-// `/mcp` (all upstreams in one) does not exist yet: 404.
+// `/mcp` is all of the caller's upstreams in one (ADR-0017): OAuth tokens only
+// (a per-upstream `xitl_…` token gets the 401 challenge there), and the server
+// (server.ts) resolves each call's `<slug>_` prefix among the user's upstreams.
 //
 // Sessions (ADR-0016, sessions.ts): a 2025-era `initialize` gets an
 // `Mcp-Session-Id` (a DB row, no transport or server kept in memory); a later
 // request carrying it must match user + client + upstream and not be ended, or
 // it gets the SDK's 404 "Session not found"; `DELETE` with it ends the
-// session. Requests without the header are served sessionless, as always.
-import type { Hono } from 'hono';
+// session. On `/mcp` the session has no upstream, and the two kinds never
+// match each other. Requests without the header are served sessionless, as always.
+import type { Context, Hono } from 'hono';
 import type { AppEnv } from '../identity.js';
 import type { AuthInfo } from '@modelcontextprotocol/server';
 import { createMcpHandler, getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from '@modelcontextprotocol/server';
 import { buildMcpServer } from './server.js';
-import { makeGateVerifier, makeVerifier } from './verifier.js';
+import { makeGateVerifier, makeUnifiedGateVerifier, makeVerifier } from './verifier.js';
 import { mountMcpOAuth } from './oauthRoutes.js';
 import { externalOrigin } from '../lib/externalOrigin.js';
 import { isUpstreamSlug } from '../lib/slugs.js';
@@ -132,22 +135,16 @@ export function mountMcp(app: Hono<AppEnv>): void {
   // over `/mcp/:slug` below. Hono matches in registration order.
   mountMcpOAuth(app, token);
 
-  // The aggregated endpoint comes with the second upstream (ADR-0014).
-  app.all('/mcp', (c) => c.json(NOT_FOUND, 404));
-
-  app.all('/mcp/:slug', async (c) => {
-    const slug = c.req.param('slug');
-    // register/token are the OAuth endpoints (a wrong method on them lands here);
-    // anything else that is not a valid slug cannot exist. Neither reveals
-    // anything, so no auth is needed to say 404.
-    if (!isUpstreamSlug(slug)) return c.json(NOT_FOUND, 404);
-
+  /** One request to `/mcp/<slug>` (slug validated) or `/mcp` (slug null). */
+  async function serve(c: Context<AppEnv>, slug: string | null): Promise<Response> {
+    const path = slug === null ? '/mcp' : `/mcp/${slug}`;
     // Built per request, not once at mount time: `resourceMetadataUrl` is
     // origin-dependent, and the origin can legitimately vary request to request
     // (different `X-Forwarded-Host`, or none in a local curl). The slug is
-    // validated above, so echoing it into the challenge is safe.
-    const resourceMetadataUrl = getOAuthProtectedResourceMetadataUrl(new URL(`${externalOrigin(c)}/mcp/${slug}`));
-    const gate = requireBearerAuth({ verifier: makeGateVerifier(oauthVerifier, slug), requiredScopes: ['mcp'], resourceMetadataUrl });
+    // validated by the caller, so echoing it into the challenge is safe.
+    const resourceMetadataUrl = getOAuthProtectedResourceMetadataUrl(new URL(`${externalOrigin(c)}${path}`));
+    const verifier = slug === null ? makeUnifiedGateVerifier(oauthVerifier) : makeGateVerifier(oauthVerifier, slug);
+    const gate = requireBearerAuth({ verifier, requiredScopes: ['mcp'], resourceMetadataUrl });
 
     const result = await gate(c.req.raw);
     if (!isAuthInfo(result)) {
@@ -163,18 +160,21 @@ export function mountMcp(app: Hono<AppEnv>): void {
     // as an unknown one.
     const userId = result.extra?.userId;
     if (typeof userId !== 'number') return c.json(NOT_FOUND, 404); // cannot happen after the verifier; fail closed
-    const upstream = await prisma.upstream.findUnique({
-      where: { userId_slug: { userId, slug } },
-      select: { id: true, slug: true, name: true, description: true },
-    });
-    if (!upstream) return c.json(NOT_FOUND, 404);
+    let upstream: { id: number; slug: string; name: string; description: string | null } | null = null;
+    if (slug !== null) {
+      upstream = await prisma.upstream.findUnique({
+        where: { userId_slug: { userId, slug } },
+        select: { id: true, slug: true, name: true, description: true },
+      });
+      if (!upstream) return c.json(NOT_FOUND, 404);
+    }
 
     const mcpClientId = result.extra?.mcpClientId;
     if (typeof mcpClientId !== 'number') return c.json(NOT_FOUND, 404); // cannot happen after the verifier; fail closed
-    const owner = { userId, mcpClientId, upstreamId: upstream.id };
+    const owner = { userId, mcpClientId, upstreamId: upstream?.id ?? null };
 
     // Peek at the JSON-RPC body (on a clone; the handler reads the original)
-    // so the server factory only contacts the upstream for its instructions
+    // so the server factory only contacts the upstream(s) for instructions
     // when the client actually asks for them, and for session bookkeeping.
     const peek = await peekBody(c.req.raw);
     const wantsInstructions = wantsInstructionsOf(peek);
@@ -213,7 +213,9 @@ export function mountMcp(app: Hono<AppEnv>): void {
         ...result,
         extra: {
           ...result.extra,
+          // Exactly one of the two (server.ts callContextFrom insists).
           upstream,
+          unified: slug === null,
           wantsInstructions,
           session: session ? { id: session.id, createdAt: session.createdAt.toISOString() } : null,
         },
@@ -230,11 +232,23 @@ export function mountMcp(app: Hono<AppEnv>): void {
       }
     }
     return res;
+  }
+
+  // All of the caller's upstreams in one (ADR-0017).
+  app.all('/mcp', (c) => serve(c, null));
+
+  app.all('/mcp/:slug', async (c) => {
+    const slug = c.req.param('slug');
+    // register/token are the OAuth endpoints (a wrong method on them lands here);
+    // anything else that is not a valid slug cannot exist. Neither reveals
+    // anything, so no auth is needed to say 404.
+    if (!isUpstreamSlug(slug)) return c.json(NOT_FOUND, 404);
+    return serve(c, slug);
   });
 
   // Anything deeper under /mcp (e.g. /mcp/foo/bar) is not an endpoint either;
   // without this the SPA fallback would answer a GET with index.html.
   app.all('/mcp/*', (c) => c.json(NOT_FOUND, 404));
 
-  console.log('MCP mounted at /mcp/<slug>.');
+  console.log('MCP mounted at /mcp and /mcp/<slug>.');
 }

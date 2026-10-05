@@ -12,6 +12,42 @@ export function instructionsFor(upstreamInstructions: string | null | undefined,
   return own ? `${INSTRUCTIONS_PREFIX}\n\n${own}` : INSTRUCTIONS_PREFIX;
 }
 
+/** Per-upstream cap on its own instructions inside the unified text. */
+export const UNIFIED_SECTION_MAX = 4000;
+
+export interface UnifiedSection {
+  slug: string;
+  name: string;
+  description: string | null;
+  /** The upstream's own server instructions (stored/live, already scrubbed). */
+  instructions: string | null;
+  /** Usable without a connect step (connection.isUsable). */
+  usable: boolean;
+}
+
+/** Server instructions of the unified `/mcp` (ADR-0014, ADR-0017): the xitl
+ * line, the naming rule, then one section per upstream. */
+export function unifiedInstructions(sections: UnifiedSection[]): string {
+  const parts = [
+    INSTRUCTIONS_PREFIX,
+    'Alle Upstreams in einem Endpunkt: Tool-Namen beginnen mit dem Kürzel des Upstreams (`<kürzel>_<tool>`). ' +
+      '/ All upstreams in one endpoint: tool names start with the upstream\'s slug (`<slug>_<tool>`).',
+  ];
+  for (const s of sections) {
+    const lines = [`## ${s.name} — Tools \`${s.slug}_…\``];
+    if (!s.usable) {
+      lines.push('(In xitl nicht verbunden: zurzeit keine Tools. / Not connected in xitl: no tools right now.)');
+    } else {
+      const description = s.description?.trim();
+      if (description) lines.push(description);
+      const own = s.instructions?.trim();
+      if (own) lines.push(own.length > UNIFIED_SECTION_MAX ? own.slice(0, UNIFIED_SECTION_MAX - 1) + '…' : own);
+    }
+    parts.push(lines.join('\n\n'));
+  }
+  return parts.join('\n\n');
+}
+
 /** The ASK stamp appended to a tool's description (ADR-0014). */
 export function askStamp(displayName: string): string {
   return (

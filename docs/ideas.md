@@ -38,3 +38,8 @@
 - **Intent summary / reviewer agent** (ADR-0006, deferred): when approvals turn
   out hard to judge or too frequent. Ollama host is a candidate endpoint.
 - **stdio upstreams:** wrap them into HTTP elsewhere and connect as usual.
+- **Account-wide static tokens for `/mcp`** (ADR-0017 alternatives): only if a
+  client that can't do OAuth needs the unified endpoint. Bigger blast radius
+  than per-upstream tokens; needs its own decision.
+- **Cache `tools/list` on `/mcp`** for a few seconds per user + client if the
+  fan-out (one upstream connection per upstream per list) ever shows up.

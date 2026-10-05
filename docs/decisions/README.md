@@ -18,3 +18,4 @@
 | 0014 | [Upstreams reach clients two ways: one endpoint each, or all in one](0014-how-upstreams-appear-to-clients.md) | Accepted |
 | 0015 | [Per-upstream access tokens as a second way for clients to authenticate](0015-per-upstream-access-tokens.md) | Accepted |
 | 0016 | [MCP sessions for grouping calls, measured before designing around them](0016-mcp-sessions.md) | Accepted (step 1) |
+| 0017 | [The unified `/mcp` endpoint: names, auth, degradation](0017-unified-endpoint.md) | Accepted |

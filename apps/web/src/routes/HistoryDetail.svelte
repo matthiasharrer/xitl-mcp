@@ -49,6 +49,7 @@
       </div>
       <dl class="facts">
         <dt>Upstream</dt><dd>{e.upstream?.name ?? '–'}</dd>
+        <dt>Endpunkt</dt><dd>{e.endpoint}</dd>
         <dt>Client</dt><dd>{e.clientName ?? '–'}</dd>
         <dt>Entscheidung</dt><dd>{decisionPathText(e.decisionPath)}</dd>
         <dt>Regel</dt><dd>{POLICY_LABEL[e.policy]}</dd>

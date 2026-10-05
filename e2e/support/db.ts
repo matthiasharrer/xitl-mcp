@@ -8,6 +8,13 @@ const require = createRequire(import.meta.url);
 
 export const MATTHIAS = { 'Remote-User': 'matthias', 'Remote-Name': 'Matthias' };
 export const ANNA = { 'Remote-User': 'anna', 'Remote-Name': 'Anna' };
+// Identities of unified.spec.ts (TC-61…68): own upstreams, so the unified /mcp
+// of each sees only what the spec created (matthias's /mcp lists every upstream
+// other specs left behind). Never connect an upstream for anna (TC-16).
+export const UNI_A = { 'Remote-User': 'uni-a', 'Remote-Name': 'Uli' };
+export const UNI_B = { 'Remote-User': 'uni-b', 'Remote-Name': 'Berta' };
+export const UNI_DEGRADE = { 'Remote-User': 'uni-degrade', 'Remote-Name': 'Dora' };
+export const UNI_EMPTY = { 'Remote-User': 'uni-empty', 'Remote-Name': 'Emil' };
 
 let counter = 0;
 /** Unique per test run so cases never see each other's rows. */

@@ -1,7 +1,8 @@
 # Architecture
 
 > How the system fits together **right now**. Target design lives in the ADRs;
-> this file describes what exists. _Last updated: 2026-10-05 (MCP sessions,
+> this file describes what exists. _Last updated: 2026-10-05 (unified `/mcp`,
+> ADR-0017: all upstreams in one, `<slug>_` names, OAuth only; MCP sessions,
 > ADR-0016: `Mcp-Session-Id` on 2025-era `initialize`, DB-backed, diagnostics;
 > before that: changed tools vs explicit allow; malicious-client suite
 > TC-38…49 and its fixes)._
@@ -32,7 +33,15 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
   /mcp/<slug>            mcp/mount.ts: bearer gate -> slug resolved among the
                          token user's upstreams -> session check/creation
                          (mcp/sessions.ts) -> mcp/server.ts (proxy core)
-  /mcp                   404 (aggregated endpoint comes with the 2nd upstream)
+  /mcp                   same mount.ts path (serve(), slug null): OAuth only
+                         (`xitl_…` tokens -> 401, verifier.makeUnifiedGateVerifier),
+                         sessions without upstream -> server.ts buildUnified:
+                         tools of every usable upstream in parallel, names
+                         `<slug>_<tool>` (lib/unifiedNames.ts), a failing
+                         upstream left out; calls split at the first `_`,
+                         resolved among the user's upstreams, then the same
+                         callTool() as /mcp/<slug>; unresolved -> DENY audited
+                         without upstream. Instructions: proxyText.unifiedInstructions
   lib/policy.ts          THE policy function (pure, policy.test.ts = TC-24)
   lib/limits.ts          every abuse limit in one place (TC-44/45/48)
   lib/limitedResponse.ts byte cap on upstream/AS responses (TC-48)
@@ -61,7 +70,8 @@ apps/web/   Svelte 5 SPA (Vite), German UI, mobile-first, installable PWA
             Freigaben (#/, live list of held calls; #/freigabe/<id> one call,
             the push deep link), Verlauf (#/verlauf, #/verlauf/<id>),
             Einstellungen (#/einstellungen: Benachrichtigungen, upstreams with
-            status, Verbinden/Neu verbinden, Regeln link, endpoint URL + copy;
+            status, Verbinden/Neu verbinden, Regeln link, endpoint URL + copy,
+            "Alle Upstreams" card with the /mcp URL;
             MCP clients; "Sitzungen ansehen" -> #/sitzungen, #/sitzungen/<id>)
             and Regeln (#/regeln/<id>, routes/Rules.svelte).
             "#/einstellungen?verbunden=<id>" / "?verbindung=…" carry the OAuth
@@ -69,7 +79,7 @@ apps/web/   Svelte 5 SPA (Vite), German UI, mobile-first, installable PWA
 e2e/        Playwright against the built server on :3202 with .e2e/e2e.db
             (output in .e2e/api.log) plus the fake upstream on :3210
             (e2e/support/fakeUpstream.ts) with its sink host on :3211.
-            TC-01…TC-60 (TC-37 unit; malicious suite in
+            TC-01…TC-68 (TC-37 unit; malicious suite in
             malicious-client.spec.ts / malicious-upstream.spec.ts). The
             server runs with APPROVAL_TIMEOUT_MS=5000 and PUSH_OUTBOX.
 scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
@@ -152,7 +162,7 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
 
 ### Proxy core (ADR-0004, ADR-0008, ADR-0014, TC-19…23)
 
-- `/mcp/<slug>` request handling stays stateless: `createMcpHandler(buildMcpServer)`;
+- `/mcp/<slug>` (and `/mcp`, next section) request handling stays stateless: `createMcpHandler(buildMcpServer)`;
   the factory is async and loads the upstream + user per request. mount.ts
   peeks at the JSON-RPC body (clone, ≤ 1 MiB = the body limit, declared
   length only) so only `initialize`/`server/discover` contacts the upstream
@@ -190,6 +200,36 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
 - No `notifications/tools/list_changed` on policy changes: sessions are DB
   rows only (no open server-to-client stream; GET is 405); the next
   `tools/list` sees the change.
+
+### Unified endpoint `/mcp` (ADR-0014, ADR-0017, TC-61…68)
+
+- Same request path as `/mcp/<slug>` (mount.ts `serve(c, null)`): the gate uses
+  `makeUnifiedGateVerifier` (an `xitl_…` bearer is rejected before anything
+  else, OAuth blobs as usual), no upstream is resolved, `AuthInfo.extra` gets
+  `upstream: null, unified: true`. `server.ts callContextFrom` insists on
+  exactly one of the two, otherwise it throws (fail closed).
+- `server.ts` has one shared core: `listFor(upstream)` (list + policy filter +
+  stamp of one upstream) and `callTool({upstream, endpoint, name, …})` (policy,
+  audit, approval, forward). `buildSingle` (`/mcp/<slug>`) and `buildUnified`
+  (`/mcp`) are thin wrappers around them, so rules, snoozes and approvals are
+  one set per user whichever endpoint a call came through.
+- `tools/list`: `Promise.allSettled` over all of the user's upstreams (rows
+  read fresh, ordered by slug); unusable ones return `[]` without contact; a
+  rejected one is left out (logged in `listFor`). Names via
+  `unifiedName(slug, tool)`; a name breaking `^[A-Za-z0-9_.-]{1,128}$` is
+  skipped with a log line.
+- `tools/call`: `splitUnifiedName` (first `_`; slug must pass `isUpstreamSlug`)
+  -> `upstream.findUnique({userId_slug})` -> `callTool` with the upstream's own
+  tool name and `endpoint: '/mcp'`. No split / no such upstream ->
+  `denyUnresolved`: audit row `DENY`/`unknown-tool`/`DENIED` with
+  `upstreamId: null` and the full name, nothing contacted.
+- `initialize`: `unifiedInstructions` = prefix line + naming rule + one
+  section per upstream (`## <name> — Tools \`<slug>_…\``, description, own
+  instructions ≤ 4 000 chars; unusable: a one-line note). Live fetch from every
+  usable upstream in parallel (10 s each), else stored.
+- Sessions: `McpSession.upstreamId` is null for `/mcp`; `findOwnSession`
+  matches `upstreamId` exactly, so the two kinds never match each other.
+  UI shows "Alle Upstreams".
 
 ### MCP sessions (ADR-0016, TC-55…60)
 

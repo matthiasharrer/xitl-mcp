@@ -1,4 +1,4 @@
-// MCP sessions on /mcp/<slug> (ADR-0016). Request handling stays per request
+// MCP sessions on /mcp/<slug> and /mcp (ADR-0016, ADR-0017). Request handling stays per request
 // (the SDK's stateless `createMcpHandler`); a session is only a DB row that
 // mount.ts creates on a 2025-era `initialize` (id returned as `Mcp-Session-Id`)
 // and checks on later requests that carry the header.
@@ -128,7 +128,9 @@ export function parseNames(json: string): string[] {
 export interface SessionOwner {
   userId: number;
   mcpClientId: number;
-  upstreamId: number;
+  /** null: the unified `/mcp` (ADR-0017). Matched exactly, so a `/mcp` session
+   * is never valid on `/mcp/<slug>` and vice versa. */
+  upstreamId: number | null;
 }
 
 export type SessionRow = NonNullable<Awaited<ReturnType<typeof findOwnSession>>>;
@@ -196,7 +198,7 @@ export async function touchSession(
   });
 }
 
-/** DELETE /mcp/<slug>: ends the session for good. */
+/** DELETE /mcp/<slug> or /mcp: ends the session for good. */
 export async function endSession(session: SessionRow, clock: Clock): Promise<void> {
   const now = clock.now();
   await prisma.mcpSession.updateMany({ where: { id: session.id, endedAt: null }, data: { endedAt: now, lastSeenAt: now } });

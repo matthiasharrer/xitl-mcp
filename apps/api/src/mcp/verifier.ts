@@ -67,6 +67,18 @@ export function makeGateVerifier(oauth: OAuthTokenVerifier, slug: string): OAuth
   };
 }
 
+/** The verifier for the unified `/mcp` (ADR-0017): OAuth only. A per-upstream
+ * access token is scoped to one upstream and is rejected here with the same
+ * InvalidToken as any bad token (it never reaches the OAuth path). */
+export function makeUnifiedGateVerifier(oauth: OAuthTokenVerifier): OAuthTokenVerifier {
+  return {
+    verifyAccessToken: async (token: string) => {
+      if (looksLikeAccessToken(token)) throw new OAuthError(OAuthErrorCode.InvalidToken, 'The access token is invalid.');
+      return oauth.verifyAccessToken(token);
+    },
+  };
+}
+
 export function makeVerifier(secret: string): OAuthTokenVerifier {
   return {
     async verifyAccessToken(token: string): Promise<AuthInfo> {
