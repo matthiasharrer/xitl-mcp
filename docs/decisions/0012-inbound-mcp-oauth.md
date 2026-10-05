@@ -20,7 +20,8 @@ Authelia user, in production.
   Authelia**, the client bound to the approving user.
 - Every proxied call therefore carries a **user** and a **client**; both feed
   the policy (ADR-0004) and the audit (ADR-0008).
-- No static bearer token, ever (siblings' rule).
+- No shared static bearer token, ever (siblings' rule). Per-upstream,
+  per-user access tokens were added later as a second method: ADR-0015.
 - The token is checked at call entry only.
 
 ## Consequences

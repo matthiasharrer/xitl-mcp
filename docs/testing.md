@@ -135,6 +135,16 @@ proxy, the audit says so. Complements TC-11/12/16/18/26/31.
 | TC-48 | Malicious upstream content: a tool result or error carrying xitl's own upstream token (echo) is scrubbed (extends TC-18); an upstream returning 10 000 tools or a 50 MB tool list → bounded (refused or truncated), the server stays responsive. |
 | TC-49 | Cross-site: `POST /api/approvals/:id`, `POST /api/upstreams/:id/connect`, `DELETE /api/mcp/clients/:id` with `Sec-Fetch-Site: cross-site` → 403, nothing changed. |
 
+### Per-upstream access tokens (ADR-0015): `e2e/tests/access-tokens.spec.ts`
+
+| ID    | Case |
+| ----- | ---- |
+| TC-50 | ⚡ At 390×844: on an upstream card, "Token erstellen" with a name → the token (`xitl_…`) is shown **once** with a copy button and a config example (Claude Code `claude mcp add --transport http … --header "Authorization: Bearer …"`); afterwards the client list shows the name, the upstream, the prefix and "zuletzt benutzt", never the token. |
+| TC-51 | With that token as `Authorization: Bearer`, `initialize`/`tools/list`/`tools/call` on `/mcp/<slug>` work exactly like an OAuth client: policy, per-client override, ask → approval with the token's name as client, audit attributed to it, `lastUsedAt` updated. |
+| TC-52 | The token on another upstream's `/mcp/<other-slug>` (same user) → 401; on another user's slug → 401/404 (never 200); a token with one character changed → 401; `MCP_TOKEN` and an OAuth access token still behave as before (TC-12, TC-38). |
+| TC-53 | Revoking the token client → the next request 401; a held call of it ends denied `+revoked` (as TC-41). Deleting the upstream deletes its token clients. |
+| TC-54 | Only the SHA-256 is stored: no column, API response, audit row or API log line contains the token after the creation response. Creating requires `Sec-Fetch-Site` same-origin (TC-49 rule) and a name (1–100 chars); `anna` can't create a token for Matthias's upstream (404). |
+
 ## Manual gates (to be defined, see roadmap)
 
 Things no script can prove. Run on the deployed instance before calling
