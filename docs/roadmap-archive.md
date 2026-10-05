@@ -5,14 +5,21 @@ test evidence in `testing.md`'s run log.
 
 ## 2026-10-05
 
-- **Per-upstream access tokens (ADR-0015)** (unreleased on `main`), asked for by
+- **`v0.2.0` released** (Matthias's call): slice 8 + changed-tool rule,
+  per-upstream access tokens, MCP sessions with diagnostics. Manual gates
+  MG-01…06 still open (deployed instance).
+- **MCP sessions (ADR-0016), step 1:** session ids for 2025-era clients, stored
+  in the DB, attributed to audit/approvals, Sitzungen view with diagnostics.
+  TC-55…60. Built by an Opus agent, reviewed by the lead.
+
+- **Per-upstream access tokens (ADR-0015)** asked for by
   Matthias: a TOKEN-kind client per user + upstream, `Authorization: Bearer
   xitl_…`, shown once, SHA-256 stored, revocable; OAuth paths reject TOKEN
   clients. TC-50…54. Built by a Sonnet agent, gate reviewed by the lead.
 
 ## 2026-10-04
 
-- **Milestone 1, slice 8 + changed-tool rule** (unreleased on `main`): a
+- **Milestone 1, slice 8 + changed-tool rule**: a
   changed tool never resolves to allow (Matthias's decision); malicious-client
   suite TC-38…49. Gaps found and fixed: held calls survived revoking their
   client / deleting or re-pointing their upstream (now denied `+revoked`); no

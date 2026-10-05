@@ -4,7 +4,7 @@
 > every time. **This process is binding.** Cases are written from what a
 > feature *should* do; a script is one way of running a case.
 >
-> _Last updated: 2026-10-04_
+> _Last updated: 2026-10-05 (`v0.2.0`)_
 
 ## Running
 
@@ -179,6 +179,7 @@ app stopped the case proving anything.
 | - | ---- | ----- | ------ |
 | 1 | 2026-10-04 | TC-01…04 (scaffold) | 4 passed |
 | 2 | 2026-10-04 | TC-01…14 (+1 extra: no `MCP_TOKEN` → 404), unit 13 | all passed (implementer and lead, separately) |
+| 7 | 2026-10-05 | TC-01…60, unit 93 (`v0.2.0`) | all passed (implementer and lead, separately). Manual gates MG-01…06 not yet run: need the deployed instance. |
 | 6 | 2026-10-05 | TC-01…54, unit 83 | all passed (implementer and lead, separately). TC-52 note: a token's owner decides, not the path — if another user has the same slug, the token still reaches its owner's upstream. |
 | 5 | 2026-10-04 | TC-01…49, unit 78 | all passed (implementer twice, lead once). Slice 8 found and fixed six gaps (see roadmap archive). |
 | 4 | 2026-10-04 | TC-01…37, unit 61 (`v0.1.0`) | all passed (implementer and lead, separately). TC-34 stubs the browser's Notification/PushManager (headless reports `denied`); real device is a manual gate. |

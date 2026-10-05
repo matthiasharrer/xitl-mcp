@@ -5,33 +5,37 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-04 (`v0.1.0` tagged: milestone 1 slices 1–7)_
+_Last updated: 2026-10-05 (`v0.2.0` tagged; next: unified `/mcp`)_
 
-## Next — milestone 1: Claude.ai → xitl → Haushalt, approval on the phone
+## Next — unified `/mcp` endpoint (ADR-0014), agreed with Matthias 2026-10-05
 
-Slices (lead's plan; each verifiable on its own, app working in between;
-numbers are stable, done ones moved to `roadmap-archive.md`):
+`/mcp` serves all of the user's connected upstreams in one connector (ADR-0014
+has the design): tool names prefixed `<slug>_`, generated instructions with one
+section per upstream (its description + its own instructions), policy stamp and
+hidden `deny` tools as on `/mcp/<slug>`, one audit/approval path. Open points to
+settle while slicing:
+- auth: OAuth tokens work on `/mcp` as on any slug; **per-upstream access
+  tokens (ADR-0015) do not** unless Matthias decides otherwise;
+- sessions (ADR-0016) on `/mcp` (owner = user + client, no single upstream);
+- tool-name length/charset after prefixing (MCP name rules), collisions;
+- an upstream that is down or needs reconnect must not break the others'
+  tools (degrade per upstream);
+- fan-out cost: `tools/list` opens one upstream connection per upstream.
 
+## Milestone 1 status
 
+`v0.2.0` (2026-10-05) contains slices 1–8, the changed-tool rule, per-upstream
+access tokens (ADR-0015) and MCP sessions (ADR-0016). Waiting on Matthias:
+deploy and manual gates **MG-01…06** (`testing.md`); MG-06 decides call
+grouping (sessions vs time gaps, ADR-0016).
 
-Slices 1–7 shipped as `v0.1.0`; slice 8 (malicious-client suite + the
-changed-tool rule) is on `main`, unreleased. Next: Matthias deploys and runs the
-manual gates MG-01…05 (`testing.md`) with Haushalt. Milestone 1 is done when
-the gates pass.
-
-**Deploy checklist (GitOps, Matthias):** `MCP_TOKEN` secret ✅ (2026-10-04);
-Authelia exemptions for `/mcp*` ✅ — confirm `/.well-known/*` too, and that
+**Deploy checklist (GitOps, Matthias):** `MCP_TOKEN` secret ✅; Authelia
+exemptions for `/mcp*` ✅ — confirm `/.well-known/*` too, and that
 `/oauth/authorize` + `/api/*` stay behind Authelia; `PUBLIC_URL=https://<xitl>`
 (OAuth redirect and VAPID subject); egress 443 to the siblings' public URLs and
 to `fcm.googleapis.com`; ingress must not buffer `/api/approvals/stream` (SSE)
 and must allow responses up to 300 s on `/mcp/*`. Never set
 `APPROVAL_TIMEOUT_MS` or `PUSH_OUTBOX` in production.
-
-## After milestone 1
-
-- Rezepte as second upstream, plus the aggregated `/mcp` endpoint (ADR-0014); Authelia access for Tina to Rezepte (Matthias).
-- Tina onboarded with her own connections.
-- More upstreams as they come.
 
 ## Debt and open points (from slice 1+3 review, 2026-10-04)
 
@@ -51,6 +55,12 @@ and must allow responses up to 300 s on `/mcp/*`. Never set
 - Revoked/flood calls send no "resolved" push; a stale notification answers
   "Nicht mehr offen" when tapped.
 - Approval stream cap (5) counts connections per process, not devices.
+- **Sessions:** no TTL/cleanup (one row per `initialize`); unknown session id →
+  404 per spec — if MG-06 shows Claude.ai breaking on 404, serve unknown ids
+  sessionless instead (deliberate deviation); 2026-07-28-era clients have no
+  sessions at all (grouping falls back to time gaps for them).
+- **e2e ordering trap:** TC-16 assumes `anna` has no connected upstream; specs
+  that connect one for her must use another user.
 - **Decided 2026-10-04 (Matthias), no change:** lock-screen "Erlauben" stays
   for all tools, destructive ones included (summary is agent-controlled;
   accepted).

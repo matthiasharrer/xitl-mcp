@@ -3,6 +3,17 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-05 — Sessions, `v0.2.0`; next session starts on unified `/mcp`
+
+- Matthias asked to group calls "per Claude chat". Built sessions + diagnostics
+  first (ADR-0016) so MG-06 on real Claude.ai can show what identifies a chat.
+  SDK finding: 2025-era clients get sessions; 2026-07-28-era (`server/discover`)
+  has none; the SDK client doesn't re-initialize on 404 by itself.
+- Released `v0.2.0` at Matthias's request. He compacts next; the next session
+  builds the unified `/mcp` endpoint (roadmap "Next" lists the open points).
+- Still open with Matthias: upstream URL change vs existing allow rules
+  (roadmap); deploy + MG-01…06.
+
 ## 2026-10-05 — Per-upstream access tokens
 
 - Matthias asked for static-header tokens per upstream as a second inbound
