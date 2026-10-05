@@ -9,9 +9,15 @@ _Last updated: 2026-10-05 (`v0.4.1` work: URL change resets trust, ADR-0021; DCR
 
 ## Next
 
-Nothing scheduled; Matthias picks. Candidate: the last open manual gate
-(MG-05). `v0.4.1` (URL change resets trust, ADR-0021; unbound
-DCR client cleanup; KnownTool cap) is released.
+1. **Failing upstream visible on `/mcp`** (Matthias, 2026-10-05, next to
+   build): when an upstream can't be listed (unreachable, needs reconnect,
+   error), the unified `/mcp` today drops its tools silently (only the log
+   says why). Tell the agent: a short German/English note in the tool list
+   response or instructions naming the upstream and "in xitl neu verbinden",
+   plus a status hint in the app. Small slice; Matthias uses `/mcp` daily.
+2. **LLM proposes policy, user confirms in the app** (ideas.md): design + ADR
+   first, then Matthias decides.
+3. MG-05 (Tina), whenever convenient.
 
 ## Milestone 1 status
 
