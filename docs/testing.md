@@ -193,7 +193,7 @@ Unit (`apps/api/src/lib/unifiedNames.test.ts`): prefix/split round-trip,
 first-`_` split, invalid names (no `_`, empty parts, bad slug, over 128 chars,
 characters outside the MCP set) → null.
 
-## Manual gates (to be defined, see roadmap)
+## Manual gates
 
 Things no script can prove. Run on the deployed instance before calling
 milestone 1 done:
@@ -215,6 +215,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 12 | 2026-10-05 | MG-01…04, MG-06 (deployed `v0.3.x`) | MG-01…04 passed (Matthias, reported). MG-06 answered by measurements 1+2 (ADR-0016): nothing identifies a chat → time-gap grouping (ADR-0019). MG-05 and MG-07 not yet run. |
 | 1 | 2026-10-04 | TC-01…04 (scaffold) | 4 passed |
 | 2 | 2026-10-04 | TC-01…14 (+1 extra: no `MCP_TOKEN` → 404), unit 13 | all passed (implementer and lead, separately) |
 | 11 | 2026-10-05 | TC-01…76, unit 120 (api 110 + web 10) | all passed (spec author and lead). TC-56 adjusted: the session line moved from the Verlauf row to the group header (now a link). |

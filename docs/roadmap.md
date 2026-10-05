@@ -5,27 +5,29 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-05 (`v0.3.3`: grouping, pause scopes)_
+_Last updated: 2026-10-05 (deployed; MG-01…04 and MG-06 passed)_
 
 ## Next
 
-Nothing scheduled; Matthias picks. Candidates: deploy + manual gates
-(MG-01…07), the SSRF outbound address policy, the URL-change question below.
+Nothing scheduled; Matthias picks. Candidates: the SSRF outbound address
+policy (lead's recommendation), the URL-change question below, the two open
+manual gates.
 
 ## Milestone 1 status
 
-`v0.3.1` (2026-10-05) fixes sessions behind the HTTP/2 ingress and adds per-call diagnostics (MG-06 reads them per call). `v0.3.0` adds the unified `/mcp` and token scopes (MG-07). `v0.2.0` contains slices 1–8, the changed-tool rule, per-upstream
-access tokens (ADR-0015) and MCP sessions (ADR-0016). Waiting on Matthias:
-deploy and manual gates **MG-01…06** (`testing.md`); MG-06 decides call
-grouping (sessions vs time gaps, ADR-0016).
+Deployed (`v0.3.3` is the latest release) and in daily use: Matthias's
+Claude.ai connectors (Haushalt, Rezepte, Einkaufsliste) run through xitl.
+Manual gates MG-01…04 and MG-06 passed (`testing.md` run log). **Open:**
 
-**Deploy checklist (GitOps, Matthias):** `MCP_TOKEN` secret ✅; Authelia
-exemptions for `/mcp*` ✅ — confirm `/.well-known/*` too, and that
-`/oauth/authorize` + `/api/*` stay behind Authelia; `PUBLIC_URL=https://<xitl>`
-(OAuth redirect and VAPID subject); egress 443 to the siblings' public URLs and
-to `fcm.googleapis.com`; ingress must not buffer `/api/approvals/stream` (SSE)
-and must allow responses up to 300 s on `/mcp/*`. Never set
-`APPROVAL_TIMEOUT_MS` or `PUSH_OUTBOX` in production.
+- **MG-05:** Tina's own consent and Haushalt connection, no cross-user
+  visibility. Needs Tina.
+- **MG-07:** the unified `/mcp` as a Claude.ai connector (Claude Code on `/mcp`
+  with an all-upstreams token already worked before `v0.3.2`).
+
+**Production rules (still binding):** never set `APPROVAL_TIMEOUT_MS` or
+`PUSH_OUTBOX`; the ingress must not buffer `/api/approvals/stream` (SSE) and
+must allow responses up to 300 s on `/mcp/*`; `/oauth/authorize` and `/api/*`
+stay behind Authelia.
 
 ## Debt and open points (from slice 1+3 review, 2026-10-04)
 
@@ -74,8 +76,3 @@ and must allow responses up to 300 s on `/mcp/*`. Never set
 - KnownTool sync has no cap on tool count.
 - Signed auth codes are replayable within 60 s (needs PKCE verifier too),
   copied caveat from Haushalt.
-
-## Still to define
-
-- **Manual test gates** (`testing.md`): real Claude.ai connection, consent
-  flows in both directions, push to a real phone, real approval latency vs 5 min.

@@ -5,6 +5,7 @@ test evidence in `testing.md`'s run log.
 
 ## 2026-10-05
 
+- **Deployed; manual gates MG-01…04 and MG-06 passed** (run log #12).
 - **`v0.3.3` released** (Matthias's call): grouping by day and time gaps,
   pause scopes (ADR-0019).
 - **Grouping + pause scopes (ADR-0019):** Verlauf day separators and groups
