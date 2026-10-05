@@ -54,7 +54,7 @@
 
 <div class="app">
   <header class="app-bar">
-    <h1>xitl</h1>
+    <h1><a href="#/" aria-label="xitl – zu den Freigaben">xitl</a></h1>
   </header>
 
   <main class="page">

@@ -51,6 +51,15 @@ body {
   font-size: 1.25rem;
 }
 
+/* The title leads home (Freigaben); full bar height as the tap target. */
+.app-bar h1 a {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+  color: inherit;
+  text-decoration: none;
+}
+
 .page {
   max-width: 40rem;
   margin: 0 auto;
