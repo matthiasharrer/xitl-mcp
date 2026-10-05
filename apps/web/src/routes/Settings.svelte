@@ -93,6 +93,27 @@
     }
   }
 
+  /** ADR-0022: connected, but the last contact failed. */
+  const unreachable = (u: Upstream) => u.status === 'CONNECTED' && u.lastFailureAt !== null;
+  const failedAt = (u: Upstream) =>
+    new Date(u.lastFailureAt!).toLocaleString('de-DE', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' Uhr';
+
+  let rechecking = $state<number | null>(null);
+
+  /** Re-lists the upstream's tools: a contact that sets or clears the state. */
+  async function recheck(u: Upstream) {
+    rechecking = u.id;
+    try {
+      await api.refreshTools(u.id);
+      showToast(`„${u.name}“ ist wieder erreichbar`);
+    } catch (e) {
+      showToast(messageOf(e), { error: true });
+    } finally {
+      rechecking = null;
+      await load();
+    }
+  }
+
   async function save(input: UpstreamInput) {
     if (sheet === 'new') {
       await api.createUpstream(input);
@@ -304,7 +325,11 @@
               <div class="item-head">
                 <span class="item-name">{u.name}</span>
                 {#if u.allowInternal}<span class="badge internal" title="Interne Adresse, von dir erlaubt">intern</span>{/if}
-                <span class="badge status-{u.status.toLowerCase()}">{STATUS_LABEL[u.status]}</span>
+                {#if unreachable(u)}
+                  <span class="badge status-unreachable">Nicht erreichbar</span>
+                {:else}
+                  <span class="badge status-{u.status.toLowerCase()}">{STATUS_LABEL[u.status]}</span>
+                {/if}
               </div>
               <div class="sub">
                 <span>{u.slug}</span>
@@ -333,7 +358,17 @@
               {#if u.status === 'NEEDS_RECONNECT'}
                 <p class="hint reconnect-note">Die Anmeldung ist abgelaufen. Claude erreicht diesen Upstream erst wieder nach „Neu verbinden“.</p>
               {/if}
+              {#if unreachable(u)}
+                <p class="hint unreachable-note">
+                  Zuletzt nicht erreichbar ({failedAt(u)}). Claude sieht seine Tools gerade nicht.
+                </p>
+              {/if}
               <div class="item-actions">
+                {#if unreachable(u)}
+                  <button type="button" class="btn primary" disabled={rechecking !== null} onclick={() => recheck(u)}>
+                    {rechecking === u.id ? 'Prüfe…' : 'Erneut prüfen'}
+                  </button>
+                {/if}
                 {#if u.auth === 'OAUTH'}
                   <button
                     type="button"

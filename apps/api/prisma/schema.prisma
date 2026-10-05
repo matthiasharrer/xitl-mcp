@@ -87,6 +87,10 @@ model Upstream {
   /// The upstream's own server instructions, last seen (ADR-0014).
   instructions  String?
 
+  /// ADR-0022: when the last contact (withUpstream) failed for a reason other
+  /// than a connection state; null once a contact succeeded again.
+  lastFailureAt DateTime?
+
   /// ADR-0020: the user confirmed ("Trotzdem erlauben") that this upstream's
   /// URL may be an internal address. Set only if the URL really was internal
   /// at save time; recomputed on every URL change. Allows exactly the URL's

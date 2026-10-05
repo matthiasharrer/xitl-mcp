@@ -191,7 +191,8 @@ test('TC-64 Degradation: kaputter/neu zu verbindender Upstream fehlt in tools/li
   const res = await postUnified(request, token, LIST);
   expect(res.status()).toBe(200);
   const names = ((await parseRpc(res)).result.tools as { name: string }[]).map((t) => t.name).sort();
-  expect(names).toEqual(['add_item', 'delete_all', 'list_items'].map((n) => `${good.slug}_${n}`).sort());
+  // plus the placeholder that tells the agent why two upstreams are missing (ADR-0022)
+  expect(names).toEqual([...['add_item', 'delete_all', 'list_items'].map((n) => `${good.slug}_${n}`), 'xitl-status'].sort());
   // the failing ones really were tried, the never-connected one was not contacted
   expect((await fakeState(request, needsReconnect.tenant)).mcpRequests + (await fakeState(request, needsReconnect.tenant)).refreshCount).toBeGreaterThan(before.reconnect);
   expect((await fakeState(request, broken.tenant)).mcpRequests).toBeGreaterThan(before.broken);

@@ -4,13 +4,17 @@
 // - initialize: answers with instructions. `/mcp/<slug>`: the upstream's own
 //   (fetched live when the upstream is usable, else the last seen ones / the
 //   description), prefixed by one line saying this is xitl. `/mcp`: generated,
-//   one section per upstream (proxyText.unifiedInstructions). Only the `tools`
+//   one section per upstream with its state line (proxyText.unifiedInstructions,
+//   ADR-0022: the live contact decides, else the stored state). Only the `tools`
 //   capability is advertised: resources and prompts are not proxied (yet).
 // - tools/list: fetches the upstream's list, records it (KnownTool), applies
 //   the policy for THIS client: DENY tools are dropped, ASK tools get the
 //   approval stamp in their description; name/inputSchema/annotations pass
 //   through unchanged. `/mcp` does this for every usable upstream in parallel,
-//   prefixes the names `<slug>_` and leaves out an upstream that fails.
+//   prefixes the names `<slug>_` and leaves out an upstream that fails; while
+//   one needs a reconnect or is unreachable it appends the placeholder tool
+//   `xitl-status` (ADR-0022), which `tools/call` answers from the stored
+//   state (no contact, no audit; also when nothing is failing any more).
 // - tools/call: re-evaluates the policy (never trusts that the client saw the
 //   list; a live snooze can turn ASK into ALLOW), writes the audit row FIRST
 //   (PENDING), then forwards (ALLOW), refuses (DENY) or holds the call for the
@@ -32,9 +36,22 @@ import type { CallToolResult, Tool } from '@modelcontextprotocol/client';
 import { prisma } from '../db.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { awaitingReview, evaluatePolicy, type Policy, type PolicyTool } from '../lib/policy.js';
-import { MSG, errorResult, instructionsFor, resultExcerpt, scrubSecrets, stampedDescription, unifiedInstructions } from '../lib/proxyText.js';
+import {
+  MSG,
+  STATUS_TOOL_NAME,
+  errorResult,
+  instructionsFor,
+  resultExcerpt,
+  scrubSecrets,
+  stampedDescription,
+  statusText,
+  statusTool,
+  unifiedInstructions,
+  type FailingUpstream,
+  type UpstreamState,
+} from '../lib/proxyText.js';
 import { splitUnifiedName, unifiedName } from '../lib/unifiedNames.js';
-import { CONNECT_TIMEOUT_MS, CALL_TIMEOUT_MS, UpstreamNeedsReconnect, UpstreamNotConnected, isUsable, withUpstream } from '../upstream/connection.js';
+import { CONNECT_TIMEOUT_MS, CALL_TIMEOUT_MS, UpstreamNeedsReconnect, UpstreamNotConnected, isUsable, storedState, withUpstream } from '../upstream/connection.js';
 import { syncKnownTools, usableTools } from '../upstream/tools.js';
 import { errorTag } from '../upstream/oauthClient.js';
 import { approvals, ApprovalHub, type Decision } from '../approval/pending.js';
@@ -145,7 +162,8 @@ const MAX_TOOL_NAME_IN_AUDIT = 200;
 /** Generic, internals-free JSON-RPC error for a failed upstream list. */
 function upstreamListError(name: string, e: unknown): ProtocolError {
   const text = e instanceof UpstreamNeedsReconnect ? MSG.reconnect(name) : e instanceof UpstreamNotConnected ? MSG.notConnected(name) : MSG.upstreamError(name);
-  return new ProtocolError(ProtocolErrorCode.InternalError, text);
+  // The cause stays on the server (the unified list reads the state from it).
+  return Object.assign(new ProtocolError(ProtocolErrorCode.InternalError, text), { cause: e });
 }
 
 /** The KnownTool fields the policy engine needs. */
@@ -166,18 +184,18 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
   const approvalTimeoutMs = deps.approvalTimeoutMs ?? approvalTimeoutFromEnv(process.env.APPROVAL_TIMEOUT_MS);
 
   /** The upstream's instructions: fetched live when it is usable (withUpstream
-   * stores the length-capped, scrubbed text; read back), else the stored ones. */
-  async function liveInstructions(upstream: Upstream): Promise<string | null> {
-    if (!isUsable(upstream)) return upstream.instructions;
+   * stores the length-capped, scrubbed text; read back), else the stored ones.
+   * `state` is what the live contact found (ADR-0022); stored when not usable. */
+  async function liveInstructions(upstream: Upstream): Promise<{ instructions: string | null; state: UpstreamState }> {
+    if (!isUsable(upstream)) return { instructions: upstream.instructions, state: storedState(upstream) };
     try {
       await withUpstream(upstream.id, upstream.userId, async () => undefined, { clock, timeoutMs: INSTRUCTIONS_TIMEOUT_MS });
-      return (
-        (await prisma.upstream.findFirst({ where: { id: upstream.id, userId: upstream.userId }, select: { instructions: true } }))
-          ?.instructions ?? null
-      );
+      const row = await prisma.upstream.findFirst({ where: { id: upstream.id, userId: upstream.userId }, select: { instructions: true } });
+      return { instructions: row?.instructions ?? null, state: 'ok' };
     } catch (e) {
       console.warn(`proxy: upstream ${upstream.id}: instructions unavailable: ${errorTag(e)}`);
-      return upstream.instructions;
+      const state: UpstreamState = e instanceof UpstreamNeedsReconnect ? 'reconnect' : e instanceof UpstreamNotConnected ? 'not-connected' : 'unreachable';
+      return { instructions: upstream.instructions, state };
     }
   }
 
@@ -463,7 +481,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
     const upstream = await prisma.upstream.findFirst({ where: { id: ref.id, userId: call.userId } });
     if (!upstream) throw new Error('upstream vanished mid-request');
     const endpoint = `/mcp/${upstream.slug}`;
-    const upstreamInstructions = call.wantsInstructions ? await liveInstructions(upstream) : upstream.instructions;
+    const upstreamInstructions = call.wantsInstructions ? (await liveInstructions(upstream)).instructions : upstream.instructions;
 
     const server = new Server(
       { name: `xitl/${upstream.slug}`, version: APP_VERSION },
@@ -494,16 +512,16 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
 
     // Live only when the client asks for them (initialize): one connection per
     // usable upstream, in parallel; the stored ones otherwise.
-    const own = call.wantsInstructions
+    const live = call.wantsInstructions
       ? await Promise.all(upstreams.map((u) => liveInstructions(u)))
-      : upstreams.map((u) => u.instructions);
+      : upstreams.map((u) => ({ instructions: u.instructions, state: storedState(u) }));
     const instructions = unifiedInstructions(
       upstreams.map((u, i) => ({
         slug: u.slug,
         name: u.name,
         description: u.description,
-        instructions: own[i] ?? null,
-        usable: isUsable(u),
+        instructions: live[i]?.instructions ?? null,
+        state: live[i]?.state ?? storedState(u),
       })),
     );
 
@@ -515,21 +533,41 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
       // Degrade per upstream: one that fails is left out, the rest is listed.
       const results = await Promise.allSettled(rows.map((u) => listFor(u, mcpClientId, displayName)));
       const tools: Tool[] = [];
+      const failing: FailingUpstream[] = [];
       results.forEach((r, i) => {
         const u = rows[i]!;
-        if (r.status === 'rejected') return; // logged in listFor
+        if (r.status === 'rejected') {
+          // logged in listFor
+          const cause = (r.reason as { cause?: unknown } | null)?.cause;
+          failing.push({ name: u.name, state: cause instanceof UpstreamNeedsReconnect ? 'reconnect' : 'unreachable' });
+          return;
+        }
+        // Not usable: not contacted; a reconnect is told, a never-connected one is not.
+        if (!isUsable(u) && storedState(u) === 'reconnect') failing.push({ name: u.name, state: 'reconnect' });
         for (const t of r.value) {
           const name = unifiedName(u.slug, t.name);
           if (name) tools.push({ ...t, name });
           else console.warn(`proxy: upstream ${u.id}: tool name not listable on /mcp (MCP name rules)`);
         }
       });
+      // ADR-0022: one placeholder tells the agent why upstreams are missing.
+      if (failing.length > 0) tools.push(statusTool(failing) as Tool);
       return { tools };
     });
 
     server.setRequestHandler('tools/call', async (request, reqCtx) => {
       const name = request.params.name;
       const args = request.params.arguments ?? {};
+      if (name === STATUS_TOOL_NAME) {
+        // From the stored state: nothing is contacted, nothing is audited.
+        const rows = await prisma.upstream.findMany({ where: { userId }, orderBy: { slug: 'asc' } });
+        const failing = rows.flatMap((u): FailingUpstream[] => {
+          const state = storedState(u);
+          return state === 'reconnect' || state === 'unreachable' ? [{ name: u.name, state }] : [];
+        });
+        // Also answered when nothing fails: a client may call it from a cached list.
+        return { content: [{ type: 'text', text: statusText(failing) }] };
+      }
       const split = splitUnifiedName(name);
       // Resolved ONLY among this user's upstreams; another user's slug is unknown.
       const upstream = split

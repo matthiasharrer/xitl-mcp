@@ -20,6 +20,11 @@ export const TS_A = { 'Remote-User': 'ts-a', 'Remote-Name': 'Toni' };
 export const TS_B = { 'Remote-User': 'ts-b', 'Remote-Name': 'Tessa' };
 export const TS_SEC = { 'Remote-User': 'ts-sec', 'Remote-Name': 'Timo' };
 export const TS_REV = { 'Remote-User': 'ts-rev', 'Remote-Name': 'Tara' };
+// Identities of upstream-state.spec.ts (TC-90…93), one per case (exact lists, own upstreams).
+export const ST_API = { 'Remote-User': 'st-api', 'Remote-Name': 'Sara' };
+export const ST_LIST = { 'Remote-User': 'st-list', 'Remote-Name': 'Silke' };
+export const ST_INIT = { 'Remote-User': 'st-init', 'Remote-Name': 'Sven' };
+export const ST_UI = { 'Remote-User': 'st-ui', 'Remote-Name': 'Susi' };
 export const UNI_EMPTY = { 'Remote-User': 'uni-empty', 'Remote-Name': 'Emil' };
 
 let counter = 0;

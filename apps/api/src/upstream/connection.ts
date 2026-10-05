@@ -22,7 +22,7 @@ import { needsRefresh } from '../lib/upstreamOAuth.js';
 import { limitResponse } from '../lib/limitedResponse.js';
 import { outboundFetch, upstreamAllowance } from '../lib/outbound.js';
 import { MAX_UPSTREAM_RESPONSE_BYTES } from '../lib/limits.js';
-import { scrubSecrets } from '../lib/proxyText.js';
+import { scrubSecrets, type UpstreamState } from '../lib/proxyText.js';
 import { ReconnectRequired, errorTag, markNeedsReconnect, refreshUpstreamTokens } from './oauthClient.js';
 
 export const CONNECT_TIMEOUT_MS = 15_000;
@@ -43,6 +43,13 @@ export class UpstreamNeedsReconnect extends Error {
 export function isUsable(row: Pick<Upstream, 'auth' | 'status' | 'accessToken'>): boolean {
   if (row.auth !== 'OAUTH') return true; // HEADER / NONE need no connect step
   return row.status === 'CONNECTED' && !!row.accessToken;
+}
+
+/** ADR-0022: the state as stored (status, lastFailureAt), without contacting. */
+export function storedState(row: Pick<Upstream, 'auth' | 'status' | 'accessToken' | 'lastFailureAt'>): UpstreamState {
+  if (row.auth === 'OAUTH' && row.status === 'NEEDS_RECONNECT') return 'reconnect';
+  if (!isUsable(row)) return 'not-connected';
+  return row.lastFailureAt ? 'unreachable' : 'ok';
 }
 
 export interface UpstreamSession {
@@ -82,87 +89,113 @@ export async function withUpstream<T>(
   if (row.auth === 'OAUTH') {
     if (row.status === 'NEEDS_RECONNECT') throw new UpstreamNeedsReconnect();
     if (!isUsable(row)) throw new UpstreamNotConnected();
-    if (needsRefresh(row.tokenExpiresAt, clock.now())) {
-      try {
-        row = await refreshUpstreamTokens(row, { clock });
-      } catch (e) {
-        if (e instanceof ReconnectRequired) throw new UpstreamNeedsReconnect();
-        throw e;
-      }
-    }
   }
 
-  let current: Upstream = row;
-  const origin = new URL(current.url).origin;
-  let refreshedOnce = false;
-  let reconnect = false;
-
-  const fetchFn: FetchLike = async (input, init) => {
-    const url = urlOf(input);
-    const sameOrigin = url.origin === origin;
-    const send = (headers: Headers) => {
-      const timeout = AbortSignal.timeout(timeoutMs);
-      return outboundFetch(
-        url,
-        {
-          ...init,
-          headers,
-          redirect: 'error',
-          signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
-        },
-        // ADR-0020: a flagged upstream may reach its own host:port, from the
-        // row as read for this request (never cached across requests).
-        { alsoAllow: upstreamAllowance(current) },
-      );
-    };
-    const headers = new Headers(init?.headers);
-    if (sameOrigin) {
-      if (current.auth === 'HEADER' && current.headerName && current.headerValue) {
-        headers.set(current.headerName, current.headerValue);
-      }
-      if (current.auth === 'OAUTH' && current.accessToken) headers.set('Authorization', `Bearer ${current.accessToken}`);
+  // ADR-0022: from here on a failed contact is recorded (lastFailureAt), a
+  // successful one clears it. The connection states above and the reconnect
+  // outcomes below are tracked by `status` alone. Bookkeeping never changes
+  // the outcome.
+  const hadFailure = row.lastFailureAt !== null;
+  const note = async (at: Date | null) => {
+    try {
+      await prisma.upstream.updateMany({ where: { id: upstreamId, userId }, data: { lastFailureAt: at } });
+    } catch (err) {
+      console.warn(`upstream ${upstreamId}: failure state not stored: ${errorTag(err)}`);
     }
-    let res = await send(headers);
-    if (res.status === 401 && sameOrigin && current.auth === 'OAUTH') {
-      await res.body?.cancel().catch(() => {});
-      if (!refreshedOnce) {
-        refreshedOnce = true;
+  };
+  try {
+    const result = await contact(row);
+    if (hadFailure) await note(null);
+    return result;
+  } catch (e) {
+    if (!(e instanceof UpstreamNotConnected) && !(e instanceof UpstreamNeedsReconnect)) await note(clock.now());
+    throw e;
+  }
+
+  async function contact(row: Upstream): Promise<T> {
+    if (row.auth === 'OAUTH') {
+      if (needsRefresh(row.tokenExpiresAt, clock.now())) {
         try {
-          current = await refreshUpstreamTokens(current, { clock, force: true, failedToken: current.accessToken });
+          row = await refreshUpstreamTokens(row, { clock });
         } catch (e) {
-          if (e instanceof ReconnectRequired) reconnect = true;
+          if (e instanceof ReconnectRequired) throw new UpstreamNeedsReconnect();
           throw e;
         }
-        headers.set('Authorization', `Bearer ${current.accessToken}`);
-        res = await send(headers);
-      }
-      if (res.status === 401) {
-        // Fresh token still refused: it is not going to work without the user.
-        reconnect = true;
-        await markNeedsReconnect(current.id, current.userId);
       }
     }
-    return limitResponse(res, MAX_UPSTREAM_RESPONSE_BYTES);
-  };
 
-  const transport = new StreamableHTTPClientTransport(new URL(current.url), { fetch: fetchFn });
-  const client = new Client({ name: 'xitl', version: '0.1.0' });
-  try {
-    await client.connect(transport, { timeout: Math.min(timeoutMs, CONNECT_TIMEOUT_MS) });
-    // Remember the upstream's own instructions (ADR-0014): initialize uses them.
-    const raw = client.getInstructions();
-    const instructions = typeof raw === 'string' ? scrubSecrets(raw, secretsOf(current)).slice(0, MAX_INSTRUCTIONS) : null;
-    if (instructions !== current.instructions) {
-      await prisma.upstream.updateMany({ where: { id: current.id, userId }, data: { instructions } });
+    let current: Upstream = row;
+    const origin = new URL(current.url).origin;
+    let refreshedOnce = false;
+    let reconnect = false;
+
+    const fetchFn: FetchLike = async (input, init) => {
+      const url = urlOf(input);
+      const sameOrigin = url.origin === origin;
+      const send = (headers: Headers) => {
+        const timeout = AbortSignal.timeout(timeoutMs);
+        return outboundFetch(
+          url,
+          {
+            ...init,
+            headers,
+            redirect: 'error',
+            signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
+          },
+          // ADR-0020: a flagged upstream may reach its own host:port, from the
+          // row as read for this request (never cached across requests).
+          { alsoAllow: upstreamAllowance(current) },
+        );
+      };
+      const headers = new Headers(init?.headers);
+      if (sameOrigin) {
+        if (current.auth === 'HEADER' && current.headerName && current.headerValue) {
+          headers.set(current.headerName, current.headerValue);
+        }
+        if (current.auth === 'OAUTH' && current.accessToken) headers.set('Authorization', `Bearer ${current.accessToken}`);
+      }
+      let res = await send(headers);
+      if (res.status === 401 && sameOrigin && current.auth === 'OAUTH') {
+        await res.body?.cancel().catch(() => {});
+        if (!refreshedOnce) {
+          refreshedOnce = true;
+          try {
+            current = await refreshUpstreamTokens(current, { clock, force: true, failedToken: current.accessToken });
+          } catch (e) {
+            if (e instanceof ReconnectRequired) reconnect = true;
+            throw e;
+          }
+          headers.set('Authorization', `Bearer ${current.accessToken}`);
+          res = await send(headers);
+        }
+        if (res.status === 401) {
+          // Fresh token still refused: it is not going to work without the user.
+          reconnect = true;
+          await markNeedsReconnect(current.id, current.userId);
+        }
+      }
+      return limitResponse(res, MAX_UPSTREAM_RESPONSE_BYTES);
+    };
+
+    const transport = new StreamableHTTPClientTransport(new URL(current.url), { fetch: fetchFn });
+    const client = new Client({ name: 'xitl', version: '0.1.0' });
+    try {
+      await client.connect(transport, { timeout: Math.min(timeoutMs, CONNECT_TIMEOUT_MS) });
+      // Remember the upstream's own instructions (ADR-0014): initialize uses them.
+      const raw = client.getInstructions();
+      const instructions = typeof raw === 'string' ? scrubSecrets(raw, secretsOf(current)).slice(0, MAX_INSTRUCTIONS) : null;
+      if (instructions !== current.instructions) {
+        await prisma.upstream.updateMany({ where: { id: current.id, userId }, data: { instructions } });
+      }
+      return await fn({
+        client,
+        secrets: () => secretsOf(current),
+      });
+    } catch (e) {
+      if (reconnect || e instanceof ReconnectRequired) throw new UpstreamNeedsReconnect();
+      throw e;
+    } finally {
+      await client.close().catch((e) => console.warn(`upstream ${upstreamId}: close failed: ${errorTag(e)}`));
     }
-    return await fn({
-      client,
-      secrets: () => secretsOf(current),
-    });
-  } catch (e) {
-    if (reconnect || e instanceof ReconnectRequired) throw new UpstreamNeedsReconnect();
-    throw e;
-  } finally {
-    await client.close().catch((e) => console.warn(`upstream ${upstreamId}: close failed: ${errorTag(e)}`));
   }
 }

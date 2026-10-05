@@ -5,19 +5,13 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-05 (`v0.4.1` work: URL change resets trust, ADR-0021; DCR cleanup; KnownTool cap)_
+_Last updated: 2026-10-05 (failing upstream visible on `/mcp`, ADR-0022; unreleased)_
 
 ## Next
 
-1. **Failing upstream visible on `/mcp`** (Matthias, 2026-10-05, next to
-   build): when an upstream can't be listed (unreachable, needs reconnect,
-   error), the unified `/mcp` today drops its tools silently (only the log
-   says why). Tell the agent: a short German/English note in the tool list
-   response or instructions naming the upstream and "in xitl neu verbinden",
-   plus a status hint in the app. Small slice; Matthias uses `/mcp` daily.
-2. **LLM proposes policy, user confirms in the app** (ideas.md): design + ADR
+1. **LLM proposes policy, user confirms in the app** (ideas.md): design + ADR
    first, then Matthias decides.
-3. MG-05 (Tina), whenever convenient.
+2. MG-05 (Tina), whenever convenient.
 
 ## Milestone 1 status
 
@@ -62,8 +56,13 @@ stay behind Authelia.
 - Boot sweep labels an ALLOW call that crashed mid-forward `DENIED +restart`,
   though it may have reached the upstream.
 - **Unified `/mcp`:** `tools/list` fans out to every usable upstream per call
-  (no cache, ideas.md); a failing upstream silently drops its tools (only the
-  log says why); no `list_changed` there either.
+  (no cache, ideas.md); a failing upstream is left out but named by the
+  `xitl-status` placeholder (ADR-0022); no `list_changed` there either.
+- **Failure state (ADR-0022):** `lastFailureAt` lags: a recovered upstream
+  stays "nicht erreichbar" until its next contact; a row can hold a stale
+  `lastFailureAt` next to `NEEDS_RECONNECT` (reconnect wins in UI/agent text,
+  cleared by the first successful contact after reconnecting). A tool call
+  timing out (120 s) counts as a failure.
 - Only `tools` are proxied (no resources/prompts); no `list_changed`
   notifications (stateless endpoint; next `tools/list` sees changes).
 - DCR cleanup (TC-88): prune-then-create isn't atomic, so concurrent

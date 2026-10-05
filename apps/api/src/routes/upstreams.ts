@@ -28,6 +28,7 @@ export function serializeUpstream(row: Upstream) {
     name: row.name,
     url: row.url,
     description: row.description,
+    lastFailureAt: row.lastFailureAt?.toISOString() ?? null,
     defaultPolicy: row.defaultPolicy,
     auth: row.auth,
     status: row.status,

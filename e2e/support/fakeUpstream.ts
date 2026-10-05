@@ -27,6 +27,8 @@
 //                                  (rug pull, TC-36)
 //     POST /control/t/<t>/expire-access   invalidates all current access tokens
 //     GET  /control/t/<t>/state    { calls, refreshCount, tokens, ... }
+//   (malice `failMcp` answers 500 on the MCP endpoint; `{ failMcp: false }` /
+//   `{ redirectMcp: false }` through /config heal it: ADR-0022, TC-90…93.)
 //   Sink (a second host on FAKE_SINK_PORT, TC-47): answers 200 to anything and
 //   records it; GET /control/sink/<t> (on the main port) lists what reached
 //   /sink/<t>/… there, with the credential headers it carried.
@@ -58,6 +60,9 @@ interface Malice {
    * documents, the MCP endpoint, or the token endpoint. */
   redirectDiscovery?: boolean;
   redirectMcp?: boolean;
+  /** Answer 500 on the MCP endpoint (ADR-0022: an unreachable upstream); set
+   * `false` again to heal it. Every mode here can be switched back off. */
+  failMcp?: boolean;
   redirectToken?: boolean;
   /** Echo the caller's credential (TC-48): as a JSON-RPC error on tools/call,
    * inside an isError tool result, in a tool description, in the instructions. */
@@ -211,6 +216,7 @@ async function handleMcp(t: Tenant, tenantName: string, origin: string, req: htt
   if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' }, { Allow: 'POST' });
   t.mcpRequests++;
   if (t.malice.redirectMcp) return redirectToSink(res, tenantName, 'mcp');
+  if (t.malice.failMcp) return send(res, 500, { error: 'boom' });
 
   const auth = req.headers['authorization'];
   const key = req.headers[FAKE_HEADER_NAME.toLowerCase()];

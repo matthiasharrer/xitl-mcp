@@ -9,6 +9,9 @@ import {
   scrubSecrets,
   stampedDescription,
   toolHint,
+  STATUS_TOOL_NAME,
+  statusText,
+  statusTool,
   unifiedInstructions,
   UNIFIED_SECTION_MAX,
 } from './proxyText.js';
@@ -70,8 +73,8 @@ describe('scrubSecrets', () => {
 describe('unifiedInstructions (ADR-0017)', () => {
   test('has the prefix, the naming rule and one section per upstream', () => {
     const text = unifiedInstructions([
-      { slug: 'haushalt', name: 'Haushalt', description: 'Aufgaben', instructions: 'Erst suchen.', usable: true },
-      { slug: 'rezepte', name: 'Rezepte', description: 'Kochen', instructions: null, usable: false },
+      { slug: 'haushalt', name: 'Haushalt', description: 'Aufgaben', instructions: 'Erst suchen.', state: 'ok' },
+      { slug: 'rezepte', name: 'Rezepte', description: 'Kochen', instructions: null, state: 'not-connected' },
     ]);
     expect(text.startsWith(INSTRUCTIONS_PREFIX)).toBe(true);
     expect(text).toContain('`<slug>_<tool>`');
@@ -82,13 +85,53 @@ describe('unifiedInstructions (ADR-0017)', () => {
 
   test('caps each upstream\'s own instructions', () => {
     const text = unifiedInstructions([
-      { slug: 'a', name: 'A', description: null, instructions: 'x'.repeat(UNIFIED_SECTION_MAX * 3), usable: true },
+      { slug: 'a', name: 'A', description: null, instructions: 'x'.repeat(UNIFIED_SECTION_MAX * 3), state: 'ok' },
     ]);
     expect(text.length).toBeLessThan(UNIFIED_SECTION_MAX + 500);
     expect(text.endsWith('…')).toBe(true);
   });
 
+  test('state lines (ADR-0022): reconnect replaces the body, unreachable sits above it, ok has none', () => {
+    const text = unifiedInstructions([
+      { slug: 'a', name: 'A', description: 'Da', instructions: 'Ia', state: 'reconnect' },
+      { slug: 'b', name: 'B', description: 'Db', instructions: 'Ib', state: 'unreachable' },
+      { slug: 'c', name: 'C', description: 'Dc', instructions: 'Ic', state: 'ok' },
+    ]);
+    expect(text).toContain('## A — Tools `a_…`\n\n(Muss in xitl neu verbunden werden');
+    expect(text).not.toContain('Ia');
+    expect(text).toMatch(/## B — Tools `b_…`\n\n\(Zurzeit nicht erreichbar[^]*\)\n\nDb\n\nIb/);
+    expect(text).toContain('## C — Tools `c_…`\n\nDc\n\nIc');
+  });
+
   test('is just the header without upstreams', () => {
     expect(unifiedInstructions([]).split('\n\n')).toHaveLength(2);
+  });
+});
+
+describe('xitl-status (ADR-0022)', () => {
+  const failing = [
+    { name: 'Haushalt', state: 'reconnect' as const },
+    { name: 'Rezepte  \n Küche', state: 'unreachable' as const },
+  ];
+
+  test('names each failing upstream with its state and what to tell the user', () => {
+    const text = statusText(failing);
+    expect(text).toContain('- Haushalt: muss in xitl neu verbunden werden.');
+    expect(text).toContain('- Rezepte Küche: gerade nicht erreichbar.');
+    expect(text).toContain('in xitl neu verbinden');
+    expect(text).toContain('gerade nicht erreichbar');
+  });
+
+  test('nothing failing: an all-clear answer (a cached list may still call it)', () => {
+    expect(statusText([])).toContain('Zurzeit fehlen keine Upstreams');
+  });
+
+  test('the tool: no underscore in the name, read-only, no arguments, same text in the description', () => {
+    const t = statusTool(failing);
+    expect(t.name).toBe(STATUS_TOOL_NAME);
+    expect(t.name).not.toContain('_');
+    expect(t.inputSchema).toEqual({ type: 'object', properties: {} });
+    expect(t.annotations).toEqual({ readOnlyHint: true });
+    expect(t.description).toContain(statusText(failing));
   });
 });

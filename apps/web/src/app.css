@@ -410,6 +410,10 @@ dialog.confirm p {
   background: var(--accent-soft);
   color: var(--accent-text);
 }
+.badge.status-unreachable {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
 .badge.status-needs_reconnect {
   background: var(--danger);
   color: light-dark(#fff, #3a0b08);
@@ -460,6 +464,10 @@ a.btn {
 .reconnect-note {
   margin-top: 0.5rem;
   color: var(--danger);
+}
+.unreachable-note {
+  margin-top: 0.5rem;
+  color: var(--warn);
 }
 
 /* ---- rules view (#/regeln/<id>) ---- */

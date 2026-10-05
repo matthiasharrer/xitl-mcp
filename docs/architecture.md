@@ -228,7 +228,11 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   'error'`, timeout 15 s connect / 120 s call, every response capped at
   `MAX_UPSTREAM_RESPONSE_BYTES` = 10 MiB via `limitResponse`: a declared
   larger Content-Length is refused unread, a streamed body errors once past
-  the cap), runs `fn`, closes. It stores the upstream's instructions in
+  the cap), runs `fn`, closes. ADR-0022: any failure after the connection
+  states (refresh, connect, `fn`, other than NotConnected/NeedsReconnect) sets
+  `Upstream.lastFailureAt` (Clock), a success clears it if it was set; the
+  bookkeeping write never changes the outcome. Settings shows such a
+  CONNECTED row as "Nicht erreichbar" + "Erneut prüfen" (= tools refresh). It stores the upstream's instructions in
   `Upstream.instructions` when they change, scrubbed of our own credentials
   first (they are handed to agents, TC-48).
 - `initialize`: instructions = prefix line ("Über xitl vermittelt … / Proxied
@@ -284,9 +288,17 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   one set per user whichever endpoint a call came through.
 - `tools/list`: `Promise.allSettled` over all of the user's upstreams (rows
   read fresh, ordered by slug); unusable ones return `[]` without contact; a
-  rejected one is left out (logged in `listFor`). Names via
+  rejected one is left out (logged in `listFor`; its `ProtocolError` carries
+  the original error as `cause`, server-side only: the SDK serializes only
+  code/message/data). ADR-0022: a rejected one (`cause` NeedsReconnect →
+  reconnect, else unreachable) and an unusable `NEEDS_RECONNECT` one are
+  collected; if any, the placeholder `xitl-status` (`proxyText.statusTool`,
+  read-only, no args, no `_` so never an upstream name) is appended. Names via
   `unifiedName(slug, tool)`; a name breaking `^[A-Za-z0-9_.-]{1,128}$` is
   skipped with a log line.
+- `tools/call` `xitl-status` (checked first): text from the stored state
+  (`connection.storedState`: status + `lastFailureAt`) of the user's
+  upstreams; an all-clear text when none fails. No contact, no audit.
 - `tools/call`: `splitUnifiedName` (first `_`; slug must pass `isUpstreamSlug`)
   -> `upstream.findUnique({userId_slug})` -> `callTool` with the upstream's own
   tool name and `endpoint: '/mcp'`. No split / no such upstream ->
@@ -294,8 +306,10 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   `upstreamId: null` and the full name, nothing contacted.
 - `initialize`: `unifiedInstructions` = prefix line + naming rule + one
   section per upstream (`## <name> — Tools \`<slug>_…\``, description, own
-  instructions ≤ 4 000 chars; unusable: a one-line note). Live fetch from every
-  usable upstream in parallel (10 s each), else stored.
+  instructions ≤ 4 000 chars). State lines (ADR-0022): not-connected and
+  reconnect replace the body, unreachable sits above it. Live fetch from every
+  usable upstream in parallel (10 s each; its outcome is the state), else the
+  stored instructions and `storedState`.
 - Sessions: `McpSession.upstreamId` is null for `/mcp`; `findOwnSession`
   matches `upstreamId` exactly, so the two kinds never match each other.
   UI shows "Alle Upstreams".

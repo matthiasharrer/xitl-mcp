@@ -1,6 +1,6 @@
 # 0017. The unified `/mcp` endpoint: names, auth, degradation
 
-- **Status:** Accepted; auth amended by ADR-0018 (all-upstreams tokens work on `/mcp`)
+- **Status:** Accepted; auth amended by ADR-0018 (all-upstreams tokens work on `/mcp`); degradation made visible by ADR-0022 (`xitl-status`, state lines)
 - **Date:** 2026-10-05
 
 ## Context

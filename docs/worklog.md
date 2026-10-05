@@ -3,6 +3,23 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-05 — Failing upstream visible on `/mcp`
+
+- Roadmap "Next" 1. Lead wrote ADR-0022 and TC-90…93; a Sonnet agent built
+  it; the lead reviewed `withUpstream`/unified list line by line, re-ran
+  gates (unit 234, e2e 112) and a mutation check.
+- Channel choice: a placeholder tool `xitl-status`, because tool descriptions
+  are what every client hands the model; instructions arrive once per
+  `initialize` and may not be shown. Flagged to Matthias as reversible.
+- Changed after review: a call to `xitl-status` with nothing failing answers
+  all-clear instead of "nicht bekannt" (clients cache the list).
+- Checked: the SDK serializes only code/message/data of a thrown error, so
+  the `cause` attached to `upstreamListError` stays server-side.
+- Gotcha: Prisma named the migration with the current clock (sorting before
+  `20261005200000_…`); renamed to `20261005210000_upstream_last_failure` (dev
+  `_prisma_migrations` row renamed too). e2e needs
+  `PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright` in this shell.
+
 ## 2026-10-05 — Security fixes for `v0.4.1`
 
 - Matthias approved the URL-change recommendation by asking for "the security

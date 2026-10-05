@@ -21,9 +21,21 @@ export interface UnifiedSection {
   description: string | null;
   /** The upstream's own server instructions (stored/live, already scrubbed). */
   instructions: string | null;
-  /** Usable without a connect step (connection.isUsable). */
-  usable: boolean;
+  /** ADR-0022: what the agent is told about this upstream. */
+  state: UpstreamState;
 }
+
+/** ADR-0022: `not-connected` = OAuth, never connected; `reconnect` = tokens
+ * gone, the user must reconnect in xitl; `unreachable` = the last contact
+ * failed (Upstream.lastFailureAt). */
+export type UpstreamState = 'ok' | 'not-connected' | 'reconnect' | 'unreachable';
+
+const STATE_LINE = {
+  'not-connected': '(In xitl nicht verbunden: zurzeit keine Tools. / Not connected in xitl: no tools right now.)',
+  reconnect: '(Muss in xitl neu verbunden werden: zurzeit keine Tools. / Must be reconnected in xitl: no tools right now.)',
+  unreachable:
+    '(Zurzeit nicht erreichbar: Tools fehlen, bis der Upstream wieder antwortet. / Currently unreachable: its tools are missing until the upstream answers again.)',
+} as const;
 
 /** Server instructions of the unified `/mcp` (ADR-0014, ADR-0017): the xitl
  * line, the naming rule, then one section per upstream. */
@@ -35,9 +47,10 @@ export function unifiedInstructions(sections: UnifiedSection[]): string {
   ];
   for (const s of sections) {
     const lines = [`## ${s.name} — Tools \`${s.slug}_…\``];
-    if (!s.usable) {
-      lines.push('(In xitl nicht verbunden: zurzeit keine Tools. / Not connected in xitl: no tools right now.)');
+    if (s.state === 'not-connected' || s.state === 'reconnect') {
+      lines.push(STATE_LINE[s.state]);
     } else {
+      if (s.state === 'unreachable') lines.push(STATE_LINE.unreachable);
       const description = s.description?.trim();
       if (description) lines.push(description);
       const own = s.instructions?.trim();
@@ -46,6 +59,46 @@ export function unifiedInstructions(sections: UnifiedSection[]): string {
     parts.push(lines.join('\n\n'));
   }
   return parts.join('\n\n');
+}
+
+/** The placeholder tool of the unified `/mcp` (ADR-0022). No `_` in the name:
+ * it can never be an upstream's `<slug>_<tool>`. */
+export const STATUS_TOOL_NAME = 'xitl-status';
+
+export interface FailingUpstream {
+  name: string;
+  state: 'reconnect' | 'unreachable';
+}
+
+/** One line per failing upstream: only the user-chosen display name and a
+ * fixed sentence, never an error, URL or status code (ADR-0007, ADR-0022). */
+export function statusText(failing: FailingUpstream[]): string {
+  // A client that cached an older list may still call it after recovery.
+  if (failing.length === 0) return '[xitl] Zurzeit fehlen keine Upstreams. / No upstream is missing right now.';
+  const lines = failing.map((f) => {
+    const name = f.name.replace(/\s+/g, ' ').trim();
+    return f.state === 'reconnect'
+      ? `- ${name}: muss in xitl neu verbunden werden. / must be reconnected in xitl.`
+      : `- ${name}: gerade nicht erreichbar. / currently unreachable.`;
+  });
+  return (
+    `[xitl] Diese Upstreams liefern zurzeit keine Tools / These upstreams currently provide no tools:\n${lines.join('\n')}\n\n` +
+    'Sag dem Nutzer Bescheid: „in xitl neu verbinden“ bzw. „gerade nicht erreichbar“. ' +
+    '/ Tell the user: "reconnect in xitl" or "currently unreachable".'
+  );
+}
+
+/** The `xitl-status` entry of `tools/list` (read-only, takes nothing). */
+export function statusTool(failing: FailingUpstream[]) {
+  return {
+    name: STATUS_TOOL_NAME,
+    description:
+      'Zeigt, welche Upstreams gerade fehlen und warum (neu verbinden oder nicht erreichbar). Ruf es auf, wenn dir Tools fehlen. ' +
+      '/ Shows which upstreams are missing and why (reconnect or unreachable). Call it when tools are missing.\n\n' +
+      statusText(failing),
+    inputSchema: { type: 'object' as const, properties: {} },
+    annotations: { readOnlyHint: true },
+  };
 }
 
 /** The ASK stamp appended to a tool's description (ADR-0014). */

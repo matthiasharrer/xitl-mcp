@@ -5,6 +5,11 @@ test evidence in `testing.md`'s run log.
 
 ## 2026-10-05
 
+- **Failing upstream visible (ADR-0022):** `Upstream.lastFailureAt` set/cleared
+  by `withUpstream`; on `/mcp` a placeholder tool `xitl-status` names
+  upstreams that need a reconnect or are unreachable (only names + fixed
+  text), instructions carry a state line per upstream; Einstellungen shows
+  "Nicht erreichbar" + "Erneut prüfen". TC-90…93. Unreleased.
 - **`v0.4.1` released** (Matthias's call): the security fixes below.
 - **Security fixes:** a URL change of an upstream
   marks every tool changed (explicit ALLOWs ask until reviewed, policies

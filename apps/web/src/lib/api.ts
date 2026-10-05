@@ -10,6 +10,8 @@ export interface Upstream {
   name: string;
   url: string;
   description: string | null;
+  /** ADR-0022: the last contact failed (ISO); null when it worked / none yet. */
+  lastFailureAt: string | null;
   defaultPolicy: Policy;
   auth: UpstreamAuth;
   status: UpstreamStatus;
