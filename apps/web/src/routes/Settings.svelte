@@ -38,6 +38,10 @@
   let deleting = $state<Upstream | null>(null);
   /** Token dialog: for one upstream, for all (`'all'`), or closed (null). */
   let tokenFor = $state<Upstream | 'all' | null>(null);
+  /** The running build (APP_VERSION from CI: `0.3.1`, `main`, or `dev`). */
+  let version = $state<string | null>(null);
+  api.getHealth().then((h) => (version = h.version), () => undefined);
+  const versionLabel = $derived(version && /^\d/.test(version) ? `v${version}` : version);
 
   async function load() {
     try {
@@ -437,7 +441,20 @@
       <p class="hint section-hint">Welcher Client wann eine Sitzung geöffnet hat und welche Aufrufe dazugehören.</p>
     </section>
   {/if}
+
+  {#if version}
+    <footer class="app-version" data-testid="app-version">xitl {versionLabel}</footer>
+  {/if}
 </div>
+
+<style>
+  .app-version {
+    margin: 1.5rem 0 0.5rem;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+</style>
 
 {#if revoking}
   {@const target = revoking}

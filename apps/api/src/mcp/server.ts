@@ -43,6 +43,9 @@ import { createSnooze, liveSnoozeUntil, liveSnoozesFor } from '../approval/snooz
 import type { Upstream } from '../generated/prisma/client.js';
 import type { RequestDiagnostics } from './sessions.js';
 
+/** The running build (CI sets APP_VERSION: `0.3.1`, `main`); MCP serverInfo. */
+const APP_VERSION = process.env.APP_VERSION ?? 'dev';
+
 export const UNIFIED_ENDPOINT = '/mcp';
 
 export interface UpstreamRef {
@@ -457,7 +460,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
     const upstreamInstructions = call.wantsInstructions ? await liveInstructions(upstream) : upstream.instructions;
 
     const server = new Server(
-      { name: `xitl/${upstream.slug}`, version: '0.1.0' },
+      { name: `xitl/${upstream.slug}`, version: APP_VERSION },
       {
         capabilities: { tools: {} },
         instructions: instructionsFor(upstreamInstructions, upstream.description?.trim() || upstream.name),
@@ -498,7 +501,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
       })),
     );
 
-    const server = new Server({ name: 'xitl', version: '0.1.0' }, { capabilities: { tools: {} }, instructions });
+    const server = new Server({ name: 'xitl', version: APP_VERSION }, { capabilities: { tools: {} }, instructions });
 
     server.setRequestHandler('tools/list', async () => {
       // Fresh rows (status/tokens may have changed since the factory ran).

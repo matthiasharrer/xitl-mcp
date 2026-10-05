@@ -219,6 +219,7 @@ export const api = {
   createUpstreamToken: (id: number, name: string) =>
     request<{ client: McpClient; token: string }>('POST', `/api/upstreams/${id}/tokens`, { name }),
   createAllUpstreamsToken: (name: string) => request<{ client: McpClient; token: string }>('POST', '/api/mcp/tokens', { name }),
+  getHealth: () => request<{ status: string; version: string }>('GET', '/api/health'),
   getMcpConfig: () => request<{ configured: boolean }>('GET', '/api/mcp/config'),
   connectUpstream: (id: number) => request<{ authorizationUrl: string }>('POST', `/api/upstreams/${id}/connect`),
   getTools: (id: number) => request<ToolsView>('GET', `/api/upstreams/${id}/tools`),
