@@ -74,6 +74,8 @@ export interface McpClient {
   tokenPrefix: string | null;
   /** ADR-0023: web pages that may use this token from a browser (TOKEN only; [] for OAuth). */
   allowedOrigins: string[];
+  /** ADR-0024: since when the access is paused (ISO); null = active. */
+  pausedAt: string | null;
   createdAt: string;
   lastUsedAt: string | null;
 }
@@ -252,6 +254,8 @@ export const api = {
   /** ADR-0023: replaces a token's browser origins (also with []). */
   setClientOrigins: (id: number, allowedOrigins: string[]) =>
     request<McpClient>('PATCH', `/api/mcp/clients/${id}`, { allowedOrigins }),
+  /** ADR-0024: pause (true) or resume (false) an access, TOKEN or OAuth. */
+  setClientPaused: (id: number, paused: boolean) => request<McpClient>('PATCH', `/api/mcp/clients/${id}`, { paused }),
   getHealth: () => request<{ status: string; version: string }>('GET', '/api/health'),
   getMcpConfig: () => request<{ configured: boolean }>('GET', '/api/mcp/config'),
   connectUpstream: (id: number) => request<{ authorizationUrl: string }>('POST', `/api/upstreams/${id}/connect`),
@@ -327,6 +331,7 @@ const PATH_PART: Record<string, string> = {
   shutdown: 'Server neu gestartet',
   restart: 'Server neu gestartet',
   revoked: 'Client oder Upstream entfernt',
+  paused: 'Zugang pausiert',
   flood: 'zu viele offene Freigaben',
   'ask:no-channel': 'Freigabe noch nicht verfügbar',
 };

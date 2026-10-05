@@ -7,7 +7,9 @@
 //                actions "Erlauben" / "Ablehnen" where the platform supports
 //                them; tapping the body opens /#/freigabe/<id> (iPhones show no
 //                actions, so that path must always work).
-//   resolved  -> the call was decided in the app or expired: replace the
+//   resolved  -> the call was decided in the app, expired, or ended because
+//                its access was revoked / its upstream removed ('revoked') or
+//                its access paused ('paused', ADR-0024): replace the
 //                notification with the outcome (same tag, silent).
 //   upstream  -> an upstream became unreachable or needs a reconnect
 //                (ADR-0022): one notification per upstream (tag
@@ -42,6 +44,8 @@ const OUTCOME_TEXT = {
   approved: 'Erlaubt',
   denied: 'Abgelehnt',
   expired: 'Zeit abgelaufen',
+  revoked: 'Nicht mehr offen: Zugang oder Upstream entfernt',
+  paused: 'Nicht mehr offen: Zugang pausiert',
   gone: 'Nicht mehr offen',
   login: 'Nicht entschieden: bitte in der App anmelden',
   error: 'Nicht entschieden: bitte in der App entscheiden',

@@ -16,7 +16,8 @@
 //   next one settles at once as "flood" and is never announced (no SSE event,
 //   no push).
 // - Revoking a client or deleting an upstream settles its held calls as
-//   "revoked" (`cancelWhere`), so nothing can approve them afterwards (TC-41).
+//   "revoked" (`cancelWhere`), so nothing can approve them afterwards (TC-41);
+//   pausing a client (ADR-0024) settles them the same way as "paused" (TC-104).
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { systemClock, type Clock } from '../lib/clock.js';
@@ -33,6 +34,8 @@ export type Decision =
   | { kind: 'shutdown'; at: Date }
   /** The call's MCP client was revoked or its upstream deleted meanwhile. */
   | { kind: 'revoked'; at: Date }
+  /** The call's MCP client was paused meanwhile (ADR-0024). */
+  | { kind: 'paused'; at: Date }
   /** Refused at once: the user already has the maximum of held calls. */
   | { kind: 'flood'; at: Date };
 
@@ -149,13 +152,14 @@ export class ApprovalHub extends EventEmitter {
     this.settle(id, { kind: 'aborted', at: this.clock.now() });
   }
 
-  /** Settles every held call matching `pred` as "revoked" (denied). Used when
-   * a client is revoked or an upstream deleted. Returns how many. */
-  cancelWhere(pred: (call: PendingCall) => boolean): number {
+  /** Settles every held call matching `pred` as denied: "revoked" when a
+   * client is revoked or an upstream deleted, "paused" when a client is
+   * paused (ADR-0024). Returns how many. */
+  cancelWhere(pred: (call: PendingCall) => boolean, reason: 'revoked' | 'paused' = 'revoked'): number {
     let n = 0;
     for (const [id, entry] of [...this.entries]) {
       if (!pred(entry.call)) continue;
-      this.settle(id, { kind: 'revoked', at: this.clock.now() });
+      this.settle(id, { kind: reason, at: this.clock.now() });
       n++;
     }
     return n;

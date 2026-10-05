@@ -5,6 +5,9 @@ import { approvals } from '../approval/pending.js';
 import crypto from 'node:crypto';
 import { generateAccessToken, hashAccessToken, tokenDisplayPrefix } from '../lib/accessToken.js';
 import { parseAllowedOrigins, storedOrigins } from '../lib/origins.js';
+import { systemClock } from '../lib/clock.js';
+
+const clock = systemClock;
 
 // GET/PATCH/DELETE /api/mcp/clients - the management surface for MCP OAuth
 // clients (copied from haushalts-todos), restricted to the CALLER's own
@@ -16,6 +19,7 @@ import { parseAllowedOrigins, storedOrigins } from '../lib/origins.js';
 // OAuth value that must stay out of URLs). Responses never include `clientId`,
 // `redirectUris`, `userId` or the token hash (TOKEN clients, ADR-0015, are listed
 // with their upstream, display prefix and allowed browser origins, ADR-0023).
+// Every client carries `pausedAt` (ADR-0024: ISO while paused, else null).
 export const mcpClients = new Hono<AppEnv>();
 
 export const clientSelect = {
@@ -25,6 +29,7 @@ export const clientSelect = {
   tokenPrefix: true,
   allUpstreams: true,
   allowedOrigins: true,
+  pausedAt: true,
   createdAt: true,
   lastUsedAt: true,
   upstream: { select: { id: true, slug: true, name: true } },
@@ -42,6 +47,7 @@ type ClientRow = {
   tokenPrefix: string | null;
   allUpstreams: boolean;
   allowedOrigins: string;
+  pausedAt: Date | null;
   createdAt: Date;
   lastUsedAt: Date | null;
   upstream: { id: number; slug: string; name: string } | null;
@@ -60,6 +66,8 @@ export function serializeClient(row: ClientRow) {
     tokenPrefix: isToken ? row.tokenPrefix : null,
     /** ADR-0023: web pages that may use this token from a browser. */
     allowedOrigins: isToken ? storedOrigins(row.allowedOrigins) : [],
+    /** ADR-0024: since when the access is paused; null = active. */
+    pausedAt: row.pausedAt ? row.pausedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
     lastUsedAt: row.lastUsedAt ? row.lastUsedAt.toISOString() : null,
   };
@@ -116,9 +124,12 @@ export const ORIGINS_TOKEN_ONLY = {
   code: 'origins_token_only',
 } as const;
 
-// PATCH /api/mcp/clients/:id - body { name?, allowedOrigins? } (at least one).
-// name: trimmed, empty -> 400. allowedOrigins (ADR-0023): replaces the list
-// (also with []), TOKEN clients only (OAUTH -> 400 origins_token_only).
+// PATCH /api/mcp/clients/:id - body { name?, allowedOrigins?, paused? } (at
+// least one). name: trimmed, empty -> 400. allowedOrigins (ADR-0023): replaces
+// the list (also with []), TOKEN clients only (OAUTH -> 400 origins_token_only).
+// paused (ADR-0024), any client: true sets `pausedAt` only where it is null
+// (the first pause is kept) and settles the client's held calls as "paused";
+// false clears it. The gate (mcp/mount.ts) refuses a paused client.
 mcpClients.patch('/:id', async (c) => {
   noStore(c);
   const id = parseId(c.req.param('id'));
@@ -127,7 +138,11 @@ mcpClients.patch('/:id', async (c) => {
   const body = await c.req.json().catch(() => null);
   const fields = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
   const data: { name?: string; allowedOrigins?: string } = {};
-  if (fields.name !== undefined || fields.allowedOrigins === undefined) {
+  if (fields.paused !== undefined && typeof fields.paused !== 'boolean') {
+    return c.json({ error: 'paused muss true oder false sein.' }, 400);
+  }
+  const paused = fields.paused as boolean | undefined;
+  if (fields.name !== undefined || (fields.allowedOrigins === undefined && paused === undefined)) {
     const name = typeof fields.name === 'string' ? fields.name.trim() : '';
     if (name === '' || name.length > 100) return c.json({ error: 'name darf nicht leer sein' }, 400);
     data.name = name;
@@ -143,10 +158,21 @@ mcpClients.patch('/:id', async (c) => {
     data.allowedOrigins = JSON.stringify(parsed.origins);
   }
 
-  // kind in the where: an OAuth row can never get origins, whatever raced.
-  const where = data.allowedOrigins !== undefined ? { id, userId, kind: 'TOKEN' as const } : { id, userId };
-  const res = await prisma.mcpClient.updateMany({ where, data });
-  if (res.count === 0) return c.json({ error: 'not found' }, 404);
+  if (data.name !== undefined || data.allowedOrigins !== undefined) {
+    // kind in the where: an OAuth row can never get origins, whatever raced.
+    const where = data.allowedOrigins !== undefined ? { id, userId, kind: 'TOKEN' as const } : { id, userId };
+    const res = await prisma.mcpClient.updateMany({ where, data });
+    if (res.count === 0) return c.json({ error: 'not found' }, 404);
+  }
+  if (paused === true) {
+    // Only where not yet paused: pausing again keeps the first pausedAt.
+    await prisma.mcpClient.updateMany({ where: { id, userId, pausedAt: null }, data: { pausedAt: clock.now() } });
+    // Held calls end denied at once ("+paused"); mcp/server.ts re-checks the
+    // pause after an approval for a call that was not yet held right now.
+    approvals.cancelWhere((call) => call.userId === userId && call.mcpClientId === id, 'paused');
+  } else if (paused === false) {
+    await prisma.mcpClient.updateMany({ where: { id, userId }, data: { pausedAt: null } });
+  }
   const row = await prisma.mcpClient.findFirst({ where: { id, userId }, select: listSelect });
   return row ? c.json(serialize(row)) : c.json({ error: 'not found' }, 404);
 });

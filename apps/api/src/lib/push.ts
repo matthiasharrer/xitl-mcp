@@ -25,10 +25,12 @@ export type PushMessage =
       expiresAt: string;
     }
   | {
-      /** The call was decided elsewhere (page) or timed out: replace the notification. */
+      /** The call was decided elsewhere (page), timed out, or ended because its
+       * client was revoked / its upstream removed, or its client paused
+       * (ADR-0024): replace the notification. */
       type: 'resolved';
       id: string;
-      outcome: 'approved' | 'denied' | 'expired';
+      outcome: 'approved' | 'denied' | 'expired' | 'revoked' | 'paused';
     }
   | {
       /** ADR-0022: an upstream became unreachable / needs a reconnect (tag upstream-<id>). */

@@ -203,6 +203,9 @@ model McpClient {
   /// from a web page (CORS on /mcp and /mcp/<slug>). TOKEN clients only;
   /// always "[]" for OAUTH. At most 10.
   allowedOrigins String             @default("[]")
+  /// ADR-0024: set (Clock) while the access is paused; the gate (mcp/mount.ts)
+  /// then refuses every request with 403 access_paused. null = active.
+  pausedAt       DateTime?
   tokenHash      String?            @unique
   tokenPrefix    String?
   createdAt      DateTime           @default(now())

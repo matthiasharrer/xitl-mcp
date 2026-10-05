@@ -33,6 +33,15 @@ export const CO_A = { 'Remote-User': 'co-a', 'Remote-Name': 'Conni' };
 export const CO_B = { 'Remote-User': 'co-b', 'Remote-Name': 'Carl' };
 export const CO_UI = { 'Remote-User': 'co-ui', 'Remote-Name': 'Cora' };
 export const UNI_EMPTY = { 'Remote-User': 'uni-empty', 'Remote-Name': 'Emil' };
+// Identities of housekeeping.spec.ts (TC-100, TC-101).
+export const HK_A = { 'Remote-User': 'hk-a', 'Remote-Name': 'Hanna' };
+export const HK_B = { 'Remote-User': 'hk-b', 'Remote-Name': 'Hugo' };
+// Identities of pause.spec.ts (TC-102…105), one per case.
+export const PA_API = { 'Remote-User': 'pa-api', 'Remote-Name': 'Paul' };
+export const PA_OTHER = { 'Remote-User': 'pa-other', 'Remote-Name': 'Petra' };
+export const PA_GATE = { 'Remote-User': 'pa-gate', 'Remote-Name': 'Pia' };
+export const PA_HELD = { 'Remote-User': 'pa-held', 'Remote-Name': 'Pit' };
+export const PA_UI = { 'Remote-User': 'pa-ui', 'Remote-Name': 'Paula' };
 
 let counter = 0;
 /** Unique per test run so cases never see each other's rows. */

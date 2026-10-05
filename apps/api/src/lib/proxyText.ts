@@ -147,6 +147,8 @@ export const MSG = {
     `[xitl] Verweigert: Die Freigabe für „${tool}“ wurde abgebrochen (Verbindung beendet oder Server neu gestartet); bitte später erneut versuchen. / Denied: approval for "${tool}" was cancelled; try again later.`,
   revoked: (tool: string) =>
     `[xitl] Verweigert: Die Freigabe für „${tool}“ wurde beendet, weil der Client widerrufen oder der Upstream entfernt wurde. / Denied: approval for "${tool}" ended because the client was revoked or the upstream removed.`,
+  paused: (tool: string, client: string) =>
+    `[xitl] Verweigert: Die Freigabe für „${tool}“ wurde beendet, weil der Zugang „${client}“ pausiert wurde. Bitte erst wieder versuchen, wenn er fortgesetzt ist. / Denied: approval for "${tool}" ended because the access "${client}" was paused. Try again once it is resumed.`,
   flood: (tool: string) =>
     `[xitl] Verweigert: Zu viele offene Freigaben; „${tool}“ wurde nicht zur Freigabe vorgelegt. Bitte warten, bis offene Freigaben entschieden sind. / Denied: too many pending approvals; the call to "${tool}" was not queued. Wait for pending approvals to be decided.`,
   reconnect: (name: string) =>

@@ -159,6 +159,25 @@
     await load();
   }
 
+  /** ADR-0024: the client whose pause/resume request is in flight. */
+  let pausingId = $state<number | null>(null);
+
+  async function setPaused(c: McpClient, paused: boolean) {
+    if (pausingId !== null) return;
+    pausingId = c.id;
+    try {
+      await api.setClientPaused(c.id, paused);
+      showToast(paused ? `„${c.name}“ pausiert` : `„${c.name}“ fortgesetzt`);
+    } catch (e) {
+      // The API's 404 text is English ("not found"): the client was revoked meanwhile.
+      const gone = e instanceof ApiError && e.status === 404;
+      showToast(gone ? `„${c.name}“ gibt es nicht mehr.` : messageOf(e), { error: true });
+    } finally {
+      pausingId = null;
+    }
+    await load();
+  }
+
   async function revoke(c: McpClient) {
     revoking = null;
     try {
@@ -448,8 +467,13 @@
               {:else}
                 <div class="item-head">
                   <span class="item-name">{c.name}</span>
-                  <span class="badge" class:kind-token={c.kind === 'TOKEN'}>
-                    {c.kind === 'TOKEN' ? (c.allUpstreams ? 'Token für alle Upstreams' : `Token für ${c.upstream?.name ?? 'Upstream'}`) : 'OAuth'}
+                  <span class="client-badges">
+                    {#if c.pausedAt}
+                      <span class="chip paused" data-testid="client-paused">pausiert</span>
+                    {/if}
+                    <span class="badge" class:kind-token={c.kind === 'TOKEN'}>
+                      {c.kind === 'TOKEN' ? (c.allUpstreams ? 'Token für alle Upstreams' : `Token für ${c.upstream?.name ?? 'Upstream'}`) : 'OAuth'}
+                    </span>
                   </span>
                 </div>
                 <div class="sub">
@@ -462,12 +486,24 @@
                       ? `zuletzt benutzt ${dateTime.format(new Date(c.lastUsedAt))}`
                       : 'noch nie benutzt'}
                   </span>
+                  {#if c.pausedAt}
+                    <span>pausiert seit {dateTime.format(new Date(c.pausedAt))}, Anfragen werden abgewiesen</span>
+                  {/if}
                   {#if c.kind === 'TOKEN' && c.allowedOrigins.length > 0}
                     <span data-testid="token-origins">Im Browser erlaubt: {c.allowedOrigins.join(', ')}</span>
                   {/if}
                 </div>
-                <div class="item-actions">
+                <div class="item-actions client-actions">
                   <button type="button" class="btn" onclick={() => startRename(c)}>Umbenennen</button>
+                  <button
+                    type="button"
+                    class="btn"
+                    class:primary={c.pausedAt !== null}
+                    disabled={pausingId === c.id}
+                    onclick={() => setPaused(c, c.pausedAt === null)}
+                  >
+                    {c.pausedAt === null ? 'Pausieren' : 'Fortsetzen'}
+                  </button>
                   <button type="button" class="btn danger-outline" onclick={() => (revoking = c)}>Trennen</button>
                 </div>
                 {#if c.kind === 'TOKEN'}
@@ -493,6 +529,23 @@
 </div>
 
 <style>
+  .client-badges {
+    display: flex;
+    flex: none;
+    gap: 0.25rem;
+    align-items: center;
+  }
+  /* three buttons in a 390 px row: let them shrink instead of overflowing */
+  .client-actions .btn {
+    min-width: 0;
+    padding: 0 0.5rem;
+  }
+  .chip.paused {
+    color: var(--warn);
+    border-color: var(--warn);
+    background: var(--warn-soft);
+    font-weight: 600;
+  }
   .origins-btn {
     margin-top: 0.5rem;
   }

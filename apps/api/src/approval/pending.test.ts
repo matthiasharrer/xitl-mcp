@@ -131,6 +131,19 @@ describe('ApprovalHub', () => {
     expect(onResolved).toHaveBeenCalledTimes(3); // only `other` timed out
   });
 
+  // TC-104: pausing a client ends its held calls as "paused", like a revoke.
+  test('cancelWhere with reason "paused" settles matching calls as paused, leaves another client\'s', async () => {
+    const onResolved = vi.fn();
+    hub.on('resolved', onResolved);
+    const a = hub.hold(call({ mcpClientId: 20 }));
+    const b = hub.hold(call({ mcpClientId: 21 }));
+    expect(hub.cancelWhere((c) => c.userId === 1 && c.mcpClientId === 20, 'paused')).toBe(1);
+    await expect(a.decision).resolves.toMatchObject({ kind: 'paused' });
+    expect(hub.decide(1, a.call.id, { kind: 'approve', via: 'page', snoozeUntil: null })).toBe('not-found');
+    expect(hub.get(1, b.call.id)).not.toBeNull();
+    expect(onResolved.mock.calls.map((x) => [x[0].id, x[0].decision.kind])).toEqual([[a.call.id, 'paused']]);
+  });
+
   // TC-45: at most N held calls per user; the next one is refused at once and never announced.
   test('the call over the per-user cap settles as flood without a pending event; other users unaffected', async () => {
     expect(MAX_HELD_CALLS_PER_USER).toBe(10);

@@ -330,6 +330,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
       },
     });
     const shownName = name.slice(0, 100);
+    const shownClient = call.clientName.slice(0, 100);
     const finish = (data: {
       outcome: 'FORWARDED' | 'DENIED' | 'TIMED_OUT' | 'UPSTREAM_ERROR';
       decisionPath?: string;
@@ -416,13 +417,19 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
 
       if (d.kind === 'approve') {
         const path = `${rule}+approved:${d.via}`;
-        // Revocation settles held calls (cancelWhere), but a call that was
-        // between evaluation and hold() at that moment could still be held
-        // afterwards. Re-check the client binding before anything leaves.
-        const stillBound = await prisma.mcpClient.findFirst({ where: { id: mcpClientId, userId }, select: { id: true } });
+        // Revocation and pausing settle held calls (cancelWhere), but a call
+        // that was between evaluation and hold() at that moment could still
+        // be held afterwards. Re-check the client binding (gone: revoked) and
+        // its pause (ADR-0024) before anything leaves.
+        const stillBound = await prisma.mcpClient.findFirst({ where: { id: mcpClientId, userId }, select: { id: true, pausedAt: true } });
         if (!stillBound) {
           const text = MSG.revoked(shownName);
           await finish({ outcome: 'DENIED', decisionPath: `${rule}+revoked`, decidedAt: d.at, isError: true, resultText: text });
+          return errorResult(text);
+        }
+        if (stillBound.pausedAt !== null) {
+          const text = MSG.paused(shownName, shownClient);
+          await finish({ outcome: 'DENIED', decisionPath: `${rule}+paused`, decidedAt: d.at, isError: true, resultText: text });
           return errorResult(text);
         }
         if (d.snoozeUntil && held.call.snoozable) {
@@ -452,9 +459,15 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         await finish({ outcome: 'TIMED_OUT', decisionPath: `${rule}+timeout`, decidedAt: d.at, isError: true, resultText: text });
         return errorResult(text);
       }
-      // aborted / shutdown / revoked / flood: fail closed.
+      // aborted / shutdown / revoked / paused / flood: fail closed.
       const text =
-        d.kind === 'flood' ? MSG.flood(shownName) : d.kind === 'revoked' ? MSG.revoked(shownName) : MSG.approvalCancelled(shownName);
+        d.kind === 'flood'
+          ? MSG.flood(shownName)
+          : d.kind === 'revoked'
+            ? MSG.revoked(shownName)
+            : d.kind === 'paused'
+              ? MSG.paused(shownName, shownClient)
+              : MSG.approvalCancelled(shownName);
       await finish({ outcome: 'DENIED', decisionPath: `${rule}+${d.kind}`, decidedAt: d.at, isError: true, resultText: text });
       return errorResult(text);
     }

@@ -5,10 +5,14 @@
 // - 'pending'  -> {type:'approval', id, upstream, tool, summary, expiresAt},
 //                 urgency high, TTL = seconds until the deadline.
 // - 'resolved' -> {type:'resolved', id, outcome} when the call was decided on
-//                 the page or expired, so the service worker can replace the
+//                 the page, expired, or ended because its client was revoked
+//                 / its upstream removed ('revoked') or its client paused
+//                 ('paused', ADR-0024), so the service worker can replace the
 //                 now-stale notification (tag `approval-<id>`). Not sent when
 //                 the decision came from the notification itself (the SW has
-//                 already replaced it) or on abort/shutdown.
+//                 already replaced it) or on abort/shutdown. A 'flood' call
+//                 was never announced (no 'pending'), so there is nothing to
+//                 replace.
 import { prisma } from '../db.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { sendToSubscriptions, type SenderDeps } from '../lib/push.js';
@@ -34,10 +38,11 @@ export function wireApprovalPush(hub: ApprovalHub, opts: { clock?: Clock; deps?:
 
   hub.on('resolved', (ev: ResolvedEvent) => {
     const d = ev.decision;
-    let outcome: 'approved' | 'denied' | 'expired';
+    let outcome: 'approved' | 'denied' | 'expired' | 'revoked' | 'paused';
     if (d.kind === 'approve' && d.via === 'page') outcome = 'approved';
     else if (d.kind === 'deny' && d.via === 'page') outcome = 'denied';
     else if (d.kind === 'timeout') outcome = 'expired';
+    else if (d.kind === 'revoked' || d.kind === 'paused') outcome = d.kind;
     else return;
     void (async () => {
       await sendToSubscriptions(await subsOf(ev.userId), { type: 'resolved', id: ev.id, outcome }, { ttl: 60, urgency: 'normal' }, opts.deps);

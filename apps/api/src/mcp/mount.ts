@@ -40,8 +40,14 @@
 //      client whose list doesn't contain the request's Origin -> 403
 //      `origin_not_allowed`, before anything else happens. OAuth clients:
 //      no check, no CORS headers.
-//   4. `lastUsedAt` of a TOKEN client (verifier.touchTokenLastUsed).
-//   5. Slug resolution, body peek, sessions, the MCP handler. Every response
+//   4. Pause (ADR-0024), on the same fresh row: a paused client (TOKEN or
+//      OAuth) -> 403 `access_paused` for every method, DELETE included.
+//      Nothing else happens: no server, no audit, no session touched, no
+//      upstream contacted, `lastUsedAt` not bumped. A 403, never a 401 (a 401
+//      would start a new OAuth flow). Carries the CORS headers only when
+//      step 3 allowed the origin.
+//   5. `lastUsedAt` of a TOKEN client (verifier.touchTokenLastUsed).
+//   6. Slug resolution, body peek, sessions, the MCP handler. Every response
 //      from here on carries the CORS headers when the origin was allowed
 //      (withCors wraps the headers, the body streams through).
 // Requests without `Origin` (every server-side client) skip 1-3's CORS parts.
@@ -100,6 +106,8 @@ function isAuthInfo(value: AuthInfo | Response): value is AuthInfo {
 }
 
 const NOT_FOUND = { error: 'Not found' };
+/** ADR-0024: the answer to every request of a paused client. */
+const ACCESS_PAUSED = { error: 'access_paused', message: 'Zugang pausiert. / Access paused.' };
 
 /** Bodies larger than this are not peeked at (the body limit middleware
  * refuses anything above MAX_MCP_BODY_BYTES anyway). */
@@ -212,7 +220,10 @@ export function mountMcp(app: Hono<AppEnv>): void {
     // ADR-0023 step 3: the browser origin, against the verified client's own
     // list (read fresh, scoped). Before anything else: no server is built,
     // nothing is audited or touched, no upstream contacted.
-    const client = await prisma.mcpClient.findFirst({ where: { id: mcpClientId, userId }, select: { kind: true, allowedOrigins: true } });
+    const client = await prisma.mcpClient.findFirst({
+      where: { id: mcpClientId, userId },
+      select: { kind: true, allowedOrigins: true, pausedAt: true },
+    });
     if (!client) return c.json(NOT_FOUND, 404); // revoked mid-request; fail closed
     let corsOrigin: string | null = null;
     if (requestOrigin !== undefined && client.kind === 'TOKEN') {
@@ -222,7 +233,11 @@ export function mountMcp(app: Hono<AppEnv>): void {
     // Every response from here on: readable by the allowed page (OAuth / no Origin: unchanged).
     const out = (res: Response) => (corsOrigin ? withCors(res, corsOrigin) : res);
 
-    // ADR-0023 step 4 (ADR-0015): "last used", only for a request let through.
+    // Step 4 (ADR-0024): a paused access is refused before anything else
+    // happens (no lastUsedAt, no slug, no peek, no session, no server).
+    if (client.pausedAt !== null) return out(c.json(ACCESS_PAUSED, 403));
+
+    // Step 5 (ADR-0015): "last used", only for a request let through.
     if (client.kind === 'TOKEN') touchTokenLastUsed(mcpClientId, userId);
 
     // The token's user comes from the client binding (verifier.ts). Resolve the
