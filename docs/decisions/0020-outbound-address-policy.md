@@ -40,13 +40,24 @@ case.
 
   If a name resolves to several addresses and **any** of them is blocked, the
   request is refused.
-- **Exception list:** `OUTBOUND_ALLOW_PRIVATE`, a comma-separated list of
-  `host` or `host:port` entries (exact hostname or IP literal,
-  case-insensitive; IPv6 as `[::1]:3210`). A request whose URL host (and port,
-  if given) matches an entry skips the address check. It matches the **name in
-  the URL**, not the address it resolves to, so `localhost` is still blocked
-  when only `127.0.0.1` is listed. Malformed entries are ignored with a warning
-  at boot. The list is empty by default, which means strict.
+- **Exception per upstream, confirmed by the user** (Matthias, 2026-10-05):
+  when an upstream's URL is internal at save time, the API refuses it with
+  `code: "internal_address"` and the form explains why and offers
+  "Trotzdem erlauben". Saving again with `allowInternal: true` stores
+  `Upstream.allowInternal = true`, but **only if the URL really is internal at
+  that moment**. A public URL never gets the flag, so a public host can't later
+  re-point its DNS inward under it. A flagged upstream may reach **its own URL's
+  host and port** at any address, including during OAuth discovery. Any other
+  host stays guarded, so discovery steering to another internal host is still
+  refused. A URL change recomputes the flag, which means re-confirming. The
+  list shows a flagged upstream as "intern". No deploy config is needed.
+- **Admin override `OUTBOUND_ALLOW_PRIVATE`** (optional, empty by default): a
+  comma-separated list of `host` or `host:port` entries (exact hostname or IP
+  literal, case-insensitive; IPv6 as `[::1]:3210`) that skip the address check
+  for every user and for push. It matches the **name in the URL**, not the
+  address, so `localhost` is still blocked when only `127.0.0.1` is listed.
+  Malformed entries are ignored with a warning at boot. e2e uses it for the
+  fake upstream.
 - **Two enforcement points:**
   - **At save time** (create/edit an upstream URL, subscribe a push endpoint),
     xitl resolves the host and refuses with a German 400 if it's blocked. This
@@ -61,21 +72,29 @@ case.
 
 ## Consequences
 
-- **Deploy:** if the siblings' public hostnames resolve to internal addresses
-  from inside the pod (split DNS or hairpin), they must be listed in
-  `OUTBOUND_ALLOW_PRIVATE`. Otherwise Haushalt/Rezepte/Einkaufsliste break with
-  "unreachable". Listing them as a precaution does no harm.
+- **Deploy:** nothing to configure. If the siblings' public hostnames resolve
+  to internal addresses inside the pod (split DNS or hairpin), their existing
+  upstream rows stop working until each user opens the upstream, saves it and
+  confirms "Trotzdem erlauben". (Existing rows are not flagged by the
+  migration: nobody confirmed them.) `OUTBOUND_ALLOW_PRIVATE` is the
+  alternative for an admin who prefers config.
 - An existing upstream whose host became blocked stops working at the next
   call. It doesn't disappear and keeps its policies.
-- The exception list is admin config (GitOps), not something any user can
-  change in the UI. An allowed host can reach any address, so list as few as
-  possible.
+- Any user can open their own upstream's host to internal addresses, but only
+  for their own calls, after an explicit confirmation, and only for that one
+  host and port. That fits a two-person household where both users are trusted.
+  The agent cannot do it (ADR-0005: no config through MCP).
 - e2e lists only the fake upstream (`127.0.0.1:3210`); the sink port stays
   blocked and serves as the "internal" target.
 - Adds the `undici` package for a connect-time `lookup` on Node's fetch.
 
 ## Alternatives considered
 
+- **Upstream hosts allowed automatically, without confirmation:** a public
+  upstream could re-point its own DNS at `169.254.169.254` and xitl would
+  follow.
+- **A global host list in Einstellungen:** any user would open hosts for
+  everyone.
 - **Allowlist of upstream hosts only:** every new upstream would need a
   deploy, and discovery URLs would still need their own check.
 - **Check once at save time:** DNS can change after the check, and
