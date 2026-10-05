@@ -3,7 +3,7 @@
   // it still waits; Ablehnen / Erlauben and the snooze choices (TC-27…30).
   // Arguments come from the (untrusted) agent: shown as text, never as HTML.
   import { onDestroy, untrack } from 'svelte';
-  import { api, ApiError, messageOf, type ApprovalDecision, type PendingApproval } from './api';
+  import { api, ApiError, messageOf, type ApprovalDecision, type PendingApproval, type SnoozeScope } from './api';
   import { showToast } from './store.svelte';
   import SessionLine from './SessionLine.svelte';
 
@@ -27,6 +27,17 @@
   const leftText = $derived(`${Math.floor(left / 60000)}:${String(Math.floor((left % 60000) / 1000)).padStart(2, '0')}`);
 
   let busy = $state(false);
+  /** What "nicht mehr fragen" covers; "nur dieses Tool" unless chosen. */
+  let scope = $state<SnoozeScope>('tool');
+  const scopeText = $derived(
+    scope === 'upstream'
+      ? `alle Tools von ${approval.upstream.name}`
+      : scope === 'readonly'
+        ? `alle Lesetools von ${approval.upstream.name}`
+        : approval.tool,
+  );
+  const snooze = (d: { snoozeMinutes?: number; snoozeUntilMidnight?: boolean }, label: string) =>
+    decide({ decision: 'approve', ...d, snoozeScope: scope }, `Erlaubt, ${label} ohne Nachfrage: ${scopeText}`);
 
   const argsText = $derived.by(() => {
     try {
@@ -92,28 +103,44 @@
     </button>
   </div>
   {#if approval.snoozable}
-    <p class="hint snooze-label">Erlauben und für diesen Client nicht mehr fragen:</p>
+    <p class="hint snooze-label">Erlauben und für diesen Client nicht mehr fragen bei …</p>
+    <div class="scope-row" role="radiogroup" aria-label="Umfang der Pause">
+      <label class="scope-option">
+        <input type="radio" name={`scope-${approval.id}`} value="tool" bind:group={scope} />
+        <span>nur diesem Tool</span>
+      </label>
+      {#if approval.readOnly}
+        <label class="scope-option">
+          <input type="radio" name={`scope-${approval.id}`} value="readonly" bind:group={scope} />
+          <span>allen Lesetools von {approval.upstream.name}</span>
+        </label>
+      {/if}
+      <label class="scope-option">
+        <input type="radio" name={`scope-${approval.id}`} value="upstream" bind:group={scope} />
+        <span>allen Tools von {approval.upstream.name}</span>
+      </label>
+    </div>
     <div class="snooze-row" role="group" aria-label="Erlauben und pausieren">
       <button
         type="button"
         class="btn"
         aria-label="Erlauben, 15 Minuten nicht mehr fragen"
         disabled={busy || expired}
-        onclick={() => decide({ decision: 'approve', snoozeMinutes: 15 }, 'Erlaubt, 15 Minuten ohne Nachfrage')}>15 Min.</button
+        onclick={() => snooze({ snoozeMinutes: 15 }, '15 Minuten')}>15 Min.</button
       >
       <button
         type="button"
         class="btn"
         aria-label="Erlauben, 1 Stunde nicht mehr fragen"
         disabled={busy || expired}
-        onclick={() => decide({ decision: 'approve', snoozeMinutes: 60 }, 'Erlaubt, 1 Stunde ohne Nachfrage')}>1 Std.</button
+        onclick={() => snooze({ snoozeMinutes: 60 }, '1 Stunde')}>1 Std.</button
       >
       <button
         type="button"
         class="btn"
         aria-label="Erlauben, heute nicht mehr fragen"
         disabled={busy || expired}
-        onclick={() => decide({ decision: 'approve', snoozeUntilMidnight: true }, 'Erlaubt, heute ohne Nachfrage')}>Heute</button
+        onclick={() => snooze({ snoozeUntilMidnight: true }, 'heute')}>Heute</button
       >
     </div>
   {/if}

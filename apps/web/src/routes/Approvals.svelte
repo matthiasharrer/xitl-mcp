@@ -2,6 +2,7 @@
   // Start = "Freigaben": the user's held calls, live (SSE), oldest first.
   import { onDestroy } from 'svelte';
   import ApprovalCard from '../lib/ApprovalCard.svelte';
+  import { groupCalls } from '../lib/grouping';
   import Spinner from '../lib/Spinner.svelte';
   import { api, messageOf, type Me, type PendingApproval } from '../lib/api';
   import { openApprovalStream } from '../lib/approvalStream';
@@ -42,6 +43,8 @@
   onDestroy(close);
 
   const remove = (id: string) => (list = list.filter((p) => p.id !== id));
+  // Grouped per session / client (lib/grouping.ts); the list is newest first.
+  const groups = $derived(groupCalls([...list].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt))));
 </script>
 
 <div class="approvals">
@@ -57,8 +60,32 @@
   {:else if list.length === 0}
     <p class="empty">Keine offenen Freigaben.</p>
   {:else}
-    {#each list as approval (approval.id)}
-      <ApprovalCard {approval} ondone={remove} />
+    {#each groups as g (g.key)}
+      {#if groups.length > 1}
+        <p class="group-head" data-group={g.key}>
+          <span class="group-client">{g.clientName}</span>
+          <span>{g.items.length === 1 ? '1 Freigabe' : `${g.items.length} Freigaben`}</span>
+        </p>
+      {/if}
+      {#each g.items as approval (approval.id)}
+        <ApprovalCard {approval} ondone={remove} />
+      {/each}
     {/each}
   {/if}
 </div>
+
+<style>
+  .group-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin: 0.75rem 0 0.375rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .group-client {
+    font-weight: 600;
+    color: var(--fg);
+    overflow-wrap: anywhere;
+  }
+</style>

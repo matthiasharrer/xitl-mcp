@@ -45,9 +45,10 @@ and must allow responses up to 300 s on `/mcp/*`. Never set
 - Revoked/flood calls send no "resolved" push; a stale notification answers
   "Nicht mehr offen" when tapped.
 - Approval stream cap (5) counts connections per process, not devices.
-- **Grouping (ADR-0016):** measured: Claude.ai and Claude Code are both
-  2026-07-28 (no sessions); trace ids and `claudecode/toolUseId` change per
-  call. Nothing per chat. Open with Matthias: group by time gaps per client?
+- **Grouping (ADR-0019, built):** time gaps per client (10 min); two chats in
+  parallel on one connector share a group.
+- **READONLY pause trusts `readOnlyHint`** as declared when the tool was first
+  seen/acknowledged (ADR-0019 consequence).
 - **Sessions:** no TTL/cleanup (one row per `initialize`); unknown session id →
   404 per spec — if MG-06 shows Claude.ai breaking on 404, serve unknown ids
   sessionless instead (deliberate deviation); 2026-07-28-era clients have no

@@ -361,18 +361,36 @@ What the SDK (v2.2.0) and the protocol do — the reason for this shape:
   leg answers over SSE and sends `: keepalive` comments every 15 s while the
   handler waits, so idle proxies see traffic.
 
-### Snooze (ADR-0004, TC-30)
+### Snooze (ADR-0004, ADR-0019, TC-30, TC-76)
 
-`Snooze` rows (user, upstream, tool name, client, `until`). Created when an
-approval carries `snoozeMinutes` (1…1440; UI: 15, 60) or
-`snoozeUntilMidnight` (next 00:00 Europe/Berlin, DST-safe). `evaluatePolicy`
-gets `snoozedUntil` (latest live row) + `now` and upgrades **only ASK, and
-never for a tool awaiting review** (`awaitingReview`: new or changed, whatever
-path said ASK, e.g. an explicit ASK on a changed tool) to ALLOW `snooze`;
-DENY and unknown tools never. The held call's `snoozable` is
-`!awaitingReview(tool)`.
+`Snooze` rows (user, upstream, client, `scope`, `toolName`, `until`). Scope
+`TOOL` (toolName set), `READONLY` (every tool of the upstream whose STORED
+`KnownTool.annotations` say readOnlyHint, `snooze.isReadOnly`) or `UPSTREAM`
+(every tool); toolName null for the wide two. Created when an approval
+carries `snoozeMinutes` (1…1440; UI: 15, 60) or `snoozeUntilMidnight` (next
+00:00 Europe/Berlin, DST-safe), plus optional `snoozeScope`
+(`tool`|`readonly`|`upstream`; `readonly` only for a read-only held call,
+else 400; a scope without a duration is 400). server.ts narrows anything
+unexpected to `TOOL`. `snooze.liveSnoozeUntil(owner, tool, readOnly, now)` /
+`liveSnoozesFor(owner, now)` return the latest live covering row (pure part:
+`covers`, `latestCovering`, unit-tested). `evaluatePolicy` gets that
+`snoozedUntil` + `now` and upgrades **only ASK, and never for a tool awaiting
+review** (`awaitingReview`: new or changed, whatever path said ASK) to ALLOW
+`snooze`; DENY and unknown tools never. An annotation change marks a tool
+changed, so relabelling a tool read-only can't slip under a READONLY pause.
+The held call carries `snoozable` (`!awaitingReview`) and `readOnly`.
 tools/list applies it too (no stamp while snoozed). A rug-pull re-flag deletes
-the tool's snoozes. Expired rows are pruned when a new one is written.
+the tool's TOOL snoozes (wide ones stay but can't apply while it awaits
+review). Expired rows are pruned when a new one is written.
+
+### Grouping (ADR-0019, TC-75)
+
+UI only: `apps/web/src/lib/grouping.ts` (unit-tested, `npm run test:unit`
+runs it with TZ=Europe/Berlin). Verlauf: day sections (Heute/Gestern/date,
+browser time zone), then groups per session id, else per client id (name for
+revoked clients) with ≤ 10 min between consecutive calls; sorted by
+`receivedAt`, newest first. Freigaben: same groups, headers only when > 1.
+`/api/audit` rows and pending approvals carry `clientId` for this.
 
 ### Rug pull (TC-36)
 

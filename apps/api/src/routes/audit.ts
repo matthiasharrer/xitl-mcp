@@ -56,6 +56,8 @@ audit.get('/', async (c) => {
       tool: a.toolName,
       upstream: a.upstream,
       clientName: a.mcpClient?.name ?? null,
+      /** The McpClient row id (null once revoked): the UI groups by it. */
+      clientId: a.mcpClientId,
       outcome: a.outcome,
       decisionPath: a.decisionPath,
       isError: a.isError,

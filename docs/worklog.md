@@ -3,6 +3,14 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-05 — Grouping by time gaps, pause scopes
+
+- Matthias chose time-gap grouping (10 min) plus day separators, and asked
+  for pauses covering all tools / all read-only tools of an upstream
+  (ADR-0019). Visual check on the dev app with temporary rows (removed).
+  Grouping sorts by receivedAt itself (seeded rows exposed an id-order
+  assumption). TC-56 race fixed (session links now also in Verlauf groups).
+
 ## 2026-10-05 — Measurement 2: nothing per chat
 
 - v0.3.2 deployed (version footer). Ran 4 headless Claude Code "chats" x 2

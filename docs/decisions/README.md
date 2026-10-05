@@ -20,3 +20,4 @@
 | 0016 | [MCP sessions for grouping calls, measured before designing around them](0016-mcp-sessions.md) | Accepted (step 1; Claude.ai measured: 2026-07-28, no sessions) |
 | 0017 | [The unified `/mcp` endpoint: names, auth, degradation](0017-unified-endpoint.md) | Accepted |
 | 0018 | [Access tokens have a scope: one upstream or all upstreams](0018-token-scope.md) | Accepted |
+| 0019 | [Calls grouped by day and time gaps; pauses for a tool, read-only tools or an upstream](0019-grouping-and-pause-scopes.md) | Accepted |

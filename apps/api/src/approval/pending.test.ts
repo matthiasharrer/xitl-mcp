@@ -22,6 +22,7 @@ function call(over: Partial<NewPending> = {}): NewPending {
     receivedAt: new Date(T0),
     deadline: new Date(new Date(T0).getTime() + 300_000),
     snoozable: true,
+    readOnly: false,
     session: null,
     ...over,
   };

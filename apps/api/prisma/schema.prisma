@@ -143,13 +143,24 @@ model Snooze {
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   upstreamId  Int
   upstream    Upstream  @relation(fields: [upstreamId], references: [id], onDelete: Cascade)
-  toolName    String
+  /// TOOL: just `toolName`; READONLY: every tool of the upstream whose stored
+  /// annotations say readOnlyHint; UPSTREAM: every tool of the upstream.
+  /// toolName is null for the two wide scopes. Still only ever ASK -> ALLOW,
+  /// never for new/changed tools (policy.ts).
+  scope       SnoozeScope @default(TOOL)
+  toolName    String?
   mcpClientId Int
   mcpClient   McpClient @relation(fields: [mcpClientId], references: [id], onDelete: Cascade)
   until       DateTime
   createdAt   DateTime  @default(now())
 
   @@index([userId, upstreamId, toolName, mcpClientId])
+}
+
+enum SnoozeScope {
+  TOOL
+  READONLY
+  UPSTREAM
 }
 
 enum McpClientKind {

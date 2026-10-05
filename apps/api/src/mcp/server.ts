@@ -39,7 +39,7 @@ import { syncKnownTools, usableTools } from '../upstream/tools.js';
 import { errorTag } from '../upstream/oauthClient.js';
 import { approvals, ApprovalHub, type Decision } from '../approval/pending.js';
 import { approvalDeadline, approvalTimeoutFromEnv, upstreamTimeoutMs } from '../approval/budget.js';
-import { createSnooze, liveSnoozeUntil, liveSnoozesFor } from '../approval/snooze.js';
+import { createSnooze, isReadOnly, liveSnoozeUntil, liveSnoozesFor } from '../approval/snooze.js';
 import type { Upstream } from '../generated/prisma/client.js';
 import type { RequestDiagnostics } from './sessions.js';
 
@@ -210,7 +210,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
       }),
       // The default may have changed since the factory ran; read it fresh.
       prisma.upstream.findFirst({ where: { id: upstream.id, userId }, select: { defaultPolicy: true } }),
-      liveSnoozesFor(userId, upstream.id, mcpClientId, now),
+      liveSnoozesFor({ userId, upstreamId: upstream.id, mcpClientId }, now),
     ]);
     const byName = new Map(known.map((k) => [k.name, k]));
     const listed: Tool[] = [];
@@ -220,7 +220,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         upstreamDefault: (current?.defaultPolicy ?? 'DENY') as Policy,
         tool: k ? policyTool(k) : null,
         clientOverride: (k?.clientPolicies[0]?.policy as Policy | undefined) ?? null,
-        snoozedUntil: snoozes.get(t.name) ?? null,
+        snoozedUntil: snoozes(t.name, isReadOnly(k?.annotations)),
         now,
       });
       if (decision.policy === 'DENY') continue;
@@ -274,15 +274,18 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
     const receivedAt = clock.now();
 
     // Fresh reads: policy state at call time, scoped by the token's user.
-    const [tool, current, snoozedUntil] = await Promise.all([
+    const [tool, current] = await Promise.all([
       prisma.knownTool.findFirst({
         where: { upstreamId: upstream.id, name, upstream: { userId } },
         include: { clientPolicies: { where: { mcpClientId } } },
       }),
       prisma.upstream.findFirst({ where: { id: upstream.id, userId }, select: { defaultPolicy: true } }),
-      liveSnoozeUntil({ userId, upstreamId: upstream.id, toolName: name, mcpClientId }, receivedAt),
     ]);
     if (!current) throw new Error('upstream vanished mid-request');
+    // Read-only by the STORED annotations (an unknown tool is not read-only).
+    const readOnly = isReadOnly(tool?.annotations);
+    const snoozeOwner = { userId, upstreamId: upstream.id, mcpClientId };
+    const snoozedUntil = await liveSnoozeUntil(snoozeOwner, name, readOnly, receivedAt);
     const toolState = tool ? policyTool(tool) : null;
     const decision = evaluatePolicy({
       upstreamDefault: current.defaultPolicy as Policy,
@@ -382,6 +385,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           deadline: approvalDeadline(receivedAt, approvalTimeoutMs),
           // New/changed tools are reviewed in the rules, not snoozed (policy.ts).
           snoozable: !awaitingReview(toolState),
+          readOnly,
           session: call.session,
         },
         approvalId,
@@ -410,7 +414,9 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         }
         if (d.snoozeUntil && held.call.snoozable) {
           try {
-            await createSnooze({ userId, upstreamId: upstream.id, toolName: name, mcpClientId }, d.snoozeUntil, d.at);
+            // READONLY only from a read-only tool; anything else narrows to TOOL.
+            const scope = d.snoozeScope === 'UPSTREAM' || (d.snoozeScope === 'READONLY' && readOnly) ? d.snoozeScope : 'TOOL';
+            await createSnooze(snoozeOwner, scope, name, d.snoozeUntil, d.at);
           } catch (e) {
             console.warn(`proxy: snooze not stored: ${errorTag(e)}`);
           }

@@ -21,11 +21,12 @@ import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { MAX_HELD_CALLS_PER_USER } from '../lib/limits.js';
+import type { SnoozeScope } from './snooze.js';
 
 export type Via = 'page' | 'push';
 
 export type Decision =
-  | { kind: 'approve'; via: Via; at: Date; snoozeUntil: Date | null }
+  | { kind: 'approve'; via: Via; at: Date; snoozeUntil: Date | null; snoozeScope?: SnoozeScope }
   | { kind: 'deny'; via: Via; at: Date }
   | { kind: 'timeout'; at: Date }
   | { kind: 'aborted'; at: Date }
@@ -54,6 +55,8 @@ export interface PendingCall {
   deadline: Date;
   /** false for new/changed tools: those are looked at in the rules, not snoozed. */
   snoozable: boolean;
+  /** Read-only by the tool's stored annotations: offers the READONLY snooze. */
+  readOnly: boolean;
   /** The MCP session the call came in on (ADR-0016), null when sessionless. */
   session: { id: string; createdAt: Date } | null;
 }
@@ -124,11 +127,20 @@ export class ApprovalHub extends EventEmitter {
   }
 
   /** The user's decision. Only the call's own user can decide it. */
-  decide(userId: number, id: string, d: { kind: 'approve'; via: Via; snoozeUntil: Date | null } | { kind: 'deny'; via: Via }): DecideResult {
+  decide(
+    userId: number,
+    id: string,
+    d: { kind: 'approve'; via: Via; snoozeUntil: Date | null; snoozeScope?: SnoozeScope } | { kind: 'deny'; via: Via },
+  ): DecideResult {
     const entry = this.entries.get(id);
     if (!entry || entry.call.userId !== userId) return 'not-found';
     const at = this.clock.now();
-    this.settle(id, d.kind === 'approve' ? { kind: 'approve', via: d.via, snoozeUntil: d.snoozeUntil, at } : { kind: 'deny', via: d.via, at });
+    this.settle(
+      id,
+      d.kind === 'approve'
+        ? { kind: 'approve', via: d.via, snoozeUntil: d.snoozeUntil, snoozeScope: d.snoozeScope, at }
+        : { kind: 'deny', via: d.via, at },
+    );
     return 'ok';
   }
 

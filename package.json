@@ -20,7 +20,7 @@
     "e2e:ui": "playwright test --ui",
     "e2e:headed": "playwright test --headed",
     "skills:sync": "rm -rf .claude/skills/playwright-cli && cp -r node_modules/@playwright/cli/node_modules/playwright-core/lib/tools/skills/playwright-cli .claude/skills/",
-    "test:unit": "npm --workspace @xitl/api run test:unit"
+    "test:unit": "npm --workspace @xitl/api run test:unit && npm --workspace @xitl/web run test:unit"
   },
   "engines": {
     "node": ">=22"

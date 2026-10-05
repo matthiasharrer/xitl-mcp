@@ -100,6 +100,7 @@ export interface PendingApproval {
   id: string;
   state: 'pending';
   clientName: string;
+  clientId: number;
   upstream: { id: number; slug: string; name: string };
   tool: string;
   arguments: unknown;
@@ -110,6 +111,8 @@ export interface PendingApproval {
   remainingMs: number;
   /** false for new/changed tools: only "Erlauben" once, no snooze. */
   snoozable: boolean;
+  /** Read-only by its stored annotations: offers "alle Lesetools". */
+  readOnly: boolean;
   session: SessionRef;
 }
 
@@ -132,13 +135,18 @@ export interface ResolvedApproval {
 
 export type ApprovalDecision =
   | { decision: 'deny' }
-  | { decision: 'approve'; snoozeMinutes?: number; snoozeUntilMidnight?: boolean };
+  | { decision: 'approve'; snoozeMinutes?: number; snoozeUntilMidnight?: boolean; snoozeScope?: SnoozeScope };
+
+/** What a snooze covers (TC-76). */
+export type SnoozeScope = 'tool' | 'readonly' | 'upstream';
 
 export interface AuditRow {
   id: number;
   tool: string;
   upstream: { id: number; slug: string; name: string } | null;
   clientName: string | null;
+  /** McpClient row id; null once the client was revoked. */
+  clientId: number | null;
   outcome: Outcome;
   decisionPath: string;
   isError: boolean | null;

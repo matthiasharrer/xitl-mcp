@@ -8,7 +8,8 @@
 //                     `pending` / `resolved` events for my calls only
 //   GET  /:id         one call: pending, or its outcome once resolved
 //   POST /:id         { decision: 'approve'|'deny', via: 'page'|'push',
-//                       snoozeMinutes? | snoozeUntilMidnight? }
+//                       snoozeMinutes? | snoozeUntilMidnight?,
+//                       snoozeScope?: tool | readonly | upstream }
 //                     -> 200 { state }, 404 unknown/foreign, 409 no longer open
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
@@ -30,6 +31,9 @@ const decisionSchema = z
     via: z.enum(['page', 'push']),
     snoozeMinutes: z.number().int().min(1).max(MAX_SNOOZE_MINUTES).optional(),
     snoozeUntilMidnight: z.boolean().optional(),
+    /** What the snooze covers (TC-76): this tool (default), every read-only
+     * tool of the upstream (only for a read-only tool), or every tool. */
+    snoozeScope: z.enum(['tool', 'readonly', 'upstream']).optional(),
   })
   .strict();
 
@@ -40,6 +44,8 @@ export function serializePending(call: PendingCall, now: Date) {
     id: call.id,
     state: 'pending' as const,
     clientName: call.clientName,
+    /** The McpClient row id: the UI groups by it (names can repeat). */
+    clientId: call.mcpClientId,
     upstream: { id: call.upstreamId, slug: call.upstreamSlug, name: call.upstreamName },
     tool: call.toolName,
     arguments: call.args,
@@ -48,6 +54,7 @@ export function serializePending(call: PendingCall, now: Date) {
     expiresAt: call.deadline.toISOString(),
     remainingMs: Math.max(0, call.deadline.getTime() - now.getTime()),
     snoozable: call.snoozable,
+    readOnly: call.readOnly,
     session: call.session ? { id: call.session.id, createdAt: call.session.createdAt.toISOString() } : null,
   };
 }
@@ -202,11 +209,16 @@ export function makeApprovalRoutes(
     if (wantsSnooze && !pending.snoozable) {
       return c.json({ error: 'Neue oder geänderte Tools lassen sich nicht pausieren. Bitte zuerst in den Regeln ansehen.' }, 400);
     }
+    if (body.snoozeScope !== undefined && !wantsSnooze) return c.json({ error: 'Ein Umfang braucht eine Pausendauer.' }, 400);
+    if (body.snoozeScope === 'readonly' && !pending.readOnly) {
+      return c.json({ error: '„Alle Lesetools“ geht nur bei einem Lesetool.' }, 400);
+    }
     const until = body.decision === 'approve' ? snoozeUntil(clock.now(), body) : null;
+    const snoozeScope = body.snoozeScope === 'upstream' ? 'UPSTREAM' : body.snoozeScope === 'readonly' ? 'READONLY' : 'TOOL';
 
     const result =
       body.decision === 'approve'
-        ? hub.decide(userId, id, { kind: 'approve', via: body.via, snoozeUntil: until })
+        ? hub.decide(userId, id, { kind: 'approve', via: body.via, snoozeUntil: until, snoozeScope })
         : hub.decide(userId, id, { kind: 'deny', via: body.via });
     // Lost the race against the deadline / another device between get and decide.
     if (result !== 'ok') return c.json(GONE, 409);

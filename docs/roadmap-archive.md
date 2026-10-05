@@ -5,6 +5,9 @@ test evidence in `testing.md`'s run log.
 
 ## 2026-10-05
 
+- **Grouping + pause scopes (ADR-0019):** Verlauf day separators and groups
+  per session/client by 10-min gaps, Freigaben groups; pauses for one tool,
+  all read-only tools or all tools of an upstream. TC-75/76 (Sonnet agent).
 - **`v0.3.2` released** (Matthias's call): trace ids and `x-anthropic-client`
   per call (grouping candidates), version footer in Einstellungen. Verified
   live before tagging: Claude Code (own client, all-upstreams token) called

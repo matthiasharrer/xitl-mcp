@@ -158,6 +158,13 @@ proxy, the audit says so. Complements TC-11/12/16/18/26/31.
 | TC-73 | An `initialize` sent chunked (no `Content-Length`, as behind HTTP/2 ingresses) still gets an `Mcp-Session-Id` and a session row. |
 | TC-74 | Every audit row carries per-request diagnostics, with or without a session: protocol version (header or 2026 `_meta`), `clientInfo` from 2026 `_meta`, User-Agent, header names and `_meta` key names, never their values (nor the token); as grouping candidates also the trace id of `traceparent` and of `x-cloud-trace-context` (never the span id) and the `x-anthropic-client` value; the Verlauf call detail shows them ("Diagnose"). |
 
+### Grouping and pause scopes (ADR-0016 outcome, ADR-0019): `e2e/tests/grouping.spec.ts`
+
+| ID    | Case |
+| ----- | ---- |
+| TC-75 | ⚡ At 390×844, Verlauf: calls under day separators ("Heute", "Gestern", older: date); within a day, calls of one client with no gap over 10 min form one group (header: client, time range, count); a call more than 10 min after the previous one of that client starts a new group; calls of two clients interleaved in time form two groups; calls of one MCP session stay one group. Freigaben: with held calls from two clients, one header per client; with one client, no header. No horizontal scroll. (Day/gap logic also unit-tested in `apps/web/src/lib/grouping.test.ts`.) |
+| TC-76 | Pause scopes: approving with `snoozeScope` `tool` (default) → only that tool skips the question for that client; `readonly` (offered only on a read-only tool, else 400) → every read-only tool of that upstream for that client, a write tool still asks; `upstream` → every tool of that upstream for that client, another upstream and another client still ask. In all scopes: DENY tools stay denied, new/changed tools still ask (a tool whose annotations change to readOnly is changed and not covered), and a scope without a duration → 400. The card shows the three choices (the read-only one only for a read-only tool) at 390×844. |
+
 ### Unified endpoint (ADR-0014, 0017): `e2e/tests/unified.spec.ts`
 
 Two upstreams for one user (two fake-upstream tenants, slugs e.g. `ua` and `ub`).
@@ -210,6 +217,7 @@ app stopped the case proving anything.
 | - | ---- | ----- | ------ |
 | 1 | 2026-10-04 | TC-01…04 (scaffold) | 4 passed |
 | 2 | 2026-10-04 | TC-01…14 (+1 extra: no `MCP_TOKEN` → 404), unit 13 | all passed (implementer and lead, separately) |
+| 11 | 2026-10-05 | TC-01…76, unit 120 (api 110 + web 10) | all passed (spec author and lead). TC-56 adjusted: the session line moved from the Verlauf row to the group header (now a link). |
 | 10 | 2026-10-05 | TC-01…74, unit 102 | all passed (lead; TC-73/74 written by the lead, deviation: small diagnostics change). TC-73 fails against the old peek (verified), i.e. the bug was real. |
 | 9 | 2026-10-05 | TC-01…72, unit 100 (`v0.3.0`: token scope) | all passed (spec author and lead, separately). TC-54's exact field list updated for `allUpstreams`. Manual gates MG-01…07 still need the deployed instance. |
 | 8 | 2026-10-05 | TC-01…68, unit 100 (unified `/mcp`) | all passed (spec author and lead, separately). TC-64 uses needs-reconnect + 307 as the broken upstreams (no 500 mode needed). MG-07 needs the deployed instance. |

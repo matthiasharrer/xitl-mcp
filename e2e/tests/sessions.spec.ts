@@ -265,12 +265,14 @@ test.describe('im Browser', () => {
     const detail = await (await request.get(`/api/audit/${audit.id}`, { headers: MATTHIAS })).json();
     expect(detail.session.id).toBe(s.sessionId);
 
-    // Verlauf: the row shows the session line; the detail links to the session.
+    // Verlauf: the call's group (one per session, ADR-0019) shows the session
+    // line as a link; the call detail links to the session too.
     await page.goto('/#/verlauf');
-    const row = page.locator(`a.history-link[data-audit="${audit.id}"]`);
-    await expect(row.locator('.session-line')).toHaveText(`Sitzung seit ${hhmm}`);
-    await row.click();
-    await page.locator('a.session-line').click();
+    const group = page.locator('.call-group', { has: page.locator(`a.history-link[data-audit="${audit.id}"]`) });
+    await expect(group.locator('a.session-line')).toHaveText(`Sitzung seit ${hhmm}`);
+    await group.locator(`a.history-link[data-audit="${audit.id}"]`).click();
+    await expect(page).toHaveURL(new RegExp(`#/verlauf/${audit.id}$`));
+    await page.locator('.audit-detail a.session-line').click();
     await expect(page).toHaveURL(new RegExp(`#/sitzungen/${s.sessionId}$`));
     await expect(page.getByLabel('Aufrufe in dieser Sitzung')).toContainText('add_item');
   });
