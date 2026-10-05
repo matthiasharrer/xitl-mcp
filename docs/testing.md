@@ -295,6 +295,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 20 | 2026-10-05 | ADR-0024 on the deployed `v0.5.0` (manual, Matthias) | passed (reported): pausing an access works as intended. |
 | 19 | 2026-10-05 | TC-01…105, unit 289 (api 279 + web 10) (ADR-0024 pause, session expiry, static OPTIONS, resolved push on revoke/pause) | all passed (implementer, then lead independently: e2e 124). Mutation: without the gate's pause check TC-103 fails. |
 | 18 | 2026-10-05 | ADR-0023 on the deployed `v0.4.2` (manual, Matthias) | passed (reported): the llama.cpp web UI in the browser uses `/mcp` with an access token that lists its origin; Qwen 3.6 handles the 41 tools well. |
 | 17 | 2026-10-05 | TC-01…99, unit 281 (api 271 + web 10) (ADR-0022 revised: push + Freigaben card, no placeholder; ADR-0023 browser origins) | all passed (implementer, then lead independently: e2e 118). Mutation: without the `origin_not_allowed` check TC-98 fails. |
