@@ -36,7 +36,8 @@
   // `null` = closed, 'new' = adding, an Upstream = editing it.
   let sheet = $state<Upstream | 'new' | null>(null);
   let deleting = $state<Upstream | null>(null);
-  let tokenFor = $state<Upstream | null>(null);
+  /** Token dialog: for one upstream, for all (`'all'`), or closed (null). */
+  let tokenFor = $state<Upstream | 'all' | null>(null);
 
   async function load() {
     try {
@@ -282,9 +283,14 @@
             </div>
             <p class="hint">
               Ein Konnektor für alle Upstreams; Tool-Namen beginnen mit dem Kürzel (z. B.
-              <code>{upstreams[0]!.slug}_…</code>). Funktioniert mit der Claude-Anmeldung, nicht mit
-              Upstream-Tokens.
+              <code>{upstreams[0]!.slug}_…</code>). Funktioniert mit der Claude-Anmeldung oder einem
+              Token für alle Upstreams, nicht mit dem Token eines einzelnen Upstreams.
             </p>
+            <div class="item-actions">
+              <button type="button" class="btn" aria-label="Token für alle Upstreams erstellen" onclick={() => (tokenFor = 'all')}>
+                Token erstellen
+              </button>
+            </div>
           </li>
           </ul>
         {/if}
@@ -400,7 +406,7 @@
                 <div class="item-head">
                   <span class="item-name">{c.name}</span>
                   <span class="badge" class:kind-token={c.kind === 'TOKEN'}>
-                    {c.kind === 'TOKEN' ? `Token für ${c.upstream?.name ?? 'Upstream'}` : 'OAuth'}
+                    {c.kind === 'TOKEN' ? (c.allUpstreams ? 'Token für alle Upstreams' : `Token für ${c.upstream?.name ?? 'Upstream'}`) : 'OAuth'}
                   </span>
                 </div>
                 <div class="sub">
@@ -451,7 +457,7 @@
 {/if}
 
 {#if tokenFor}
-  <TokenSheet upstream={tokenFor} onclose={() => (tokenFor = null)} oncreated={load} />
+  <TokenSheet upstream={tokenFor === 'all' ? null : tokenFor} onclose={() => (tokenFor = null)} oncreated={load} />
 {/if}
 
 {#if deleting}

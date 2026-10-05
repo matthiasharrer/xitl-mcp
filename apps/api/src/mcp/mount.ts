@@ -5,8 +5,8 @@
 // an Authelia session, which means the gate below is the *only* thing standing
 // between this route and the open internet. Get it right, fail closed.
 //
-// Two bearer shapes (ADR-0015): `xitl_…` is a per-upstream access token, checked
-// ONLY against its hash and the slug in the URL (verifier.ts, makeGateVerifier);
+// Two bearer shapes (ADR-0015, ADR-0018): `xitl_…` is an access token, checked
+// ONLY against its hash, its scope and the endpoint (verifier.ts, makeGateVerifier);
 // anything else is checked ONLY as an OAuth blob. Both fail with the same 401
 // challenge.
 //
@@ -22,8 +22,9 @@
 // Routing (ADR-0014): `/mcp/<slug>` is one of THE CALLER'S OWN upstreams. The
 // slug is resolved only after the token is verified and only among the token
 // user's upstreams; anything else is a 404 and never another user's server.
-// `/mcp` is all of the caller's upstreams in one (ADR-0017): OAuth tokens only
-// (a per-upstream `xitl_…` token gets the 401 challenge there), and the server
+// `/mcp` is all of the caller's upstreams in one (ADR-0017): OAuth or an
+// all-upstreams access token (ADR-0018; a one-upstream token gets the 401
+// challenge there), and the server
 // (server.ts) resolves each call's `<slug>_` prefix among the user's upstreams.
 //
 // Sessions (ADR-0016, sessions.ts): a 2025-era `initialize` gets an
@@ -37,7 +38,7 @@ import type { AppEnv } from '../identity.js';
 import type { AuthInfo } from '@modelcontextprotocol/server';
 import { createMcpHandler, getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from '@modelcontextprotocol/server';
 import { buildMcpServer } from './server.js';
-import { makeGateVerifier, makeUnifiedGateVerifier, makeVerifier } from './verifier.js';
+import { makeGateVerifier, makeVerifier } from './verifier.js';
 import { mountMcpOAuth } from './oauthRoutes.js';
 import { externalOrigin } from '../lib/externalOrigin.js';
 import { isUpstreamSlug } from '../lib/slugs.js';
@@ -143,8 +144,7 @@ export function mountMcp(app: Hono<AppEnv>): void {
     // (different `X-Forwarded-Host`, or none in a local curl). The slug is
     // validated by the caller, so echoing it into the challenge is safe.
     const resourceMetadataUrl = getOAuthProtectedResourceMetadataUrl(new URL(`${externalOrigin(c)}${path}`));
-    const verifier = slug === null ? makeUnifiedGateVerifier(oauthVerifier) : makeGateVerifier(oauthVerifier, slug);
-    const gate = requireBearerAuth({ verifier, requiredScopes: ['mcp'], resourceMetadataUrl });
+    const gate = requireBearerAuth({ verifier: makeGateVerifier(oauthVerifier, slug), requiredScopes: ['mcp'], resourceMetadataUrl });
 
     const result = await gate(c.req.raw);
     if (!isAuthInfo(result)) {

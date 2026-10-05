@@ -5,6 +5,10 @@ test evidence in `testing.md`'s run log.
 
 ## 2026-10-05
 
+- **`v0.3.0` released** (Matthias's call): unified `/mcp` + token scope.
+- **Token scope (ADR-0018):** access tokens for one or all upstreams; every
+  endpoint takes OAuth and tokens ("all kinds of auth for all kinds of
+  downstream", Matthias). TC-69…72. Built by the lead, spec by a Sonnet agent.
 - **Unified `/mcp` endpoint (ADR-0014, ADR-0017):** all of a user's upstreams
   in one connector, `<slug>_` names (first `_` splits, collision-free), OAuth
   only, degrade per upstream, generated instructions, sessions without

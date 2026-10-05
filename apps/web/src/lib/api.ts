@@ -62,6 +62,8 @@ export interface McpClient {
   /** OAUTH: registered via OAuth; TOKEN: a per-upstream access token (ADR-0015). */
   kind: 'OAUTH' | 'TOKEN';
   upstream: { id: number; slug: string; name: string } | null;
+  /** TOKEN scope (ADR-0018): true = all upstreams (`upstream` is null). */
+  allUpstreams: boolean;
   /** First characters of a TOKEN client's token, e.g. "xitl_abc1234". */
   tokenPrefix: string | null;
   createdAt: string;
@@ -205,6 +207,7 @@ export const api = {
   /** The response is the only one that ever contains the token. */
   createUpstreamToken: (id: number, name: string) =>
     request<{ client: McpClient; token: string }>('POST', `/api/upstreams/${id}/tokens`, { name }),
+  createAllUpstreamsToken: (name: string) => request<{ client: McpClient; token: string }>('POST', '/api/mcp/tokens', { name }),
   getMcpConfig: () => request<{ configured: boolean }>('GET', '/api/mcp/config'),
   connectUpstream: (id: number) => request<{ authorizationUrl: string }>('POST', `/api/upstreams/${id}/connect`),
   getTools: (id: number) => request<ToolsView>('GET', `/api/upstreams/${id}/tools`),

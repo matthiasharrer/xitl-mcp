@@ -3,7 +3,7 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
-## 2026-10-05 — Unified `/mcp`
+## 2026-10-05 — Unified `/mcp`, token scope, `v0.3.0`
 
 - Built the unified endpoint per ADR-0014; open points settled in ADR-0017
   (lead's calls, none changes the product promise): OAuth only (per-upstream
@@ -12,7 +12,12 @@
   endpoints. Schema: `McpSession.upstreamId` nullable.
 - Sonnet agent wrote `e2e/tests/unified.spec.ts` (TC-61…68) blind to
   implementation details; no app defects found. e2e 80, unit 100.
-- Unreleased. Still open with Matthias: deploy + MG-01…07, upstream URL change.
+- Matthias asked why a token for everything differs; answer: only reach
+  (grows with new upstreams) and no expiry, policy still applies. He chose
+  "all kinds of auth for all kinds of downstream": ADR-0018 token scope
+  one/all, `allUpstreams` column with a consistency check in the verifier.
+  TC-69…72 (Sonnet agent), e2e 84. Released `v0.3.0` at his request.
+- Still open with Matthias: deploy + MG-01…07, upstream URL change.
 
 ## 2026-10-05 — Sessions, `v0.2.0`; next session starts on unified `/mcp`
 

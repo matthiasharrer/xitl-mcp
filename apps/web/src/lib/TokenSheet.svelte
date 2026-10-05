@@ -1,5 +1,6 @@
 <script lang="ts">
-  // Bottom-sheet dialog to create an access token for one upstream (ADR-0015).
+  // Bottom-sheet dialog to create an access token (ADR-0015, ADR-0018) for one
+  // upstream, or for all upstreams (`upstream` null: endpoint /mcp).
   // Step 1 asks for a name; step 2 shows the token ONCE with a copy button and
   // a ready-made client config. Same shell as UpstreamSheet.
   import { onMount } from 'svelte';
@@ -7,7 +8,8 @@
   import Icon from './Icon.svelte';
 
   interface Props {
-    upstream: Upstream;
+    /** null: a token for all upstreams. */
+    upstream: Upstream | null;
     onclose: () => void;
     /** Called once the token exists (the parent reloads its client list). */
     oncreated: () => void;
@@ -24,9 +26,11 @@
   onMount(() => dialog.showModal());
 
   // svelte-ignore state_referenced_locally
-  const slug = upstream.slug;
-  const endpoint = `${location.origin}/mcp/${slug}`;
-  const cliName = slug;
+  const endpoint = upstream ? `${location.origin}/mcp/${upstream.slug}` : `${location.origin}/mcp`;
+  // svelte-ignore state_referenced_locally
+  const cliName = upstream ? upstream.slug : 'xitl';
+  // svelte-ignore state_referenced_locally
+  const reach = upstream ? `„${upstream.name}“` : 'alle deine Upstreams (auch später hinzugefügte)';
   const command = $derived(
     `claude mcp add --transport http ${cliName} ${endpoint} --header "Authorization: Bearer ${token ?? ''}"`,
   );
@@ -38,7 +42,7 @@
     busy = true;
     error = null;
     try {
-      const res = await api.createUpstreamToken(upstream.id, name.trim());
+      const res = upstream ? await api.createUpstreamToken(upstream.id, name.trim()) : await api.createAllUpstreamsToken(name.trim());
       token = res.token;
       oncreated();
     } catch (err) {
@@ -82,7 +86,12 @@
     <div class="sheet-body">
       {#if token === null}
         <p class="hint">
-          Ein Token gilt nur für „{upstream.name}“ ({endpoint}) und lässt sich jederzeit widerrufen.
+          {#if upstream}
+            Ein Token gilt nur für „{upstream.name}“ ({endpoint}) und lässt sich jederzeit widerrufen.
+          {:else}
+            Dieses Token gilt für alle deine Upstreams, auch später hinzugefügte ({endpoint} und jede
+            Upstream-Adresse). Es lässt sich jederzeit widerrufen.
+          {/if}
         </p>
         <label class="field">
           <span class="label">Name des Clients</span>
@@ -116,7 +125,7 @@
           <pre class="token-box">Header: {headerLine}</pre>
         </div>
         <p class="hint">
-          Das Token landet in der Konfigurationsdatei des Clients. Wer es hat, erreicht „{upstream.name}“ unter deinen
+          Das Token landet in der Konfigurationsdatei des Clients. Wer es hat, erreicht {reach} unter deinen
           Regeln. Unter „MCP-Clients“ kannst du es trennen.
         </p>
       {/if}

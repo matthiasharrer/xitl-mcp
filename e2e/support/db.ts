@@ -14,6 +14,12 @@ export const ANNA = { 'Remote-User': 'anna', 'Remote-Name': 'Anna' };
 export const UNI_A = { 'Remote-User': 'uni-a', 'Remote-Name': 'Uli' };
 export const UNI_B = { 'Remote-User': 'uni-b', 'Remote-Name': 'Berta' };
 export const UNI_DEGRADE = { 'Remote-User': 'uni-degrade', 'Remote-Name': 'Dora' };
+// Identities of token-scope.spec.ts (TC-69…72), one per case so /mcp lists only what the case created.
+export const TS_UI = { 'Remote-User': 'ts-ui', 'Remote-Name': 'Tilda' };
+export const TS_A = { 'Remote-User': 'ts-a', 'Remote-Name': 'Toni' };
+export const TS_B = { 'Remote-User': 'ts-b', 'Remote-Name': 'Tessa' };
+export const TS_SEC = { 'Remote-User': 'ts-sec', 'Remote-Name': 'Timo' };
+export const TS_REV = { 'Remote-User': 'ts-rev', 'Remote-Name': 'Tara' };
 export const UNI_EMPTY = { 'Remote-User': 'uni-empty', 'Remote-Name': 'Emil' };
 
 let counter = 0;

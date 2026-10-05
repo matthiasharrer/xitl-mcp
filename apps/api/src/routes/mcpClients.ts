@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import { prisma } from '../db.js';
 import type { AppEnv } from '../identity.js';
 import { approvals } from '../approval/pending.js';
+import crypto from 'node:crypto';
+import { generateAccessToken, hashAccessToken, tokenDisplayPrefix } from '../lib/accessToken.js';
 
 // GET/PATCH/DELETE /api/mcp/clients - the management surface for MCP OAuth
 // clients (copied from haushalts-todos), restricted to the CALLER's own
@@ -20,6 +22,7 @@ export const clientSelect = {
   name: true,
   kind: true,
   tokenPrefix: true,
+  allUpstreams: true,
   createdAt: true,
   lastUsedAt: true,
   upstream: { select: { id: true, slug: true, name: true } },
@@ -35,6 +38,7 @@ type ClientRow = {
   name: string;
   kind: 'OAUTH' | 'TOKEN';
   tokenPrefix: string | null;
+  allUpstreams: boolean;
   createdAt: Date;
   lastUsedAt: Date | null;
   upstream: { id: number; slug: string; name: string } | null;
@@ -48,12 +52,39 @@ export function serializeClient(row: ClientRow) {
     name: row.name,
     kind: row.kind,
     upstream: isToken ? row.upstream : null,
+    /** TOKEN scope (ADR-0018): true = all upstreams (upstream is then null). */
+    allUpstreams: isToken && row.allUpstreams,
     tokenPrefix: isToken ? row.tokenPrefix : null,
     createdAt: row.createdAt.toISOString(),
     lastUsedAt: row.lastUsedAt ? row.lastUsedAt.toISOString() : null,
   };
 }
 const serialize = serializeClient;
+
+/** Creates a TOKEN client (ADR-0015, ADR-0018) for `userId` with exactly one
+ * scope: one upstream (already checked to be the user's) or all upstreams.
+ * The returned token is the ONLY copy; only its SHA-256 is stored. */
+export async function createTokenClient(
+  userId: number,
+  name: string,
+  scope: { upstreamId: number } | { allUpstreams: true },
+) {
+  const token = generateAccessToken();
+  const row = await prisma.mcpClient.create({
+    data: {
+      kind: 'TOKEN',
+      clientId: crypto.randomBytes(24).toString('base64url'),
+      name,
+      redirectUris: '[]',
+      userId,
+      ...('allUpstreams' in scope ? { allUpstreams: true, upstreamId: null } : { allUpstreams: false, upstreamId: scope.upstreamId }),
+      tokenHash: hashAccessToken(token),
+      tokenPrefix: tokenDisplayPrefix(token),
+    },
+    select: clientSelect,
+  });
+  return { client: serializeClient(row), token };
+}
 
 function parseId(raw: string | undefined): number | null {
   return raw !== undefined && /^\d{1,9}$/.test(raw) ? Number(raw) : null;

@@ -55,7 +55,7 @@ injection) deserves the stronger model and the closest review.
 | Backend   | **Hono** on **Node 22**: proxy, OAuth and API in one process |
 | Database  | **Prisma 7 + SQLite** (better-sqlite3 adapter, WAL), single replica |
 | Auth (UI) | **Authelia ForwardAuth at the ingress** → `Remote-*` headers → `User` table. No login code in the app. |
-| Auth (MCP)| OAuth with tokens bound to the approving user (ADR-0012), or per-upstream access tokens (ADR-0015) |
+| Auth (MCP)| OAuth with tokens bound to the approving user (ADR-0012), or access tokens scoped to one or all upstreams (ADR-0015, ADR-0018); every endpoint takes both |
 | Deploy    | One container (API serves the SPA), GHCR via GitHub Actions, Flux GitOps |
 | Tests     | Playwright e2e against the built server; **Vitest** unit tests (ADR-0002) |
 
@@ -186,9 +186,9 @@ that security cases must fail *closed*.
   what *you* created. Never wipe tables or the `data/` directory.
 - TypeScript throughout, ES modules. Match the surrounding style.
 - Don't introduce SvelteKit, app-level password login, a second database, or a
-  *shared* static MCP bearer token. Per-upstream, per-user access tokens
-  (ADR-0015) are the only static tokens: hashed, shown once, revocable, each a
-  client.
+  *shared* static MCP bearer token. Per-user access tokens (ADR-0015, scoped
+  to one or all upstreams, ADR-0018) are the only static tokens: hashed, shown
+  once, revocable, each a client.
 - Patterns from `../haushalts-todos` and `../rezepte` are fair game to **copy and
   adapt** (OAuth/MCP, push, e2e, deploy). Never import across repos.
 

@@ -23,22 +23,32 @@ const LAST_USED_MIN_INTERVAL_MS = 60_000;
  * `expiresAt`, so each request gets a short sliding one. */
 const TOKEN_REQUEST_TTL_S = 3600;
 
-/** Verifies a per-upstream access token (ADR-0015) for the endpoint
- * `/mcp/<slug>`. Fails closed: ANY mismatch is the same InvalidToken, so a
- * caller cannot tell a wrong token from a wrong slug from a revoked client.
- * The token must (1) hash to a known row, (2) be of kind TOKEN with a bound
- * user and upstream, and (3) the upstream must be the one this user owns under
- * `slug`. Never log the token or its hash. */
-export async function verifyAccessTokenForSlug(token: string, slug: string): Promise<AuthInfo> {
+/** Verifies an access token (ADR-0015, ADR-0018) for the endpoint
+ * `/mcp/<slug>` (`slug` given) or the unified `/mcp` (`slug` null). Fails
+ * closed: ANY mismatch is the same InvalidToken, so a caller cannot tell a
+ * wrong token from a wrong scope from a revoked client. The token must
+ * (1) hash to a known row, (2) be of kind TOKEN with a bound user and a
+ * CONSISTENT scope (all upstreams and no upstream id, or one upstream id and
+ * not all), (3) for a one-upstream token: the endpoint is `/mcp/<slug>` and
+ * that slug is the user's own upstream with that id. An all-upstreams token
+ * passes for any endpoint of its user; mount.ts still resolves the slug among
+ * that user's upstreams only. Never log the token or its hash. */
+export async function verifyAccessToken(token: string, slug: string | null): Promise<AuthInfo> {
   const reject = () => new OAuthError(OAuthErrorCode.InvalidToken, 'The access token is invalid.');
   if (!looksLikeAccessToken(token)) throw reject();
   const client = await prisma.mcpClient.findUnique({ where: { tokenHash: hashAccessToken(token) } });
-  if (!client || client.kind !== 'TOKEN' || client.userId === null || client.upstreamId === null) throw reject();
-  const upstream = await prisma.upstream.findUnique({
-    where: { userId_slug: { userId: client.userId, slug } },
-    select: { id: true },
-  });
-  if (!upstream || upstream.id !== client.upstreamId) throw reject();
+  if (!client || client.kind !== 'TOKEN' || client.userId === null) throw reject();
+  if (client.allUpstreams === true) {
+    if (client.upstreamId !== null) throw reject(); // inconsistent scope
+  } else {
+    if (client.allUpstreams !== false || client.upstreamId === null) throw reject(); // inconsistent scope
+    if (slug === null) throw reject(); // one-upstream token on /mcp
+    const upstream = await prisma.upstream.findUnique({
+      where: { userId_slug: { userId: client.userId, slug } },
+      select: { id: true },
+    });
+    if (!upstream || upstream.id !== client.upstreamId) throw reject();
+  }
 
   const now = clock.now();
   // Cheap "last used": a conditional UPDATE that matches at most once a minute.
@@ -58,24 +68,12 @@ export async function verifyAccessTokenForSlug(token: string, slug: string): Pro
   };
 }
 
-/** The verifier for one request to `/mcp/<slug>`: `xitl_…` bearers are access
- * tokens and go ONLY to the token path; everything else goes ONLY to OAuth. */
-export function makeGateVerifier(oauth: OAuthTokenVerifier, slug: string): OAuthTokenVerifier {
+/** The verifier for one request to `/mcp/<slug>` (slug) or `/mcp` (null):
+ * `xitl_…` bearers are access tokens and go ONLY to the token path;
+ * everything else goes ONLY to OAuth. Every endpoint takes both (ADR-0018). */
+export function makeGateVerifier(oauth: OAuthTokenVerifier, slug: string | null): OAuthTokenVerifier {
   return {
-    verifyAccessToken: (token: string) =>
-      looksLikeAccessToken(token) ? verifyAccessTokenForSlug(token, slug) : oauth.verifyAccessToken(token),
-  };
-}
-
-/** The verifier for the unified `/mcp` (ADR-0017): OAuth only. A per-upstream
- * access token is scoped to one upstream and is rejected here with the same
- * InvalidToken as any bad token (it never reaches the OAuth path). */
-export function makeUnifiedGateVerifier(oauth: OAuthTokenVerifier): OAuthTokenVerifier {
-  return {
-    verifyAccessToken: async (token: string) => {
-      if (looksLikeAccessToken(token)) throw new OAuthError(OAuthErrorCode.InvalidToken, 'The access token is invalid.');
-      return oauth.verifyAccessToken(token);
-    },
+    verifyAccessToken: (token: string) => (looksLikeAccessToken(token) ? verifyAccessToken(token, slug) : oauth.verifyAccessToken(token)),
   };
 }
 

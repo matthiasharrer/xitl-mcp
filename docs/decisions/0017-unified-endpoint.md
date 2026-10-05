@@ -1,6 +1,6 @@
 # 0017. The unified `/mcp` endpoint: names, auth, degradation
 
-- **Status:** Accepted
+- **Status:** Accepted; auth amended by ADR-0018 (all-upstreams tokens work on `/mcp`)
 - **Date:** 2026-10-05
 
 ## Context
@@ -13,7 +13,7 @@ instructions look like.
 
 ## Decision
 
-- **Auth: OAuth only.** `/mcp` accepts the inbound OAuth tokens (ADR-0012),
+- **Auth: OAuth only** (superseded by ADR-0018: all-upstreams tokens work too). `/mcp` accepts the inbound OAuth tokens (ADR-0012),
   which are bound to a user, not to an upstream. Per-upstream access tokens
   (ADR-0015) are scoped to one upstream by design, so on `/mcp` they get the
   same 401 challenge as any invalid token. The protected-resource document for

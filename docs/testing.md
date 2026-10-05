@@ -166,10 +166,19 @@ Two upstreams for one user (two fake-upstream tenants, slugs e.g. `ua` and `ub`)
 | TC-62 | `tools/call` `ua_list_items` (allow) is forwarded to `ua`'s tenant only (its call counter moves, `ub`'s doesn't) and returns its result; the audit row has `endpoint` `/mcp`, `upstreamId` of `ua`, `toolName` `list_items`. An `ask` tool on `/mcp` holds for approval like on `/mcp/<slug>` (approval card names the upstream) and is forwarded after "Erlauben"; a snooze given via `/mcp` also applies to the same tool on `/mcp/ua` (shared rules). |
 | TC-63 | Fail closed on names: `tools/call` with `list_items` (no prefix), `zz_list_items` (unknown slug), `ub_nope` (unknown tool), another user's slug + tool, `ua_` and `_list_items` → `isError` "nicht bekannt", **nothing** reaches any tenant, each audited `DENIED` (`unknown-tool`; no upstream for the unresolved ones). A DENY tool called by its prefixed name → denied as on `/mcp/<slug>`. |
 | TC-64 | Degrade: with `ub`'s tenant broken (MCP endpoint answering 500, or `ub` needing reconnect), `tools/list` on `/mcp` still answers 200 with all of `ua`'s tools and none of `ub`'s; an OAuth upstream that was never connected isn't contacted and contributes no tools. |
-| TC-65 | Auth: `/mcp` without a token → 401 with `resource_metadata` pointing at a document with `resource` = `<origin>/mcp`; a per-upstream access token (`xitl_…`, valid on `/mcp/ua`) → 401 on `/mcp`; `MCP_TOKEN` as bearer → 401. A user with no upstreams gets an empty tool list and a prefix-only instruction text, never another user's tools. |
+| TC-65 | Auth: `/mcp` without a token → 401 with `resource_metadata` pointing at a document with `resource` = `<origin>/mcp`; a one-upstream access token (`xitl_…`, valid on `/mcp/ua`) → 401 on `/mcp` (all-upstreams tokens: TC-70); `MCP_TOKEN` as bearer → 401. A user with no upstreams gets an empty tool list and a prefix-only instruction text, never another user's tools. |
 | TC-66 | Sessions on `/mcp`: `initialize` returns an `Mcp-Session-Id`; the session row has no upstream; calls through it carry the session; that id on `/mcp/ua` → 404, and a `/mcp/ua` session id on `/mcp` → 404; `DELETE /mcp` ends it. The Sitzungen list shows it as "Alle Upstreams". |
 | TC-67 | Revocation/deletion while held: deleting upstream `ub` ends a held `/mcp` call to `ub_add_item` denied (`+revoked`, as TC-41); afterwards `ub_*` names are unknown on `/mcp`. |
-| TC-68 | ⚡ At 390×844: Einstellungen shows the unified address `<origin>/mcp` with a copy button above the upstream list, with a note that it covers all upstreams and works with the Claude login (OAuth), not with per-upstream tokens. No horizontal scroll. |
+| TC-68 | ⚡ At 390×844: Einstellungen shows the unified address `<origin>/mcp` with a copy button above the upstream list, with a note that it covers all upstreams and works with the Claude login (OAuth) or an all-upstreams token, not with a one-upstream token. No horizontal scroll. |
+
+### Token scope (ADR-0018): `e2e/tests/token-scope.spec.ts`
+
+| ID    | Case |
+| ----- | ---- |
+| TC-69 | ⚡ At 390×844: "Token erstellen" on the "Alle Upstreams" card → token shown once, the Claude Code command points at `<origin>/mcp`; the client list shows "Token für alle Upstreams". |
+| TC-70 | An all-upstreams token works on `/mcp` (both upstreams' tools, calls forwarded, policy/ask as for OAuth, audit attributed to the token client) and on each `/mcp/<slug>` of its user; on another user's slug → 404, never their upstream. |
+| TC-71 | A one-upstream token still → 401 on `/mcp` and on its user's other slugs (TC-52, TC-65 unchanged). A row tampered into an inconsistent scope (TOKEN with `allUpstreams` and an `upstreamId`, or neither) → 401 everywhere. |
+| TC-72 | `POST /api/mcp/tokens`: name required (1–100), `Sec-Fetch-Site: cross-site` → 403, response is the only place the token appears; revoking it → next request 401 and a held call ends `+revoked`. |
 
 Unit (`apps/api/src/lib/unifiedNames.test.ts`): prefix/split round-trip,
 first-`_` split, invalid names (no `_`, empty parts, bad slug, over 128 chars,
@@ -199,6 +208,7 @@ app stopped the case proving anything.
 | - | ---- | ----- | ------ |
 | 1 | 2026-10-04 | TC-01…04 (scaffold) | 4 passed |
 | 2 | 2026-10-04 | TC-01…14 (+1 extra: no `MCP_TOKEN` → 404), unit 13 | all passed (implementer and lead, separately) |
+| 9 | 2026-10-05 | TC-01…72, unit 100 (`v0.3.0`: token scope) | all passed (spec author and lead, separately). TC-54's exact field list updated for `allUpstreams`. Manual gates MG-01…07 still need the deployed instance. |
 | 8 | 2026-10-05 | TC-01…68, unit 100 (unified `/mcp`) | all passed (spec author and lead, separately). TC-64 uses needs-reconnect + 307 as the broken upstreams (no 500 mode needed). MG-07 needs the deployed instance. |
 | 7 | 2026-10-05 | TC-01…60, unit 93 (`v0.2.0`) | all passed (implementer and lead, separately). Manual gates MG-01…06 not yet run: need the deployed instance. |
 | 6 | 2026-10-05 | TC-01…54, unit 83 | all passed (implementer and lead, separately). TC-52 note: a token's owner decides, not the path — if another user has the same slug, the token still reaches its owner's upstream. |

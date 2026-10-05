@@ -318,7 +318,7 @@ test.describe('Sitzungen und Einstellungen im Browser', () => {
     const card = page.locator('.unified');
     await expect(card).toContainText(/alle Upstreams/i);
     await expect(card).toContainText(/Claude-Anmeldung/);
-    await expect(card).toContainText(/nicht mit\s+Upstream-Tokens/);
+    await expect(card).toContainText(/Token für alle Upstreams,\s+nicht mit dem Token eines einzelnen Upstreams/);
 
     await copy.click();
     await expect(page.getByRole('button', { name: 'Adresse für alle Upstreams kopieren' })).toHaveText('Kopiert');

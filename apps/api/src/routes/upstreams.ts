@@ -7,9 +7,7 @@ import type { Upstream } from '../generated/prisma/client.js';
 import { externalOrigin } from '../lib/externalOrigin.js';
 import { ConnectError, finishConnect, startConnect, errorTag } from '../upstream/oauthClient.js';
 import { approvals } from '../approval/pending.js';
-import { generateAccessToken, hashAccessToken, tokenDisplayPrefix } from '../lib/accessToken.js';
-import { serializeClient, clientSelect } from './mcpClients.js';
-import crypto from 'node:crypto';
+import { createTokenClient } from './mcpClients.js';
 
 // /api/upstreams: the user's registry of upstream MCP servers (ADR-0013).
 // Mounted under /api, so it sits behind the identity middleware. Every query is
@@ -57,7 +55,7 @@ const urlSchema = z
     }
   }, 'Die URL muss mit http:// oder https:// beginnen.');
 
-const nameSchema = z
+export const nameSchema = z
   .string({ error: 'Der Name fehlt.' })
   .trim()
   .min(1, 'Der Name darf nicht leer sein.')
@@ -122,7 +120,7 @@ function parseId(raw: string | undefined): number | null {
   return raw !== undefined && /^\d{1,9}$/.test(raw) ? Number(raw) : null;
 }
 
-function firstMessage(error: z.ZodError): string {
+export function firstMessage(error: z.ZodError): string {
   return error.issues[0]?.message ?? 'Die Eingabe ist ungültig.';
 }
 
@@ -337,19 +335,6 @@ upstreams.post('/:id/tokens', async (c) => {
   const parsed = z.object({ name: nameSchema }).safeParse(body);
   if (!parsed.success) return c.json({ error: firstMessage(parsed.error) }, 400);
 
-  const token = generateAccessToken();
-  const row = await prisma.mcpClient.create({
-    data: {
-      kind: 'TOKEN',
-      clientId: crypto.randomBytes(24).toString('base64url'),
-      name: parsed.data.name,
-      redirectUris: '[]',
-      userId,
-      upstreamId: upstream.id,
-      tokenHash: hashAccessToken(token),
-      tokenPrefix: tokenDisplayPrefix(token),
-    },
-    select: clientSelect,
-  });
-  return c.json({ client: serializeClient(row), token }, 201);
+  const { client, token } = await createTokenClient(userId, parsed.data.name, { upstreamId: upstream.id });
+  return c.json({ client, token }, 201);
 });

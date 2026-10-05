@@ -173,6 +173,9 @@ model McpClient {
   user           User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
   upstreamId     Int?
   upstream       Upstream?          @relation(fields: [upstreamId], references: [id], onDelete: Cascade)
+  /// TOKEN scope (ADR-0018): true = all of the user's upstreams (upstreamId
+  /// must then be null); false = the one upstream in upstreamId.
+  allUpstreams   Boolean            @default(false)
   tokenHash      String?            @unique
   tokenPrefix    String?
   createdAt      DateTime           @default(now())
