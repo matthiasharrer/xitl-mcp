@@ -5,7 +5,8 @@ test evidence in `testing.md`'s run log.
 
 ## 2026-10-05
 
-- **Security fixes (unreleased, for `v0.4.1`):** a URL change of an upstream
+- **`v0.4.1` released** (Matthias's call): the security fixes below.
+- **Security fixes:** a URL change of an upstream
   marks every tool changed (explicit ALLOWs ask until reviewed, policies
   kept), deletes its snoozes and needs a HEADER secret again (ADR-0021);
   never-approved DCR clients expire after 24 h, at most 100 exist; KnownTool

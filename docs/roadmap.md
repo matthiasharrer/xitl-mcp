@@ -10,13 +10,12 @@ _Last updated: 2026-10-05 (`v0.4.1` work: URL change resets trust, ADR-0021; DCR
 ## Next
 
 Nothing scheduled; Matthias picks. Candidates: the two open manual gates
-(MG-05, MG-07). The `v0.4.1` security fixes (URL change resets trust,
-ADR-0021; unbound DCR client cleanup; KnownTool cap) are on `main`,
-unreleased.
+(MG-05, MG-07). `v0.4.1` (URL change resets trust, ADR-0021; unbound
+DCR client cleanup; KnownTool cap) is released.
 
 ## Milestone 1 status
 
-Deployed (`v0.4.0` is the latest release) and in daily use: Matthias's
+Deployed (`v0.4.1` is the latest release) and in daily use: Matthias's
 Claude.ai connectors (Haushalt, Rezepte, Einkaufsliste) run through xitl.
 Manual gates MG-01…04 and MG-06 passed (`testing.md` run log). **Open:**
 
