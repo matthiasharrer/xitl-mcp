@@ -10,7 +10,11 @@
   or deny) also decides the held calls it covers (TC-128; lead built it
   directly, small). Unit + full suite green; TC-128 e2e still to write.
   Notifications of decided calls are now closed instead of replaced with
-  an outcome (TC-129). Released `v0.8.0` at Matthias's request.
+  an outcome (TC-129). Released `v0.8.0` at Matthias's request (image
+  verified in GHCR). Matthias clears the context next; everything open is in
+  roadmap.md "Next". Sibling repos: CI schema-check fix pushed in rezepte
+  (`aeaf08c`, CI result not visible: private repo) and haushalts-todos
+  (`ff8448c`, green).
 
 ## 2026-10-06 (later) — Intent v2, AI titles, deny pause, `v0.7.0`
 

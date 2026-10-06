@@ -5,20 +5,44 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-06 (`v0.7.0`: intent v2, titles, deny pause)_
+_Last updated: 2026-10-06 (end of session: `v0.8.0` released, open list below)_
 
 ## Next
 
-0. **`v0.8.0` (2026-10-06): a pause settles the covered held calls (TC-128,
-   e2e still to write), decided notifications are closed (TC-129).**
-   Before: **`v0.7.0`: intent v2 (thinking 128, results, titles), deny
-   pause (ADR-0026), all-upstreams tokens in "Pro Client".** Next: deploy
-   (tag bump in GitOps), then MG-08 (watch: Android's generic "updated in the
-   background" notification on a dropped update push). Candidates after: per-message trace id
-   for the intent model (ideas.md, generic correlation); session descriptions.
-1. **LLM proposes policy, user confirms in the app** (ideas.md): design + ADR
+State at the end of 2026-10-06: **`v0.8.0` released** (image `0.8.0` in
+GHCR), `v0.7.0` deployed and running. GitOps already has `INTENT_LLM_URL`
+(llama-cpp, alias `qwen`) and the NetworkPolicy.
+
+**Open, in order:**
+
+1. **Deploy `v0.8.0`** (Matthias bumps the tag in GitOps).
+2. **TC-128 e2e** (a pause settles the covered held calls): hold 3 calls of
+   one tool + 1 of another tool + 1 of another client, approve one with a
+   15-min TOOL pause → the 2 same-tool calls are forwarded (`+approved:pause`),
+   the others stay held; same for a deny pause; toast count. Only unit-tested
+   so far.
+3. **MG-08 on the phone** (ADR-0025): summary within seconds, replacement
+   push silent. **Watch Android:** pushes that show nothing (dropped intent
+   update, and since `v0.8.0` every "resolved" push, which now only closes
+   the notification) may make Chrome show its generic "site updated in the
+   background" notification. If so: send "resolved"/update pushes only when
+   needed, or show a short silent outcome again.
+4. **Intent quality from real use:** titles tend to be generic for long names
+   ("Putzaufgabe anlegen"); "Richtungswechsel" not always on the first
+   swerving call; requests 3.6–4.9 s with thinking 128 (target ≤ 5 s). Tune
+   with real examples from Matthias.
+5. **Per-message trace id → intent "new user message" marker**, built
+   generically (`correlate(diagnostics)`, ideas.md, test plan there). First
+   confirm with two parallel Claude.ai chats.
+6. **Deny pause:** calls already held when the pause is set are now settled
+   by it (`v0.8.0`); the ADR-0026 "not done" note is resolved by TC-128.
+7. **LLM proposes policy, user confirms in the app** (ideas.md): design + ADR
    first, then Matthias decides.
-2. MG-05 (Tina), whenever convenient.
+8. MG-05 (Tina), whenever convenient.
+
+Ideas noted 2026-10-06 (ideas.md): session descriptions by the intent model;
+per-client policy floor / DCR `client_name` per upstream / profiles (work
+agent platform; the double-upstream workaround suffices for now).
 
 ## Milestone 1 status
 
