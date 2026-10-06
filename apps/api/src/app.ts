@@ -17,6 +17,7 @@ import { wireUpstreamPush } from './upstream/notify.js';
 import { upstreamStates } from './upstream/stateEvents.js';
 import { wireIntents } from './intent/index.js';
 import { mountMcp } from './mcp/mount.js';
+import { INSTANCE_HEADER, isOwnRequest } from './lib/selfLoop.js';
 import { mountStatic } from './static.js';
 import { MAX_API_BODY_BYTES, MAX_MCP_BODY_BYTES } from './lib/limits.js';
 
@@ -48,6 +49,17 @@ app.use('/api/*', async (c, next) => {
 app.use('/api/*', bodyLimit({ maxSize: MAX_API_BODY_BYTES, onError: (c) => c.json({ error: 'Die Anfrage ist zu groß.' }, 413) }));
 for (const path of ['/mcp', '/mcp/*', '/oauth/*']) {
   app.use(path, bodyLimit({ maxSize: MAX_MCP_BODY_BYTES, onError: (c) => c.json({ error: 'Payload too large' }, 413) }));
+}
+// xitl must not be its own upstream (lib/selfLoop.ts): a request this process
+// sent to an upstream and that came back here is refused before anything else
+// (auth, consent, DCR) looks at it. Covers every alias of our own address.
+for (const path of ['/mcp', '/mcp/*', '/oauth/*', '/.well-known/*']) {
+  app.use(path, async (c, next) => {
+    if (isOwnRequest(c.req.header(INSTANCE_HEADER))) {
+      return c.json({ error: 'loop_detected', message: 'xitl kann nicht sein eigener Upstream sein. / xitl cannot be its own upstream.' }, 508);
+    }
+    await next();
+  });
 }
 app.use('/api/*', identity);
 app.route('/api/me', me);

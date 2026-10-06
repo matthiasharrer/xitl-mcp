@@ -21,6 +21,7 @@ import { systemClock, type Clock } from '../lib/clock.js';
 import { needsRefresh } from '../lib/upstreamOAuth.js';
 import { limitResponse } from '../lib/limitedResponse.js';
 import { outboundFetch, upstreamAllowance } from '../lib/outbound.js';
+import { INSTANCE_HEADER, ownInstanceId } from '../lib/selfLoop.js';
 import { MAX_UPSTREAM_RESPONSE_BYTES } from '../lib/limits.js';
 import { scrubSecrets, type UpstreamState } from '../lib/proxyText.js';
 import { ReconnectRequired, errorTag, markNeedsReconnect, refreshUpstreamTokens } from './oauthClient.js';
@@ -180,6 +181,8 @@ export async function withUpstream<T>(
         }
         if (current.auth === 'OAUTH' && current.accessToken) headers.set('Authorization', `Bearer ${current.accessToken}`);
       }
+      // Last, so a configured header of the same name can't drop it (selfLoop.ts).
+      headers.set(INSTANCE_HEADER, ownInstanceId());
       let res = await send(headers);
       if (res.status === 401 && sameOrigin && current.auth === 'OAUTH') {
         await res.body?.cancel().catch(() => {});

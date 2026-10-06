@@ -43,6 +43,7 @@ import {
 } from '../lib/upstreamOAuth.js';
 import { limitResponse } from '../lib/limitedResponse.js';
 import { outboundFetch, upstreamAllowance } from '../lib/outbound.js';
+import { INSTANCE_HEADER, ownInstanceId } from '../lib/selfLoop.js';
 import { MAX_OAUTH_RESPONSE_BYTES } from '../lib/limits.js';
 import { upstreamStates } from './stateEvents.js';
 
@@ -122,10 +123,13 @@ function oauthFetchFor(row: Pick<Upstream, 'url' | 'allowInternal'>): FetchLike 
   const alsoAllow = upstreamAllowance(row);
   return async (input, init) => {
     const timeout = AbortSignal.timeout(OAUTH_TIMEOUT_MS);
+    const headers = new Headers(init?.headers);
+    headers.set(INSTANCE_HEADER, ownInstanceId());
     const res = await outboundFetch(
       input,
       {
         ...init,
+        headers,
         redirect: 'error',
         signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
       },

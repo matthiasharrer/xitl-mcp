@@ -6,6 +6,7 @@ import { RESERVED_SLUGS, SLUG_PATTERN } from '../lib/slugs.js';
 import type { Upstream } from '../generated/prisma/client.js';
 import { externalOrigin } from '../lib/externalOrigin.js';
 import { checkUrlHost } from '../lib/outbound.js';
+import { OWN_ADDRESS, isOwnOrigin } from '../lib/selfLoop.js';
 import { ConnectError, finishConnect, startConnect, errorTag } from '../upstream/oauthClient.js';
 import { approvals } from '../approval/pending.js';
 import { createTokenClient } from './mcpClients.js';
@@ -187,6 +188,7 @@ upstreams.post('/', async (c) => {
   if (!parsed.success) return c.json({ error: firstMessage(parsed.error) }, 400);
   const v = parsed.data;
   const userId = c.get('user').id;
+  if (isOwnOrigin(v.url, externalOrigin(c))) return c.json(OWN_ADDRESS, 400);
   const internal = await internalFlag(v.url, v.allowInternal);
   if ('refused' in internal) return c.json(internal.refused, 400);
 
@@ -294,6 +296,7 @@ upstreams.patch('/:id', async (c) => {
   const urlChanged = v.url !== undefined && v.url !== existing.url;
   // A changed URL recomputes the flag (re-confirm); an unchanged one keeps it.
   if (urlChanged) {
+    if (isOwnOrigin(v.url!, externalOrigin(c))) return c.json(OWN_ADDRESS, 400);
     const internal = await internalFlag(v.url!, v.allowInternal);
     if ('refused' in internal) return c.json(internal.refused, 400);
     data.allowInternal = internal.flag;
