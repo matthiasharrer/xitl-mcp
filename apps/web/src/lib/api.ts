@@ -314,7 +314,7 @@ export const api = {
   listUpstreamFaults: () => request<UpstreamFault[]>('GET', '/api/upstreams/faults'),
   getApproval: (id: string) => request<PendingApproval | ResolvedApproval>('GET', `/api/approvals/${encodeURIComponent(id)}`),
   decideApproval: (id: string, d: ApprovalDecision) =>
-    request<{ id: string; state: 'approved' | 'denied'; snoozeUntil: string | null }>('POST', `/api/approvals/${encodeURIComponent(id)}`, {
+    request<{ id: string; state: 'approved' | 'denied'; snoozeUntil: string | null; alsoDecided?: number }>('POST', `/api/approvals/${encodeURIComponent(id)}`, {
       ...d,
       via: 'page',
     }),
@@ -368,6 +368,8 @@ const PATH_PART: Record<string, string> = {
   'approved:push': 'erlaubt per Benachrichtigung',
   'denied:page': 'abgelehnt in der App',
   'denied:push': 'abgelehnt per Benachrichtigung',
+  'approved:pause': 'erlaubt durch Pause',
+  'denied:pause': 'gesperrt durch Pause',
   timeout: 'Zeit abgelaufen',
   aborted: 'Verbindung abgebrochen',
   shutdown: 'Server neu gestartet',

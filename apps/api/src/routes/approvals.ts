@@ -27,6 +27,7 @@ import type { AppEnv } from '../identity.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { approvals as defaultHub, ApprovalHub, type PendingCall, type ResolvedEvent } from '../approval/pending.js';
 import { MAX_SNOOZE_MINUTES, snoozeUntil } from '../approval/budget.js';
+import { heldCoveredBy } from '../approval/snooze.js';
 import { MAX_APPROVAL_STREAMS_PER_USER } from '../lib/limits.js';
 import { faultList } from '../upstream/faults.js';
 import { auditIntentFields } from './audit.js';
@@ -272,7 +273,22 @@ export function makeApprovalRoutes(
         : hub.decide(userId, id, { kind: 'deny', via: body.via, pauseUntil: until, pauseScope: snoozeScope === 'UPSTREAM' ? 'UPSTREAM' : 'TOOL' });
     // Lost the race against the deadline / another device between get and decide.
     if (result !== 'ok') return c.json(GONE, 409);
-    return c.json({ id, state: body.decision === 'approve' ? 'approved' : 'denied', snoozeUntil: until?.toISOString() ?? null });
+    // The pause also answers the calls already waiting that it covers
+    // (Matthias, 2026-10-06): they'd be let through / refused the moment they
+    // arrived now. Each is settled on its own; one that ended meanwhile is
+    // skipped. Decided "via pause": no snooze of their own, audit path shows it.
+    let alsoDecided = 0;
+    if (until) {
+      const covered = heldCoveredBy(pending, hub.list(userId), snoozeScope, body.decision === 'approve' ? 'ALLOW' : 'DENY');
+      for (const other of covered) {
+        const r =
+          body.decision === 'approve'
+            ? hub.decide(userId, other.id, { kind: 'approve', via: 'pause', snoozeUntil: null })
+            : hub.decide(userId, other.id, { kind: 'deny', via: 'pause' });
+        if (r === 'ok') alsoDecided++;
+      }
+    }
+    return c.json({ id, state: body.decision === 'approve' ? 'approved' : 'denied', snoozeUntil: until?.toISOString() ?? null, alsoDecided });
   });
 
   return r;

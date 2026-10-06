@@ -28,7 +28,10 @@ import { MAX_HELD_CALLS_PER_USER } from '../lib/limits.js';
 import type { SnoozeScope } from './snooze.js';
 import type { IntentView } from '../intent/queue.js';
 
-export type Via = 'page' | 'push';
+/** How a decision was made: in the app, from the notification, or by a
+ * pause set on another held call (it also settles the held calls it covers,
+ * routes/approvals.ts `heldCoveredBy`). 'pause' never comes from a request. */
+export type Via = 'page' | 'push' | 'pause';
 
 export type Decision =
   | { kind: 'approve'; via: Via; at: Date; snoozeUntil: Date | null; snoozeScope?: SnoozeScope }

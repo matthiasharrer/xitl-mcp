@@ -3,6 +3,14 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-06 (late) — A pause settles the covered held calls
+
+- Matthias tested xitl from his work agent platform: ~20 held `get_recipe`
+  calls, "15 min erlauben" on one left the others waiting. Now a pause (allow
+  or deny) also decides the held calls it covers (TC-128; lead built it
+  directly, small). Unit + full suite green; TC-128 e2e still to write.
+  Unreleased. Session ended near Matthias's usage limit.
+
 ## 2026-10-06 (later) — Intent v2, AI titles, deny pause, `v0.7.0`
 
 - Matthias's first real test on `v0.6.0` (create 3 tasks, then archive all,

@@ -69,7 +69,8 @@
     busy = true;
     try {
       const res = await api.decideApproval(approval.id, d);
-      showToast(done);
+      const more = res.alsoDecided ?? 0;
+      showToast(more > 0 ? `${done} – dazu ${more} wartende ${more === 1 ? 'Freigabe' : 'Freigaben'} ${res.state === 'approved' ? 'erlaubt' : 'gesperrt'}` : done);
       ondone?.(approval.id, res.state);
     } catch (e) {
       if (e instanceof ApiError && (e.status === 409 || e.status === 404)) {

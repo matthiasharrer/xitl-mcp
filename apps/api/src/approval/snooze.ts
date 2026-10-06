@@ -58,6 +58,29 @@ export function covers(row: Pick<Row, 'scope' | 'toolName'>, toolName: string, r
   return row.scope === 'TOOL' && row.toolName === toolName;
 }
 
+/** The OTHER held calls a pause just set on `origin` covers (same user,
+ * client and upstream, scope as `covers`). An ALLOW pause takes only calls
+ * that could be paused themselves (`snoozable`: never new or changed tools,
+ * like policy.ts); a DENY pause takes every covered call (it only tightens).
+ * Pure; the caller settles them. */
+export function heldCoveredBy<C extends { id: string; userId: number; mcpClientId: number; upstreamId: number; toolName: string; readOnly: boolean; snoozable: boolean }>(
+  origin: C,
+  held: C[],
+  scope: SnoozeScope,
+  effect: SnoozeEffect,
+): C[] {
+  const row = { scope, toolName: scope === 'TOOL' ? origin.toolName : null };
+  return held.filter(
+    (c) =>
+      c.id !== origin.id &&
+      c.userId === origin.userId &&
+      c.mcpClientId === origin.mcpClientId &&
+      c.upstreamId === origin.upstreamId &&
+      (effect === 'DENY' || c.snoozable) &&
+      covers(row, c.toolName, c.readOnly),
+  );
+}
+
 /** Latest `until` of the rows covering the tool, or null. */
 export function latestCovering(rows: Row[], toolName: string, readOnly: boolean): Date | null {
   let best: Date | null = null;
