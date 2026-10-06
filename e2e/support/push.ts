@@ -53,3 +53,9 @@ export async function unsubscribe(request: APIRequestContext, headers: Record<st
 
 /** Lets fire-and-forget work settle before asserting that something did NOT happen. */
 export const settle = (ms = 800) => new Promise((r) => setTimeout(r, ms));
+
+/** The outbox without ADR-0025's replacement pushes (`update: true`, sent when
+ * a held call's intent summary arrives): for cases that count or index the
+ * ORIGINAL approval/resolved messages. Leak and "nothing for anna" checks keep
+ * using the raw `outbox` / `outboxLines`. */
+export const firstPushes = (endpoint: string): OutboxEntry[] => outbox(endpoint).filter((e) => e.payload?.update !== true);

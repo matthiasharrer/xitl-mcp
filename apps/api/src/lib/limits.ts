@@ -52,3 +52,42 @@ export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** Sessions kept per user at most; a new `initialize` evicts that user's
  * least recently seen ones first. Other users' sessions never count. */
 export const MAX_SESSIONS_PER_USER = 500;
+
+// ---- Intent summary (ADR-0025) -------------------------------------------------
+// The model sees agent- and upstream-controlled text: every piece is capped.
+
+/** Calls waiting for a summary (all users). Over it, the oldest entries that
+ * are not held are marked SKIPPED (held calls go last). */
+export const MAX_INTENT_QUEUE = 200;
+
+/** Calls (model turns) in one append-only context; the next call starts a
+ * fresh context (system prompt only). */
+export const MAX_INTENT_CONTEXT_CALLS = 20;
+
+/** Characters of one context (system prompt + every stored turn + answer +
+ * the new turn); over it, the call starts a fresh context. ~16k tokens. */
+export const MAX_INTENT_CONTEXT_CHARS = 48_000;
+
+/** Characters of a call's JSON-encoded arguments in the prompt; longer ones
+ * go in as a truncated string. */
+export const MAX_INTENT_ARGS_CHARS = 4000;
+
+/** Characters of a tool description in the prompt. */
+export const MAX_INTENT_DESCRIPTION_CHARS = 1500;
+
+/** Characters of the stored/shown summary (intent + concerns). */
+export const MAX_INTENT_SUMMARY_CHARS = 600;
+
+/** Characters of the intent in the replacement push (ADR-0025). */
+export const MAX_INTENT_PUSH_CHARS = 200;
+
+/** Characters of the raw model answer kept on the audit row (replayed as the
+ * assistant turn); a longer answer is FAILED, never truncated (the prefix
+ * must stay byte-identical). */
+export const MAX_INTENT_ANSWER_CHARS = 4000;
+
+/** One model request; then it is aborted and the call's summary FAILED. */
+export const INTENT_REQUEST_TIMEOUT_MS = 60_000;
+
+/** Bytes of one LLM HTTP response. */
+export const MAX_INTENT_RESPONSE_BYTES = 256 * 1024;

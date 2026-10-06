@@ -6,6 +6,7 @@
   import { api, ApiError, messageOf, type ApprovalDecision, type PendingApproval, type SnoozeScope } from './api';
   import { showToast } from './store.svelte';
   import SessionLine from './SessionLine.svelte';
+  import IntentSummary from './IntentSummary.svelte';
 
   let {
     approval,
@@ -46,6 +47,11 @@
       return String(approval.arguments);
     }
   });
+  // ADR-0025: with a summary, the raw arguments sit behind "Rohdaten"; open
+  // unless the summary was already there when the card appeared (never
+  // collapsed under the reader's finger when it arrives later).
+  const withIntent = $derived(approval.intentStatus !== undefined && approval.intentStatus !== 'OFF');
+  const rawOpen = untrack(() => approval.intentStatus !== 'DONE');
   const noArgs = $derived(
     approval.arguments === null ||
       (typeof approval.arguments === 'object' && Object.keys(approval.arguments as object).length === 0),
@@ -88,8 +94,15 @@
     </p>
   {/if}
 
+  <IntentSummary intent={approval} />
+
   {#if noArgs}
     <p class="hint">Ohne Argumente.</p>
+  {:else if withIntent}
+    <details class="raw" open={rawOpen}>
+      <summary>Rohdaten</summary>
+      <pre class="args" aria-label="Argumente">{argsText}</pre>
+    </details>
   {:else}
     <pre class="args" aria-label="Argumente">{argsText}</pre>
   {/if}

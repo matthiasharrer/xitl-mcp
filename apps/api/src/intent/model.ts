@@ -1,0 +1,205 @@
+// The intent model seam (ADR-0003, ADR-0025 §7): an interface, the real
+// llama.cpp (OpenAI-compatible) implementation, and a deterministic stub for
+// e2e. Selected by env in `intentModelFromEnv`:
+//
+//   INTENT_LLM_URL      base URL (e.g. http://llama-cpp.ai.svc.cluster.local:8080);
+//                       unset = feature off. `/v1/chat/completions` is appended
+//                       unless the URL already ends in `/chat/completions`.
+//   INTENT_LLM_MODEL    model id (default `qwen`, a llama.cpp alias so the
+//                       version isn't hardcoded); the name the server answers
+//                       with is what is stored per call (intentModel)
+//   INTENT_LLM_API_KEY  optional bearer; never logged
+//   INTENT_LLM_TIMEOUT_MS  request timeout, at most (and default) 60 s; e2e
+//                       shortens it for the "hang" case
+//   INTENT_LLM_STUB=1   the stub instead (e2e only); INTENT_LLM_STUB_LOG=<file>
+//                       appends each request's messages as a JSON line.
+//
+// The request goes through outboundFetch (ADR-0020) with exactly the URL's
+// host:port as the one extra allowed internal address; redirects are refused
+// there. Size-capped response; the timeout is the caller's signal (queue.ts).
+import fs from 'node:fs';
+import { systemClock, type Clock } from '../lib/clock.js';
+import { limitResponse } from '../lib/limitedResponse.js';
+import { INTENT_REQUEST_TIMEOUT_MS, MAX_INTENT_RESPONSE_BYTES } from '../lib/limits.js';
+import { outboundFetch, upstreamAllowance, type AllowEntry } from '../lib/outbound.js';
+import { CLOSE, OPEN, type ChatMessage } from './prompt.js';
+
+export interface IntentAnswer {
+  /** The assistant's raw answer text. */
+  text: string;
+  /** The model that actually answered (the response's `model`), if known. */
+  model: string | null;
+}
+
+export interface IntentModel {
+  /** The configured model; stored when the answer names none. */
+  readonly name: string;
+  /** Rejects on any failure or abort. */
+  complete(messages: ChatMessage[], signal: AbortSignal): Promise<IntentAnswer>;
+}
+
+/** A llama.cpp alias (Matthias, 2026-10-06): services don't pin the version. */
+export const DEFAULT_INTENT_MODEL = 'qwen';
+
+/** A model name from the response: one line, ≤ 100 chars, or null. */
+function modelName(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const s = v.replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  return s ? s.slice(0, 100) : null;
+}
+
+/** The chat-completions URL and the one internal address it may reach. */
+export function llamaEndpoint(raw: string): { endpoint: URL; allowance: AllowEntry[] } {
+  const base = new URL(raw.trim());
+  if (base.protocol !== 'http:' && base.protocol !== 'https:') throw new Error('INTENT_LLM_URL must be http(s)');
+  if (base.username || base.password) throw new Error('INTENT_LLM_URL must not carry credentials (use INTENT_LLM_API_KEY)');
+  const endpoint = new URL(base.href);
+  endpoint.search = '';
+  endpoint.hash = '';
+  if (!/\/chat\/completions\/?$/.test(endpoint.pathname)) {
+    endpoint.pathname = `${endpoint.pathname.replace(/\/+$/, '')}/v1/chat/completions`;
+  }
+  // Exactly this host:port (default port filled in), the per-upstream
+  // exception's shape (ADR-0020).
+  return { endpoint, allowance: upstreamAllowance({ url: endpoint.href, allowInternal: true }) };
+}
+
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+export interface LlamaOptions {
+  url: string;
+  model?: string;
+  apiKey?: string;
+  clock?: Clock;
+  /** Info log (numbers only). */
+  log?: (line: string) => void;
+  /** outboundFetch, replaceable in tests (e.g. to pass `allow: []`). */
+  fetch?: typeof outboundFetch;
+}
+
+export function llamaModel(opts: LlamaOptions): IntentModel {
+  const { endpoint, allowance } = llamaEndpoint(opts.url);
+  const model = opts.model?.trim() || DEFAULT_INTENT_MODEL;
+  const clock = opts.clock ?? systemClock;
+  const log = opts.log ?? ((l: string) => console.log(l));
+  const doFetch = opts.fetch ?? outboundFetch;
+  const apiKey = opts.apiKey?.trim() || null;
+  return {
+    name: model.slice(0, 100),
+    async complete(messages, signal) {
+      const started = clock.now().getTime();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json' };
+      if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+      const res = await doFetch(
+        endpoint,
+        {
+          method: 'POST',
+          headers,
+          signal,
+          // Thinking off, low temperature, JSON mode: measured 2026-10-06 to
+          // answer in ~2 s and to hit the prefix cache (ADR-0025).
+          body: JSON.stringify({
+            model,
+            messages,
+            max_tokens: 300,
+            temperature: 0.2,
+            chat_template_kwargs: { enable_thinking: false },
+            response_format: { type: 'json_object' },
+          }),
+        },
+        { alsoAllow: allowance },
+      );
+      const limited = await limitResponse(res, MAX_INTENT_RESPONSE_BYTES);
+      if (!res.ok) {
+        await limited.body?.cancel().catch(() => {});
+        throw new Error(`intent model answered HTTP ${res.status}`);
+      }
+      const body = JSON.parse(await limited.text()) as {
+        model?: unknown;
+        choices?: { message?: { content?: unknown } }[];
+        timings?: { prompt_n?: unknown; cache_n?: unknown };
+      };
+      const content = body?.choices?.[0]?.message?.content;
+      if (typeof content !== 'string') throw new Error('intent model answer without content');
+      // Numbers only: never the prompt, the answer or the key.
+      const ms = clock.now().getTime() - started;
+      log(`intent: model answered in ${ms} ms (prompt_n=${num(body.timings?.prompt_n) ?? '?'}, cache_n=${num(body.timings?.cache_n) ?? '?'})`);
+      return { text: content, model: modelName(body.model) };
+    },
+  };
+}
+
+// ---- stub (e2e) ------------------------------------------------------------------
+
+/** The call data of a turn built by prompt.ts (the JSON line in the block). */
+export function blockOf(turn: string): Record<string, unknown> | null {
+  const lines = turn.split('\n');
+  const open = lines.indexOf(OPEN);
+  if (open < 0 || lines[open + 2] !== CLOSE) return null;
+  try {
+    const v = JSON.parse(lines[open + 1]!);
+    return v && typeof v === 'object' ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+const sleep = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal.aborted) return reject(new Error('aborted'));
+    const t = setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => (clearTimeout(t), reject(new Error('aborted'))), { once: true });
+  });
+
+/**
+ * Deterministic stand-in (docs/testing.md, "Intent summary"). By the last
+ * turn's `arguments.__stub`: "fail" rejects, "hang" waits for the abort,
+ * "garbage" answers non-JSON, "harmlos" answers risk read, "slow" answers
+ * normally after 1.5 s, "long" answers a ~400-char intent (layout checks);
+ * otherwise {"intent":"Stub: <tool>","risk":"write"}.
+ */
+export function stubModel(opts: { log?: string } = {}): IntentModel {
+  return {
+    name: 'stub',
+    async complete(messages, signal) {
+      if (opts.log) fs.appendFileSync(opts.log, JSON.stringify({ messages }) + '\n');
+      const last = [...messages].reverse().find((m) => m.role === 'user');
+      const data = last ? blockOf(last.content) : null;
+      const tool = typeof data?.tool === 'string' ? data.tool : '?';
+      const args = data?.arguments as Record<string, unknown> | null | undefined;
+      const mode = args && typeof args === 'object' ? args.__stub : undefined;
+      if (mode === 'fail') throw new Error('stub: fail');
+      if (mode === 'hang') {
+        await new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+      }
+      if (mode === 'garbage') return { text: 'Das ist kein JSON.', model: null };
+      if (mode === 'slow') await sleep(1500, signal);
+      const intent = mode === 'long' ? `Stub: ${tool}. ${'Eine sehr lange Zusammenfassung mit Überlänge, '.repeat(8)}Ende.` : `Stub: ${tool}`;
+      return { text: JSON.stringify({ intent, risk: mode === 'harmlos' ? 'read' : 'write' }), model: null };
+    },
+  };
+}
+
+/** The configured model, or null (feature off). Logs which, never the key. */
+export function intentModelFromEnv(env: NodeJS.ProcessEnv = process.env): IntentModel | null {
+  if (env.INTENT_LLM_STUB === '1') {
+    console.warn('intent: using the STUB model (INTENT_LLM_STUB=1, tests only)');
+    return stubModel({ log: env.INTENT_LLM_STUB_LOG || undefined });
+  }
+  const url = env.INTENT_LLM_URL?.trim();
+  if (!url) return null;
+  try {
+    const m = llamaModel({ url, model: env.INTENT_LLM_MODEL, apiKey: env.INTENT_LLM_API_KEY });
+    console.log(`intent: summaries on, model ${m.name} at ${llamaEndpoint(url).endpoint.host}`);
+    return m;
+  } catch (e) {
+    console.error(`intent: INTENT_LLM_URL unusable, summaries off (${e instanceof Error ? e.message : 'invalid'})`);
+    return null;
+  }
+}
+
+/** INTENT_LLM_TIMEOUT_MS: 1 ms … the 60 s default (anything else: the default). */
+export function intentTimeoutFromEnv(raw: string | undefined): number {
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 1 && n <= INTENT_REQUEST_TIMEOUT_MS ? n : INTENT_REQUEST_TIMEOUT_MS;
+}

@@ -7,7 +7,7 @@ import { ANNA, MATTHIAS, dbAll } from '../support/db.js';
 import { BASE_URL } from '../support/paths.js';
 import { fakeState } from '../support/upstream.js';
 import { askUpstream, decide, lastAudit, startCall, waitPending } from '../support/approval.js';
-import { fakeEndpoint, outbox, outboxLines, settle, subscribe, unsubscribe } from '../support/push.js';
+import { fakeEndpoint, firstPushes, outbox, outboxLines, settle, subscribe, unsubscribe } from '../support/push.js';
 import { loadServiceWorker } from '../support/sw.js';
 
 test.use({ extraHTTPHeaders: {} });
@@ -20,10 +20,10 @@ test('TC-32 ask -> Push an jedes Gerät des Nutzers (nicht an andere), <= 4 KB, 
   try {
     const held = startCall(request, up.slug, token, 'add_item', { item: 'Eier', notiz: 'x'.repeat(20_000) });
     const p = await waitPending(request, up.id, 'add_item');
-    await expect.poll(() => outbox(phone).length).toBe(1);
-    await expect.poll(() => outbox(laptop).length).toBe(1);
+    await expect.poll(() => firstPushes(phone).length).toBe(1);
+    await expect.poll(() => firstPushes(laptop).length).toBe(1);
     for (const ep of [phone, laptop]) {
-      const [entry] = outbox(ep);
+      const [entry] = firstPushes(ep);
       expect(entry!.payload).toEqual({
         type: 'approval',
         id: p.id,
@@ -46,8 +46,8 @@ test('TC-32 ask -> Push an jedes Gerät des Nutzers (nicht an andere), <= 4 KB, 
     // decided on the page -> a "resolved" push so the stale notification is replaced
     expect((await decide(request, p.id, { decision: 'approve' })).status()).toBe(200);
     await held;
-    await expect.poll(() => outbox(phone).map((e) => e.payload.type)).toEqual(['approval', 'resolved']);
-    expect(outbox(phone)[1]!.payload).toEqual({ type: 'resolved', id: p.id, outcome: 'approved' });
+    await expect.poll(() => firstPushes(phone).map((e) => e.payload.type)).toEqual(['approval', 'resolved']);
+    expect(firstPushes(phone)[1]!.payload).toEqual({ type: 'resolved', id: p.id, outcome: 'approved' });
     await settle();
     expect(outbox(annas)).toEqual([]);
   } finally {
@@ -76,8 +76,8 @@ test('TC-33 Service Worker: Aktion "Erlauben"/"Ablehnen" sendet die Anfrage der 
     // 1) approve from the notification
     const held = startCall(request, up.slug, token, 'add_item', { item: 'Push-Eier' });
     const p = await waitPending(request, up.id, 'add_item');
-    await expect.poll(() => outbox(ep).length).toBe(1);
-    await sw.push(outbox(ep)[0]!.payload);
+    await expect.poll(() => firstPushes(ep).length).toBe(1);
+    await sw.push(firstPushes(ep)[0]!.payload);
     const n = sw.shown.at(-1)!;
     expect(n.title).toBe('Freigabe nötig');
     expect(n.options.body).toContain(up.name);
@@ -101,13 +101,13 @@ test('TC-33 Service Worker: Aktion "Erlauben"/"Ablehnen" sendet die Anfrage der 
     expect(sw.shown.at(-1)).toMatchObject({ title: 'Erlaubt', options: { tag: `approval-${p.id}`, silent: true } });
     // decided from the notification: no extra "resolved" push
     await settle();
-    expect(outbox(ep).map((e) => e.payload.type)).toEqual(['approval']);
+    expect(firstPushes(ep).map((e) => e.payload.type)).toEqual(['approval']);
 
     // 2) deny from the notification
     const held2 = startCall(request, up.slug, token, 'add_item', { item: 'Nein' });
     const p2 = await waitPending(request, up.id, 'add_item');
-    await expect.poll(() => outbox(ep).length).toBe(2);
-    await sw.push(outbox(ep)[1]!.payload);
+    await expect.poll(() => firstPushes(ep).length).toBe(2);
+    await sw.push(firstPushes(ep)[1]!.payload);
     await sw.click(sw.shown.at(-1)!, 'deny');
     expect(JSON.parse(sw.fetches[1]!.init.body)).toEqual({ decision: 'deny', via: 'push' });
     expect((await held2).isError).toBe(true);

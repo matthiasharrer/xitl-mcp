@@ -7,6 +7,11 @@
 //                actions "Erlauben" / "Ablehnen" where the platform supports
 //                them; tapping the body opens /#/freigabe/<id> (iPhones show no
 //                actions, so that path must always work).
+//                With `update: true` (ADR-0025) it is the same call again,
+//                now with the advisory `intent` and `risk`: it replaces the
+//                notification silently, but ONLY if the open one with that tag
+//                is still the request (`data.pending`); an outcome under the
+//                same tag, or none at all (decided meanwhile, dismissed): dropped.
 //   resolved  -> the call was decided in the app, expired, or ended because
 //                its access was revoked / its upstream removed ('revoked') or
 //                its access paused ('paused', ADR-0024): replace the
@@ -40,6 +45,8 @@ function show(title, options) {
   return self.registration.showNotification(title, { icon: ICON, badge: ICON, ...options });
 }
 
+const RISK_TEXT = { read: 'Lesen', write: 'Schreiben', destructive: 'Destruktiv' };
+
 const OUTCOME_TEXT = {
   approved: 'Erlaubt',
   denied: 'Abgelehnt',
@@ -68,6 +75,34 @@ self.addEventListener('push', (event) => {
   } catch {
     data = {};
   }
+  if (data.type === 'approval' && typeof data.id === 'string' && data.update === true) {
+    event.waitUntil(
+      self.registration.getNotifications({ tag: tagOf(data.id) }).then((open) => {
+        // Only a still-open request: an outcome ("Erlaubt" after the lock-screen
+        // button) carries the same tag and must not turn back into a request.
+        const current = open[open.length - 1];
+        if (!current || !current.data || current.data.pending !== true) return undefined;
+        const label = `${data.upstream || ''} · ${data.summary || data.tool || ''}`;
+        const risk = RISK_TEXT[data.risk] || '';
+        const intent = String(data.intent || '').slice(0, 200);
+        const until = timeOf(data.expiresAt);
+        const body = [`${risk ? `${risk}: ` : ''}${intent}`, label, until ? `Offen bis ${until} Uhr` : ''].filter(Boolean).join('\n');
+        return show('Freigabe nötig', {
+          body,
+          tag: tagOf(data.id),
+          silent: true,
+          renotify: false,
+          requireInteraction: true,
+          actions: [
+            { action: 'approve', title: 'Erlauben' },
+            { action: 'deny', title: 'Ablehnen' },
+          ],
+          data: { url: approvalUrl(data.id), id: data.id, label, pending: true },
+        });
+      }),
+    );
+    return;
+  }
   if (data.type === 'approval' && typeof data.id === 'string') {
     const label = `${data.upstream || ''} · ${data.summary || data.tool || ''}`;
     const until = timeOf(data.expiresAt);
@@ -81,7 +116,7 @@ self.addEventListener('push', (event) => {
           { action: 'approve', title: 'Erlauben' },
           { action: 'deny', title: 'Ablehnen' },
         ],
-        data: { url: approvalUrl(data.id), id: data.id, label },
+        data: { url: approvalUrl(data.id), id: data.id, label, pending: true },
       }),
     );
     return;

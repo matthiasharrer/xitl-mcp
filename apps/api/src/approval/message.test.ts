@@ -1,7 +1,7 @@
 // TC-32 (unit): the approval push payload is small and carries only what the
 // notification needs.
 import { describe, expect, test } from 'vitest';
-import { approvalMessage } from './message.js';
+import { approvalMessage, approvalUpdateMessage } from './message.js';
 import { MAX_PAYLOAD_BYTES, payloadBytes, sendToSubscriptions, type PushMessage } from '../lib/push.js';
 
 describe('approval push payload (TC-32)', () => {
@@ -48,5 +48,19 @@ describe('approval push payload (TC-32)', () => {
     expect(gone).toEqual([1]);
     expect(failures.map((f) => f.subId)).toEqual([1, 2]);
     expect(opts[2]).toEqual({ ttl: 42, urgency: 'high' });
+  });
+});
+
+describe('replacement push with the intent (TC-112)', () => {
+  const base = { id: 'abcdefghijklmnopqrstuv', upstreamName: 'Haushalt', toolName: 'delete_all', args: {}, deadline: new Date('2026-10-04T12:05:00Z') };
+  test('same id, update:true, intent <= 200 chars, shown risk', () => {
+    const msg = approvalUpdateMessage({ ...base, intent: { status: 'DONE', summary: 'L'.repeat(1000), risk: 'destructive', lowered: true } })!;
+    expect(msg).toMatchObject({ type: 'approval', id: base.id, update: true, risk: 'destructive' });
+    expect(msg.intent!.length).toBe(200);
+    expect(payloadBytes(msg)).toBeLessThan(2048);
+  });
+  test('nothing without a summary', () => {
+    expect(approvalUpdateMessage({ ...base, intent: { status: 'FAILED', summary: null, risk: null, lowered: null } })).toBeNull();
+    expect(approvalUpdateMessage(base)).toBeNull();
   });
 });

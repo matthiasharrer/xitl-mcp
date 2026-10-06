@@ -115,7 +115,28 @@ export interface SessionDetail extends SessionSummary {
   entries: AuditRow[];
 }
 
-export interface PendingApproval {
+/** ADR-0025: the advisory intent summary of a call. OFF = feature off,
+ * PENDING = being made, DONE, FAILED, SKIPPED (not made). */
+export type IntentStatus = 'OFF' | 'PENDING' | 'DONE' | 'FAILED' | 'SKIPPED';
+export type IntentRisk = 'read' | 'write' | 'destructive';
+
+export interface IntentFields {
+  intentStatus: IntentStatus;
+  /** Model output from agent-controlled input: render as text only. */
+  intentSummary: string | null;
+  /** Shown risk: never below the tool's own hint. */
+  intentRisk: IntentRisk | null;
+  /** The model rated lower than the tool's hint. */
+  intentLowered: boolean | null;
+}
+
+/** Audit rows also say when and by which model. */
+export interface AuditIntentFields extends IntentFields {
+  intentAt: string | null;
+  intentModel: string | null;
+}
+
+export interface PendingApproval extends IntentFields {
   id: string;
   state: 'pending';
   clientName: string;
@@ -137,7 +158,7 @@ export interface PendingApproval {
 
 export type Outcome = 'PENDING' | 'FORWARDED' | 'DENIED' | 'TIMED_OUT' | 'UPSTREAM_ERROR';
 
-export interface ResolvedApproval {
+export interface ResolvedApproval extends AuditIntentFields {
   id: string;
   state: 'resolved';
   auditId: number;
@@ -159,7 +180,7 @@ export type ApprovalDecision =
 /** What a snooze covers (TC-76). */
 export type SnoozeScope = 'tool' | 'readonly' | 'upstream';
 
-export interface AuditRow {
+export interface AuditRow extends AuditIntentFields {
   id: number;
   tool: string;
   upstream: { id: number; slug: string; name: string } | null;

@@ -169,4 +169,23 @@ describe('ApprovalHub', () => {
     small.hold(call());
     await expect(small.hold(call()).decision).resolves.toMatchObject({ kind: 'flood' });
   });
+
+  test('setIntent (ADR-0025): display data only; emits for a held call; never decides; ignored once settled or for another user', async () => {
+    const { call: c, decision } = hub.hold(call());
+    const seen: unknown[] = [];
+    const resolved: unknown[] = [];
+    hub.on('intent', (p) => seen.push(p));
+    hub.on('resolved', (e) => resolved.push(e));
+    const view = { status: 'DONE' as const, summary: 'Legt Eier an.', risk: 'write' as const, lowered: false };
+    expect(hub.setIntent(2, c.id, view)).toBe(false);
+    expect(hub.setIntent(1, c.id, view)).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(hub.get(1, c.id)?.intent).toEqual(view);
+    expect(resolved).toEqual([]);
+    expect(hub.list(1)).toHaveLength(1); // still held: the summary decided nothing
+    expect(hub.decide(1, c.id, { kind: 'deny', via: 'page' })).toBe('ok');
+    await expect(decision).resolves.toMatchObject({ kind: 'deny' });
+    expect(hub.setIntent(1, c.id, view)).toBe(false);
+    expect(seen).toHaveLength(1);
+  });
 });

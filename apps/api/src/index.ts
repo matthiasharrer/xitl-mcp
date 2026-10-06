@@ -6,6 +6,7 @@ import { systemClock } from './lib/clock.js';
 import { allowListFromEnv } from './lib/outbound.js';
 import { pruneUnboundClients } from './mcp/unboundClients.js';
 import { pruneSessions } from './mcp/sessions.js';
+import { sweepIntents } from './intent/store.js';
 
 const port = Number(process.env.PORT ?? 3002);
 
@@ -20,6 +21,10 @@ allowListFromEnv();
 // the path says the outcome is unknown, not that it was refused).
 const swept = await prisma.$executeRaw`UPDATE "AuditEntry" SET "outcome" = 'DENIED', "decisionPath" = "decisionPath" || '+restart', "finishedAt" = ${systemClock.now()} WHERE "outcome" = 'PENDING'`;
 if (swept > 0) console.warn(`audit: ${swept} unfinished call(s) from before the restart marked DENIED`);
+// Intent summaries (ADR-0025) queued before the restart are lost with the
+// in-memory queue: SKIPPED, never summarized.
+const skipped = await sweepIntents();
+if (skipped > 0) console.warn(`intent: ${skipped} queued summary(ies) from before the restart skipped`);
 // DCR clients nobody approved: expired ones and any over the cap (TC-88).
 await pruneUnboundClients(systemClock.now());
 // MCP sessions (ADR-0016 amendment): expired ones, and per user any over the cap.

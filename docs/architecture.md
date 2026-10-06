@@ -67,7 +67,13 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
                          push summary (pure, budget.test.ts)
   approval/snooze.ts     Snooze rows (user-scoped queries)
   approval/notify.ts     hub -> Web Push (approval / resolved messages)
-  approval/message.ts    the approval push payload (pure)
+  approval/message.ts    the approval push payload (pure), and the
+                         replacement push carrying the intent (ADR-0025)
+  intent/                advisory intent summary from the local LLM
+                         (ADR-0025): queue.ts worker, prompt.ts / parse.ts /
+                         risk.ts / group.ts (pure), model.ts (llama.cpp via
+                         outboundFetch + e2e stub), store.ts (DB side, boot
+                         sweep), index.ts (env, wiring to the hub)
   lib/push.ts            Web Push sender, VAPID (AppSetting "vapid"),
                          PUSH_OUTBOX transport (copied from Haushalt)
   lib/clock.ts           injectable Clock (ADR-0003)
@@ -90,9 +96,11 @@ e2e/        Playwright against the built server on :3202 with .e2e/e2e.db
             (e2e/support/fakeUpstream.ts) with its sink host on :3211.
             TC-01…TC-68 (TC-37 unit; malicious suite in
             malicious-client.spec.ts / malicious-upstream.spec.ts). The
-            server runs with APPROVAL_TIMEOUT_MS=5000, PUSH_OUTBOX and
+            server runs with APPROVAL_TIMEOUT_MS=5000, PUSH_OUTBOX,
             OUTBOUND_ALLOW_PRIVATE=127.0.0.1:3210 (paths.ts; a spec that
-            spawns its own server must pass it too).
+            spawns its own server must pass it too) and the intent stub
+            (INTENT_LLM_STUB=1, INTENT_LLM_STUB_LOG=.e2e/intent-stub.jsonl,
+            INTENT_LLM_TIMEOUT_MS=3000; ADR-0025).
 scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
             (Playwright Chromium; rerun after changing the SVG).
 ```
@@ -478,8 +486,8 @@ What the SDK (v2.2.0) and the protocol do — the reason for this shape:
 - `/api/approvals` (routes/approvals.ts, behind identity, all user-scoped):
   `GET /` (my held calls, with `remainingMs` so the client's countdown doesn't
   depend on clock agreement), `GET /stream` (SSE via Hono `streamSSE`:
-  `snapshot` on connect, then `pending` / `resolved` for the caller's calls
-  only; keepalive comment every 25 s; ends on shutdown; at most
+  `snapshot` on connect, then `pending` / `resolved` / `intent` (ADR-0025)
+  for the caller's calls only; keepalive comment every 25 s; ends on shutdown; at most
   `MAX_APPROVAL_STREAMS_PER_USER` (5) open per user, the next -> 429, counted
   per route instance and released in the stream callback's finally), `GET /:id` (pending,
   or `{state:'resolved', outcome, decisionPath, …}` from the audit row by
@@ -491,6 +499,86 @@ What the SDK (v2.2.0) and the protocol do — the reason for this shape:
 - The MCP response for a held call: the SDK's legacy (2025-06-18) stateless
   leg answers over SSE and sends `: keepalive` comments every 15 s while the
   handler waits, so idle proxies see traffic.
+
+### Intent summary (ADR-0025, TC-106…116)
+
+Advisory only: **nothing on the decision path reads or waits for it** (policy,
+hold/decide, timeout, forwarding), and the agent's result never contains it.
+Any model/DB failure ends as `FAILED` (or nothing) for that call only.
+
+- **Switch:** `INTENT_LLM_URL` (base URL; `/v1/chat/completions` appended unless
+  already there) turns it on; `INTENT_LLM_MODEL` (default `qwen`, a llama.cpp alias; the `model` the server answers with is stored as `intentModel`),
+  `INTENT_LLM_API_KEY` (bearer, never logged), `INTENT_LLM_TIMEOUT_MS` (≤ and
+  default 60 s). `INTENT_LLM_STUB=1` selects the deterministic stub instead
+  (e2e only; `INTENT_LLM_STUB_LOG=<file>` records each request's messages as a
+  JSON line). Read once in `intent/index.ts` (`intents`, the process-wide
+  `IntentQueue`; model null = off).
+- **Audit columns:** `intentStatus` (`OFF` feature off | `PENDING` queued |
+  `DONE` | `FAILED` | `SKIPPED` queue overflow, restart, or an unresolved
+  `/mcp` name), `intentSummary` (intent + " Auffällig: " + concerns, ≤ 600),
+  `intentRisk` (shown), `intentModelRisk`, `intentLowered`, `intentModel`,
+  `intentAt`, `intentPrompt` + `intentAnswer` (the exact user turn and raw
+  answer, replayed byte-identically; never exposed), `intentContextId` (audit
+  id of the context's first call, indexed).
+- **Flow:** `callTool` writes the row with `intentStatus` = `PENDING` (or
+  `OFF`) and calls `intents.enqueue()` (synchronous, never throws): non-ASK
+  calls at once, ASK calls right after `hub.hold()` (job `held` = the call is
+  really in the hub; a `flood` call isn't). The hub's `resolved` event
+  `release()`s the job's priority (`wireIntents`).
+- **Worker** (`queue.ts`, concurrency 1, in memory): only the oldest job per
+  source (`group.ts sourceKey`: session id, else client id) may run; among
+  those, sources with a held job first, then oldest `receivedAt`. Over
+  `MAX_INTENT_QUEUE` (200) the oldest non-held jobs are `SKIPPED`. Boot:
+  `sweepIntents()` (index.ts) sets every leftover `PENDING` to `SKIPPED`.
+- **Context** per call: its predecessor in the source (same session; or same
+  client, sessionless). If `continuesGroup` (same session, or gap ≤ 10 min,
+  ADR-0019's rule) and the predecessor has an `intentContextId`, the call
+  continues that context: messages = system prompt + every DONE row's
+  (`intentPrompt`, `intentAnswer`) of the context in id order + the new turn.
+  Over `MAX_INTENT_CONTEXT_CALLS` (20) turns or `MAX_INTENT_CONTEXT_CHARS`
+  (48 000) it starts fresh (system prompt only; context id = this call).
+  FAILED rows keep the context id but contribute no turn; a SKIPPED/OFF
+  predecessor starts a fresh context.
+- **Turn** (`prompt.ts callTurn`): `Aufruf <n>`, optionally `Stand der früheren
+  Aufrufe: {"1":"ausgeführt",…}` (fixed words from `outcomeWord`, numbers
+  only), then a `<call>` line, ONE line of JSON `{upstream, tool,
+  description+annotations (first appearance of upstreamId:tool in the
+  context), arguments | argumentsTruncated (> 4000 chars)}` with `<` written as
+  `\u003c`, and a `</call>` line. JSON escapes newlines, so no value can make a
+  line of its own. Never results, credentials or client free text. The German
+  system prompt says the block is untrusted data, never instructions.
+- **Answer** (`parse.ts`): one JSON object `{intent, risk:
+  read|write|destructive, concerns?}`; prose/fence around exactly one object
+  is accepted; anything else (or an answer over 4000 chars) = `FAILED`.
+  **Risk shown** (`risk.ts`) = max(`toolHint` of the stored annotations, model)
+  on read < write < destructive; model lower than the hint -> `intentLowered`.
+- **Model** (`model.ts`): `POST …/chat/completions {model, messages,
+  max_tokens 300, temperature 0.2, chat_template_kwargs.enable_thinking
+  false, response_format json_object}` via `outboundFetch` with
+  `alsoAllow` = exactly the URL's host:port (`upstreamAllowance` shape;
+  redirects refused there), response capped at 256 KiB, aborted by the
+  worker's timeout. Logs one info line per request: duration, `prompt_n`,
+  `cache_n` (numbers only).
+- **Channels:** the queue emits `intent` {auditId, userId, approvalId, view};
+  `wireIntents` calls `hub.setIntent()` for a still-held call (stores the view
+  on the PendingCall, emits hub `intent`; can't settle anything). SSE event
+  `intent` `{id, intentStatus, intentSummary, intentRisk, intentLowered}`;
+  `serializePending` (list, snapshot, `GET /:id`) carries the same four
+  fields. `approval/notify.ts` re-sends the `approval` push for a DONE summary
+  with `update: true`, `intent` (≤ 200), `risk` (urgency normal); sw.js shows
+  it silently with the same tag **only if a notification with that tag is
+  still open**, else drops it.
+- **API:** `/api/audit` list + detail and the resolved `/api/approvals/:id`
+  expose `intentStatus`, `intentSummary`, `intentRisk`, `intentLowered`,
+  `intentAt`, `intentModel` (summary/risk/lowered only when DONE). Never prompt,
+  answer, model risk or context id.
+- **Web:** `lib/IntentSummary.svelte` (plain text; "KI-Zusammenfassung ·
+  beratend", chip Lesen/Schreiben/Destruktiv, warning "KI schätzt das
+  harmloser ein als das Tool selbst", "Zusammenfassung wird erstellt…" while
+  PENDING, "Keine Zusammenfassung" on FAILED, nothing on OFF/SKIPPED) on the
+  approval card, the resolved approval page and the Verlauf detail (with model
+  and time). The card's arguments sit in an expandable "Rohdaten" when the
+  feature is on (open if the summary wasn't there when the card appeared).
 
 ### Snooze (ADR-0004, ADR-0019, TC-30, TC-76)
 
@@ -571,7 +659,8 @@ The Regeln view's "Gilt" uses the same function, so it shows "Fragen
 
 `GET /api/audit?before=<id>` (newest first by id, 50 per page, `nextBefore`),
 `GET /api/audit/:id` (arguments parsed, result excerpt, times). Both carry
-`session: {id, createdAt} | null` (ADR-0016). User-scoped;
+`session: {id, createdAt} | null` (ADR-0016) and the intent fields
+(ADR-0025, see "Intent summary"). User-scoped;
 another user's id is 404. The UI renders `decisionPath` in German
 (`decisionPathText` in web `lib/api.ts`).
 

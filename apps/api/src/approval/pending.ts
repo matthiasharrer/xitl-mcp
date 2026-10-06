@@ -18,11 +18,15 @@
 // - Revoking a client or deleting an upstream settles its held calls as
 //   "revoked" (`cancelWhere`), so nothing can approve them afterwards (TC-41);
 //   pausing a client (ADR-0024) settles them the same way as "paused" (TC-104).
+// - The intent summary (ADR-0025) is display data only: `setIntent` stores it
+//   on a still-held call and announces it ('intent'); it never settles,
+//   extends or otherwise touches a decision, and a settled call ignores it.
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { MAX_HELD_CALLS_PER_USER } from '../lib/limits.js';
 import type { SnoozeScope } from './snooze.js';
+import type { IntentView } from '../intent/queue.js';
 
 export type Via = 'page' | 'push';
 
@@ -62,6 +66,8 @@ export interface PendingCall {
   readOnly: boolean;
   /** The MCP session the call came in on (ADR-0016), null when sessionless. */
   session: { id: string; createdAt: Date } | null;
+  /** The advisory intent summary (ADR-0025); absent = feature off. */
+  intent?: IntentView;
 }
 
 export interface ResolvedEvent {
@@ -80,7 +86,8 @@ interface Entry {
   timer: ReturnType<typeof setTimeout>;
 }
 
-/** Event names: 'pending' (PendingCall), 'resolved' (ResolvedEvent), 'shutdown'. */
+/** Event names: 'pending' (PendingCall), 'resolved' (ResolvedEvent),
+ * 'intent' (PendingCall, its summary changed), 'shutdown'. */
 export class ApprovalHub extends EventEmitter {
   private readonly entries = new Map<string, Entry>();
   private closed = false;
@@ -145,6 +152,17 @@ export class ApprovalHub extends EventEmitter {
         : { kind: 'deny', via: d.via, at },
     );
     return 'ok';
+  }
+
+  /** Attaches the intent summary to a still-held call of `userId` and emits
+   * 'intent'. false when the call is no longer held (or not the user's).
+   * Display data only: nothing here can decide the call. */
+  setIntent(userId: number, id: string, intent: IntentView): boolean {
+    const entry = this.entries.get(id);
+    if (!entry || entry.call.userId !== userId) return false;
+    entry.call.intent = { ...intent };
+    this.safeEmit('intent', entry.call);
+    return true;
   }
 
   /** The client went away (request aborted): deny. */

@@ -24,7 +24,7 @@ import {
 import { BASE_URL, FAKE_HEADER_NAME, FAKE_HEADER_SECRET, MCP_TOKEN } from '../support/paths.js';
 import { callTool, fakeControl, fakeState, listTools, mcp } from '../support/upstream.js';
 import { askUpstream, decide, openStream, pendingList, startCall, waitPending, type Pending } from '../support/approval.js';
-import { outbox, subscribe, unsubscribe } from '../support/push.js';
+import { firstPushes, outbox, subscribe, unsubscribe } from '../support/push.js';
 
 test.use({ extraHTTPHeaders: {} });
 
@@ -386,7 +386,7 @@ test('TC-45 Höchstens 10 offene Freigaben je Nutzer: die 11. sofort abgelehnt (
   try {
     const held = Array.from({ length: 10 }, (_, i) => startCall(request, up.slug, token, 'add_item', { item: `n${i}` }));
     await expect.poll(async () => (await pendingList(request, MALLORY)).length, { timeout: 4000 }).toBe(10);
-    await expect.poll(() => outbox(phone).filter((e) => e.payload.type === 'approval').length).toBe(10);
+    await expect.poll(() => firstPushes(phone).filter((e) => e.payload.type === 'approval').length).toBe(10);
 
     const t0 = Date.now();
     const flood = await callTool(request, up.slug, token, 'add_item', { item: 'elf' });
@@ -403,7 +403,7 @@ test('TC-45 Höchstens 10 offene Freigaben je Nutzer: die 11. sofort abgelehnt (
     await decide(request, op.id, { decision: 'deny' }, TRUDY);
     await otherHeld;
     // no push for the refused call (checked after that round trip gave it time)
-    expect(outbox(phone).filter((e) => e.payload.type === 'approval').length).toBe(10);
+    expect(firstPushes(phone).filter((e) => e.payload.type === 'approval').length).toBe(10);
     expect(JSON.stringify(outbox(phone))).not.toContain('elf');
 
     // free one slot: the next call is held again

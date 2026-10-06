@@ -569,6 +569,18 @@ a.btn {
 .effective {
   margin: 0;
 }
+/* ADR-0025: raw arguments behind "Rohdaten" once a summary is shown. */
+.raw {
+  min-width: 0;
+}
+.raw > summary::before {
+  content: '▸';
+  margin-right: 0.375rem;
+}
+.raw[open] > summary::before {
+  content: '▾';
+}
+.raw > summary,
 .client-overrides summary {
   display: flex;
   align-items: center;

@@ -4,6 +4,9 @@
 //
 //   GET /?before=<id>   newest first, 50 per page; `nextBefore` for the next page
 //   GET /:id            one entry with arguments and the result excerpt
+// Both carry the advisory intent summary (ADR-0025) as intentStatus,
+// intentSummary, intentRisk (the floored one), intentLowered, intentAt,
+// intentModel: never the stored prompt / raw answer / model risk.
 import { Hono } from 'hono';
 import { prisma } from '../db.js';
 import type { AppEnv } from '../identity.js';
@@ -35,6 +38,26 @@ const include = {
 /** The audit row's MCP session (ADR-0016) as the UI shows it. */
 export const sessionRef = (s: { id: string; createdAt: Date } | null) => (s ? { id: s.id, createdAt: s.createdAt.toISOString() } : null);
 
+/** The audit row's intent summary as the UI may see it (TC-113). */
+export function auditIntentFields(a: {
+  intentStatus: string;
+  intentSummary: string | null;
+  intentRisk: string | null;
+  intentLowered: boolean | null;
+  intentAt: Date | null;
+  intentModel: string | null;
+}) {
+  const done = a.intentStatus === 'DONE';
+  return {
+    intentStatus: a.intentStatus,
+    intentSummary: done ? a.intentSummary : null,
+    intentRisk: done ? a.intentRisk : null,
+    intentLowered: done ? (a.intentLowered ?? false) : null,
+    intentAt: a.intentAt?.toISOString() ?? null,
+    intentModel: a.intentModel,
+  };
+}
+
 audit.use('*', async (c, next) => {
   c.header('Cache-Control', 'no-store');
   await next();
@@ -63,6 +86,7 @@ audit.get('/', async (c) => {
       isError: a.isError,
       receivedAt: a.receivedAt.toISOString(),
       session: sessionRef(a.session),
+      ...auditIntentFields(a),
     })),
     nextBefore: rows.length > PAGE ? page[page.length - 1]!.id : null,
   });
@@ -89,6 +113,7 @@ audit.get('/:id', async (c) => {
     decidedAt: a.decidedAt?.toISOString() ?? null,
     finishedAt: a.finishedAt?.toISOString() ?? null,
     session: sessionRef(a.session),
+    ...auditIntentFields(a),
     // Per-call diagnostics (names only; ADR-0016 measurement).
     diagnostics: {
       protocolVersion: a.protocolVersion,

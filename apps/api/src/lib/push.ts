@@ -23,6 +23,12 @@ export type PushMessage =
       summary: string;
       /** ISO time the call stops waiting. */
       expiresAt: string;
+      /** ADR-0025: the same held call again, now with its advisory intent
+       * summary. The service worker replaces an OPEN notification with this
+       * tag silently and drops the message otherwise (decided meanwhile). */
+      update?: true;
+      intent?: string;
+      risk?: 'read' | 'write' | 'destructive';
     }
   | {
       /** The call was decided elsewhere (page), timed out, or ended because its

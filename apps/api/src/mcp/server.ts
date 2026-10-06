@@ -20,6 +20,8 @@
 //   (PENDING), then forwards (ALLOW), refuses (DENY) or holds the call for the
 //   user's decision (ASK, approval/pending.ts): approve -> forward with what is
 //   left of the 300 s budget; deny / timeout / client abort / shutdown -> refuse.
+//   Every call is also queued for its advisory intent summary (ADR-0025,
+//   intent/queue.ts): fire-and-forget, never awaited, never read back here.
 //   `/mcp` first splits the name (lib/unifiedNames.ts) and resolves the slug
 //   among the user's own upstreams; anything unresolved is denied and audited.
 //   Both endpoints then take the same path (callTool), so rules, snoozes and
@@ -54,6 +56,9 @@ import { approvals, ApprovalHub, type Decision } from '../approval/pending.js';
 import { approvalDeadline, approvalTimeoutFromEnv, upstreamTimeoutMs } from '../approval/budget.js';
 import { createSnooze, isReadOnly, liveSnoozeUntil, liveSnoozesFor } from '../approval/snooze.js';
 import type { Upstream } from '../generated/prisma/client.js';
+import { intents as defaultIntents } from '../intent/index.js';
+import { NO_INTENT, type IntentQueue } from '../intent/queue.js';
+import { sourceKey } from '../intent/group.js';
 import type { RequestDiagnostics } from './sessions.js';
 
 /** The running build (CI sets APP_VERSION: `0.3.1`, `main`); MCP serverInfo. */
@@ -171,12 +176,15 @@ export interface ProxyDeps {
   hub?: ApprovalHub;
   /** How long an ASK call waits for a decision (capped by the 300 s budget). */
   approvalTimeoutMs?: number;
+  /** The advisory intent summary queue (ADR-0025). */
+  intents?: IntentQueue;
 }
 
 export function makeBuildMcpServer(deps: ProxyDeps = {}) {
   const clock = deps.clock ?? systemClock;
   const hub = deps.hub ?? approvals;
   const approvalTimeoutMs = deps.approvalTimeoutMs ?? approvalTimeoutFromEnv(process.env.APPROVAL_TIMEOUT_MS);
+  const intents = deps.intents ?? defaultIntents;
 
   /** The upstream's instructions: fetched live when it is usable (withUpstream
    * stores the length-capped, scrubbed text; read back), else the stored ones.
@@ -264,6 +272,8 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         decidedAt: receivedAt,
         finishedAt: receivedAt,
         sessionId: call.session?.id ?? null,
+        // No upstream, no tool to describe: nothing to summarize (ADR-0025).
+        intentStatus: intents.enabled ? 'SKIPPED' : 'OFF',
         ...auditDiagnostics(call.diagnostics),
       },
     });
@@ -326,9 +336,23 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         receivedAt,
         approvalId,
         sessionId: call.session?.id ?? null,
+        intentStatus: intents.initialStatus,
         ...auditDiagnostics(call.diagnostics),
       },
     });
+    // ADR-0025: queue the advisory summary. Synchronous and never throws;
+    // nothing below waits for it or reads it. ASK calls are queued right
+    // after hold() so the summary can find them held.
+    const queueIntent = (held: boolean) =>
+      intents.enqueue({
+        auditId: audit.id,
+        userId,
+        source: sourceKey({ sessionId: call.session?.id ?? null, mcpClientId }),
+        receivedAt,
+        approvalId,
+        held,
+      });
+    if (decision.policy !== 'ASK') queueIntent(false);
     const shownName = name.slice(0, 100);
     const shownClient = call.clientName.slice(0, 100);
     const finish = (data: {
@@ -401,9 +425,11 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           snoozable: !awaitingReview(toolState),
           readOnly,
           session: call.session,
+          intent: NO_INTENT(intents.initialStatus),
         },
         approvalId,
       );
+      queueIntent(hub.get(userId, approvalId) !== null);
       // The client hanging up is a denial, never a reason to keep waiting.
       const onAbort = () => hub.abort(approvalId);
       if (signal.aborted) onAbort();

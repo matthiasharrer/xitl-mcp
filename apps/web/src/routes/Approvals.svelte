@@ -48,6 +48,9 @@
     resolved: ({ id }) => {
       list = list.filter((p) => p.id !== id);
     },
+    intent: ({ id, intentStatus, intentSummary, intentRisk, intentLowered }) => {
+      list = list.map((p) => (p.id === id ? { ...p, intentStatus, intentSummary, intentRisk, intentLowered } : p));
+    },
     upstreams: (l) => (faults = l),
     connected: (ok) => (live = ok),
   });

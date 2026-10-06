@@ -49,3 +49,9 @@ export const API_LOG = path.join(E2E_DIR, 'api.log');
 export const PUSH_OUTBOX = path.join(E2E_DIR, 'push-outbox.jsonl');
 // A held (ASK) call waits this long for a decision in e2e instead of 300 s.
 export const APPROVAL_TIMEOUT_MS = 5000;
+
+// Intent summary (ADR-0025): the e2e server runs the deterministic stub model
+// and appends each request's messages here (INTENT_LLM_STUB_LOG); a hanging
+// stub request is aborted after INTENT_LLM_TIMEOUT_MS instead of 60 s.
+export const INTENT_STUB_LOG = path.join(E2E_DIR, 'intent-stub.jsonl');
+export const INTENT_TIMEOUT_MS = 3000;

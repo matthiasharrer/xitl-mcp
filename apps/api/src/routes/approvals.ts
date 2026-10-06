@@ -6,8 +6,11 @@
 //   GET  /            my pending calls
 //   GET  /stream      SSE: `snapshot` (my pending list) on connect, then
 //                     `upstreams` (my upstream faults, ADR-0022), then
-//                     `pending` / `resolved` events for my calls only and
-//                     `upstreams` again whenever my fault list may have changed
+//                     `pending` / `resolved` events for my calls only,
+//                     `intent` {id, intentSummary, intentRisk, intentLowered,
+//                     intentStatus} when a held call's advisory summary
+//                     changed (ADR-0025), and `upstreams` again whenever my
+//                     fault list may have changed
 //   GET  /:id         one call: pending, or its outcome once resolved
 //   POST /:id         { decision: 'approve'|'deny', via: 'page'|'push',
 //                       snoozeMinutes? | snoozeUntilMidnight?,
@@ -23,6 +26,8 @@ import { approvals as defaultHub, ApprovalHub, type PendingCall, type ResolvedEv
 import { MAX_SNOOZE_MINUTES, snoozeUntil } from '../approval/budget.js';
 import { MAX_APPROVAL_STREAMS_PER_USER } from '../lib/limits.js';
 import { faultList } from '../upstream/faults.js';
+import { auditIntentFields } from './audit.js';
+import { NO_INTENT } from '../intent/queue.js';
 import { upstreamStates as defaultStates, type UpstreamStateEvents } from '../upstream/stateEvents.js';
 
 const NOT_FOUND = { error: 'Nicht gefunden.' };
@@ -60,7 +65,15 @@ export function serializePending(call: PendingCall, now: Date) {
     snoozable: call.snoozable,
     readOnly: call.readOnly,
     session: call.session ? { id: call.session.id, createdAt: call.session.createdAt.toISOString() } : null,
+    ...intentFields(call),
   };
+}
+
+/** The advisory summary of a held call (ADR-0025): what the UI shows, never
+ * the prompt or the raw answer. */
+export function intentFields(call: Pick<PendingCall, 'intent'>) {
+  const i = call.intent ?? NO_INTENT('OFF');
+  return { intentStatus: i.status, intentSummary: i.summary, intentRisk: i.risk, intentLowered: i.lowered };
 }
 
 function parseArgs(raw: string): unknown {
@@ -95,6 +108,7 @@ async function resolvedView(userId: number, id: string) {
     receivedAt: a.receivedAt.toISOString(),
     decidedAt: a.decidedAt?.toISOString() ?? null,
     session: a.session ? { id: a.session.id, createdAt: a.session.createdAt.toISOString() } : null,
+    ...auditIntentFields(a),
   };
 }
 
@@ -147,6 +161,9 @@ export function makeApprovalRoutes(
       const onResolved = (ev: ResolvedEvent) => {
         if (ev.userId === userId) push('resolved', { id: ev.id, kind: ev.decision.kind });
       };
+      const onIntent = (call: PendingCall) => {
+        if (call.userId === userId) push('intent', { id: call.id, ...intentFields(call) });
+      };
       // Fault list (ADR-0022): recomputed from the DB on every event of this
       // user's upstreams; chained so the lists arrive in order.
       let faults: Promise<void> = Promise.resolve();
@@ -167,6 +184,7 @@ export function makeApprovalRoutes(
       };
       hub.on('pending', onPending);
       hub.on('resolved', onResolved);
+      hub.on('intent', onIntent);
       hub.on('shutdown', close);
       stream.onAbort(close);
       c.req.raw.signal?.addEventListener('abort', close, { once: true });
@@ -194,6 +212,7 @@ export function makeApprovalRoutes(
         offStates();
         hub.off('pending', onPending);
         hub.off('resolved', onResolved);
+        hub.off('intent', onIntent);
         hub.off('shutdown', close);
         release();
       }

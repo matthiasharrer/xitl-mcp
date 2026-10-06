@@ -2,6 +2,7 @@
   // #/verlauf/<id>: one audit entry with arguments and the result excerpt.
   import Spinner from '../lib/Spinner.svelte';
   import SessionLine from '../lib/SessionLine.svelte';
+  import IntentSummary from '../lib/IntentSummary.svelte';
   import { api, ApiError, decisionPathText, messageOf, OUTCOME_LABEL, POLICY_LABEL, type AuditDetail } from '../lib/api';
 
   let { id }: { id: number } = $props();
@@ -58,6 +59,7 @@
         <dt>Fertig</dt><dd>{fmt(e.finishedAt)}</dd>
       </dl>
       <SessionLine session={e.session} />
+      <IntentSummary intent={e} meta={{ model: e.intentModel, at: e.intentAt }} />
       <h3 class="section-title">Argumente</h3>
       <pre class="args" aria-label="Argumente">{argsText(e.arguments)}</pre>
       <h3 class="section-title">Ergebnis{e.isError ? ' (Fehler)' : ''}</h3>

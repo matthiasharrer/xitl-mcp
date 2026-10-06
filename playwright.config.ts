@@ -11,6 +11,8 @@ import {
   BASE_URL,
   FAKE_UPSTREAM,
   DATABASE_URL,
+  INTENT_STUB_LOG,
+  INTENT_TIMEOUT_MS,
   MCP_TOKEN,
   OUTBOUND_ALLOW_PRIVATE,
   PORT,
@@ -58,6 +60,10 @@ export default defineConfig({
         PUSH_OUTBOX,
         APPROVAL_TIMEOUT_MS: String(APPROVAL_TIMEOUT_MS),
         OUTBOUND_ALLOW_PRIVATE,
+        // ADR-0025: the deterministic stub model (never INTENT_LLM_URL in e2e).
+        INTENT_LLM_STUB: '1',
+        INTENT_LLM_STUB_LOG: INTENT_STUB_LOG,
+        INTENT_LLM_TIMEOUT_MS: String(INTENT_TIMEOUT_MS),
       },
     },
     {

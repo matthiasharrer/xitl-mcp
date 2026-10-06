@@ -4,6 +4,9 @@
 //
 // - 'pending'  -> {type:'approval', id, upstream, tool, summary, expiresAt},
 //                 urgency high, TTL = seconds until the deadline.
+// - 'intent'   -> ADR-0025: the summary of a still-held call is there: the
+//                 'approval' message again with update:true, intent, risk
+//                 (sw.js replaces the open notification silently, or drops it).
 // - 'resolved' -> {type:'resolved', id, outcome} when the call was decided on
 //                 the page, expired, or ended because its client was revoked
 //                 / its upstream removed ('revoked') or its client paused
@@ -16,7 +19,7 @@
 import { prisma } from '../db.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { sendToSubscriptions, type SenderDeps } from '../lib/push.js';
-import { approvalMessage } from './message.js';
+import { approvalMessage, approvalUpdateMessage } from './message.js';
 import type { ApprovalHub, PendingCall, ResolvedEvent } from './pending.js';
 
 async function subsOf(userId: number) {
@@ -34,6 +37,15 @@ export function wireApprovalPush(hub: ApprovalHub, opts: { clock?: Clock; deps?:
       const ttl = Math.max(1, Math.ceil((call.deadline.getTime() - clock.now().getTime()) / 1000));
       await sendToSubscriptions(await subsOf(call.userId), approvalMessage(call), { ttl, urgency: 'high' }, opts.deps);
     })().catch((e) => console.error('approval push failed', e instanceof Error ? e.name : ''));
+  });
+
+  hub.on('intent', (call: PendingCall) => {
+    const msg = approvalUpdateMessage(call);
+    if (!msg) return;
+    void (async () => {
+      const ttl = Math.max(1, Math.ceil((call.deadline.getTime() - clock.now().getTime()) / 1000));
+      await sendToSubscriptions(await subsOf(call.userId), msg, { ttl, urgency: 'normal' }, opts.deps);
+    })().catch((e) => console.error('intent push failed', e instanceof Error ? e.name : ''));
   });
 
   hub.on('resolved', (ev: ResolvedEvent) => {

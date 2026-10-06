@@ -3,6 +3,26 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-06 — Intent summary from the local Qwen (ADR-0025)
+
+- Matthias asked for an LLM-generated intent per call (local Qwen 3.6 via
+  llama.cpp, endpoint from rezepte), with session context and KV-cache reuse;
+  push raw first, summary later. Lead measured the endpoint (cache works:
+  prompt_n 1764 → 37 with an identical prefix) and an injection that made the
+  model rate a write as "lesend" → risk floor from tool annotations.
+- Matthias decided: all calls, silent replacement push, no tool results,
+  thinking off. One Opus agent built it; lead reviewed server.ts, hub, store
+  scoping, prompt encoding, sw.js; found and fixed a SW race (update after a
+  lock-screen decision turned "Erlaubt" back into a request).
+- Matthias added a llama.cpp alias `qwen` (live: `/v1/models` aliases
+  `qwen`, `qwen3.6:35b-a3b`); always use the alias. Default
+  `INTENT_LLM_MODEL=qwen`; llama.cpp echoes the requested alias as `model`,
+  so `intentModel` says `qwen`, not the version.
+- GitOps env + NetworkPolicy done by Matthias's agent ahead of the release.
+- Open: MG-08 on the deployed app (incl. whether a dropped update push makes
+  Android show Chrome's generic "updated in the background" notification);
+  system prompt tends to repeat itself between intent and "Auffällig".
+
 ## 2026-10-05 — Pause an access; housekeeping
 
 - Matthias asked for the housekeeping (sessions TTL, static OPTIONS) plus

@@ -273,8 +273,33 @@ model AuditEntry {
   cloudTraceId    String?
   anthropicClient String?
 
+  /// Intent summary (ADR-0025): advisory model output, never read by policy,
+  /// approval or forwarding. Status OFF (feature off) | PENDING (queued) |
+  /// DONE | FAILED (model error/garbage/timeout) | SKIPPED (queue overflow,
+  /// restart, nothing to summarize).
+  intentStatus    String      @default("OFF")
+  /// What the UI shows: intent (+ concerns), length-capped, plain text.
+  intentSummary   String?
+  /// Shown risk = max(tool hint, model risk) on read < write < destructive.
+  intentRisk      String?
+  /// The model's own (attacker-influenced) risk verdict.
+  intentModelRisk String?
+  /// The model rated lower than the tool's own hint (UI warning).
+  intentLowered   Boolean?
+  intentModel     String?
+  intentAt        DateTime?
+  /// The exact user-turn text sent for this call and the raw answer: the next
+  /// call of the context replays them byte-identically (KV cache). Never
+  /// exposed by the API.
+  intentPrompt    String?
+  intentAnswer    String?
+  /// The context (append-only conversation) this call belongs to: the audit
+  /// id of the context's first call.
+  intentContextId Int?
+
   @@index([userId, receivedAt])
   @@index([sessionId])
+  @@index([intentContextId])
 }
 
 /// One MCP session on /mcp/<slug> (ADR-0016): created on a 2025-era

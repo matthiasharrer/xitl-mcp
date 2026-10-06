@@ -15,6 +15,7 @@ import { approvals } from './approval/pending.js';
 import { wireApprovalPush } from './approval/notify.js';
 import { wireUpstreamPush } from './upstream/notify.js';
 import { upstreamStates } from './upstream/stateEvents.js';
+import { wireIntents } from './intent/index.js';
 import { mountMcp } from './mcp/mount.js';
 import { mountStatic } from './static.js';
 import { MAX_API_BODY_BYTES, MAX_MCP_BODY_BYTES } from './lib/limits.js';
@@ -64,6 +65,8 @@ app.route('/api/push', push);
 wireApprovalPush(approvals);
 // An upstream that becomes unreachable / needs a reconnect is pushed too (ADR-0022).
 wireUpstreamPush(upstreamStates);
+// Advisory intent summaries reach held calls (SSE `intent`, replacement push; ADR-0025).
+wireIntents();
 
 app.onError((err, c) => {
   console.error(err);

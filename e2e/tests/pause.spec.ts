@@ -10,7 +10,7 @@ import { BASE_URL } from '../support/paths.js';
 import { INITIALIZE, LIST, deleteMcp, openMcpSession, postMcp, runOAuthFlow } from '../support/mcpClient.js';
 import { callTool, connectedUpstream, fakeState } from '../support/upstream.js';
 import { askUpstream, decide, openStream, pendingList, startCall, waitPending } from '../support/approval.js';
-import { outbox, subscribe, unsubscribe } from '../support/push.js';
+import { firstPushes, outbox, subscribe, unsubscribe } from '../support/push.js';
 import { loadServiceWorker } from '../support/sw.js';
 
 test.use({ extraHTTPHeaders: {} });
@@ -238,7 +238,7 @@ test('TC-104 Wartende Aufrufe: Pausieren beendet sie sofort (+paused), fremde bl
     const pA = await waitPending(request, up.id, 'add_item', PA_HELD);
     const heldB = startCall(request, up.slug, second.accessToken, 'delete_all');
     const pB = await waitPending(request, up.id, 'delete_all', PA_HELD);
-    await expect.poll(() => outbox(ep).filter((e) => e.payload.type === 'approval').length).toBe(2);
+    await expect.poll(() => firstPushes(ep).filter((e) => e.payload.type === 'approval').length).toBe(2);
     for (const e of outbox(ep)) await sw.push(e.payload);
 
     // pause the first client: its call ends denied at once

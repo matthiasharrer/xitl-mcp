@@ -6,6 +6,7 @@
   import ApprovalCard from '../lib/ApprovalCard.svelte';
   import Spinner from '../lib/Spinner.svelte';
   import SessionLine from '../lib/SessionLine.svelte';
+  import IntentSummary from '../lib/IntentSummary.svelte';
   import { api, ApiError, decisionPathText, messageOf, OUTCOME_LABEL, type PendingApproval, type ResolvedApproval } from '../lib/api';
   import { openApprovalStream } from '../lib/approvalStream';
 
@@ -27,7 +28,13 @@
   }
   load();
 
-  const close = openApprovalStream({ resolved: (ev) => ev.id === id && load() });
+  const close = openApprovalStream({
+    resolved: (ev) => ev.id === id && load(),
+    // ADR-0025: the summary of this held call arrived.
+    intent: ({ id: evId, intentStatus, intentSummary, intentRisk, intentLowered }) => {
+      if (evId === id && item?.state === 'pending') item = { ...item, intentStatus, intentSummary, intentRisk, intentLowered };
+    },
+  });
   onDestroy(close);
 
   const dateTime = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'medium' });
@@ -64,6 +71,7 @@
       </div>
       <SessionLine session={r.session} />
       <p class="outcome-text">Nicht mehr offen: {decisionPathText(r.decisionPath)}.</p>
+      <IntentSummary intent={r} />
       <pre class="args" aria-label="Argumente">{argsText(r.arguments)}</pre>
       <p class="hint">
         Eingegangen {dateTime.format(new Date(r.receivedAt))}{r.decidedAt ? `, entschieden ${dateTime.format(new Date(r.decidedAt))}` : ''}
