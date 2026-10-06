@@ -94,11 +94,10 @@
   user's goal"). As of 2026-10-06 its decision head needs llama.cpp PR #29831
   (`/v1/systemone`), not in stock llama.cpp. Until then: Qwen, model behind
   the seam.
-- **Consent renames an existing OAuth client** (noticed 2026-10-06, not
-  confirmed on prod): all `/mcp/<slug>` share one AS, so a client adding a
-  second connector for another slug probably reuses its DCR registration;
-  the consent page then renames that client (oauthRoutes.ts POST) instead of
-  creating a new one, e.g. the Claude.ai access becomes "Arbeit". Local
-  repro with a fresh client showed both registrations correctly (xitl and
-  rezepte side). If it shows up: show the current name on the consent page
-  and say that it is an existing access.
+- **Fresh DCR on a manual reconnect** (2026-10-06): if an upstream deletes
+  xitl's registration, "Neu verbinden" keeps sending the stored client_id and
+  fails ("Unbekannter oder abgelaufener client_id-Parameter") until the URL
+  changes (which resets `oauthClient`). Registering anew on every manual
+  connect fixes it; cost: stale "xitl" entries pile up at the upstream. Seen
+  only via the self-loop (ADR-0027), which was the actual cause of the
+  "missing registration" report; the suspected consent rename was not it.

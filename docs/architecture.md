@@ -224,6 +224,15 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   agent error); during connect -> German `ConnectError`; during refresh ->
   `RefreshUnavailable` (transient, tokens kept, not "reconnect").
 
+### Self as upstream (ADR-0027, TC-130…131)
+
+- `lib/selfLoop.ts`. Save time: create / URL-changing PATCH on xitl's own
+  `externalOrigin(c)` → 400 `own_address`. Request time: `withUpstream`'s fetch
+  and `oauthFetchFor` set `X-Xitl-Instance` (random per process, set after any
+  configured header); a middleware in `app.ts` on `/mcp`, `/mcp/*`,
+  `/oauth/*`, `/.well-known/*` answers 508 `loop_detected` to our own id,
+  before auth/consent/DCR.
+
 ### Proxy core (ADR-0004, ADR-0008, ADR-0014, TC-19…23)
 
 - `/mcp/<slug>` (and `/mcp`, next section) request handling stays stateless: `createMcpHandler(buildMcpServer)`;

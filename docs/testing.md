@@ -314,6 +314,13 @@ The e2e server runs with the stub model (`INTENT_LLM_STUB`, ADR-0003). The stub 
 | TC-124 | Lifting. `GET /api/upstreams/:id/snoozes` lists live pauses of both effects (scope, effect, toolName, client name, until), only the caller's; `DELETE /api/upstreams/:id/snoozes/:snoozeId` removes one (another user's → 404); afterwards the tool asks again. |
 | TC-125 | ⚡ UI at 390×844. Card and detail: under Ablehnen a row "Ablehnen und nicht mehr fragen bei …" with scope (dieses Tool / ganz <Upstream>) and 15 Min. / 1 Std. / Heute; toast confirms. Regeln of the upstream: section "Aktive Pausen" with chip Erlaubt/Gesperrt, scope, client, until, "Aufheben". No horizontal scroll. |
 
+### Self as upstream (ADR-0027): `e2e/tests/self-loop.spec.ts`, `apps/api/src/lib/selfLoop.test.ts`
+
+| ID    | Case | How |
+| ----- | ---- | --- |
+| TC-130 | Save time. Unit: `isOwnOrigin` (host case and default port normalized; other port, scheme or host → false; garbage → false); `isOwnRequest` only for our own id. e2e: create with a URL on xitl's own origin (`/mcp/<slug>`, `/mcp`, `/`), even with `allowInternal: true` → 400 `own_address` (German), no row; PATCH of an existing upstream to such a URL → 400, URL unchanged. |
+| TC-131 | Request time, fails closed. Outer upstream = `http://localhost:<port>/mcp/<inner>` (an alias the save check can't see; HEADER auth with an inner access token): `tools/list` via outer returns none of inner's tools and the inner token's `lastUsedAt` stays null (refused 508 before the bearer gate). Control: the same request to inner with a *foreign* `X-Xitl-Instance` → 200, tools listed. Mutation (lead, 2026-10-06): with the guard disabled, TC-131 fails (tools come through). |
+
 ## Manual gates
 
 Things no script can prove. Run on the deployed instance before calling
@@ -337,6 +344,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 24 | 2026-10-06 | TC-01…131, unit 389 (api 379 + web 10), e2e 149 (ADR-0027 self-loop) | all passed (lead built it directly, small). Mutation: without the request-time guard TC-131 fails. |
 | 23 | 2026-10-06 | TC-01…129 (TC-128 unit only), unit 378, e2e 147 | all passed (lead; small changes built by the lead, no separate runner this time). |
 | 22 | 2026-10-06 | TC-01…127, unit 374 (api 364 + web 10) (ADR-0025 v2 + title, ADR-0026 deny pause, TC-127) | all passed (implementer, then lead independently: e2e 147). Real Qwen (alias `qwen`, budget 128): 3.6–4.9 s per request, prefix hit every call, archive = write, "Richtungswechsel" flagged from call 5/6, objects named from results. Lead replaced in-domain title examples (Qwen copied "Putzaufgabe Bad EG anlegen" verbatim). |
 | 21 | 2026-10-06 | TC-01…116, unit 341 (api 331 + web 10) (ADR-0025 intent summary) | all passed (implementer, then lead independently: e2e 134). Lead found a SW race in review (update push re-opening a request after a lock-screen decision), fixed + case added to TC-112. Real-endpoint smoke (alias `qwen`): cache_n 0 / 508 / 653, model 1.1–2.1 s. |

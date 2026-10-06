@@ -3,6 +3,21 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-06 (evening) — Self-loop guard, Clef research
+
+- Matthias saw no registration in Rezepte for his second Rezepte upstream:
+  he had entered xitl's own `/mcp/rezepte` as its URL (xitl rezepte-arbeit ->
+  xitl rezepte -> rezepte). Local repro with both apps (throwaway rezepte on
+  :3100 with a DB copy, since dev rezepte runs without `MCP_TOKEN`) showed
+  both OAuth directions working, which ruled out a real registration bug.
+  Built ADR-0027 (save-time `own_address` + per-process `X-Xitl-Instance`
+  loop guard, 508), TC-130…131; full suite green.
+- **Gotcha:** TC-128/129 were already taken (late session); check the highest
+  TC in testing.md, not the worklog, before numbering.
+- **Gotcha:** `pkill -f "<pattern>"` inside a Bash call matches the calling
+  shell itself (exit 144); kill by PID.
+- Discussed "Pause mit KI-Prüfung" and Cloudflare Clef-flash (ideas.md).
+
 ## 2026-10-06 (late) — A pause settles the covered held calls
 
 - Matthias tested xitl from his work agent platform: ~20 held `get_recipe`
