@@ -77,3 +77,28 @@
 - **stdio upstreams:** wrap them into HTTP elsewhere and connect as usual.
 - **Cache `tools/list` on `/mcp`** for a few seconds per user + client if the
   fan-out (one upstream connection per upstream per list) ever shows up.
+- **Pause with AI check** (Matthias, 2026-10-06): "15 Min erlauben, aber die
+  KI prüft, ob es noch zum Intent passt". Safe shape: the check can only
+  *narrow* a pause the human granted (passt -> forward; passt nicht / LLM
+  down / slow / garbage -> back to ASK with push), so a fully injected model
+  gets at most what a blind pause gives today. Anchor = the call the pause was
+  granted on (+ its intent summary), frozen at grant time (no drift via
+  call-by-call comparison); optionally one line typed by the user. Separate
+  prompt from the summary (ADR-0006), strict `{passt, grund}` with grammar,
+  priority over summaries in the queue (2 shared llama.cpp slots). ADR-0006's
+  "writes always escalate" needs an amendment (the human already allowed
+  them); destructive could still always go back to the human. Model
+  candidate: Cloudflare **Clef-flash** (9B, Qwen3.5-9B base, Apache 2.0,
+  GGUF 6.5 GB Q4): a decision model returning per-option probabilities in one
+  forward pass, pitched for exactly this ("does the tool call match the
+  user's goal"). As of 2026-10-06 its decision head needs llama.cpp PR #29831
+  (`/v1/systemone`), not in stock llama.cpp. Until then: Qwen, model behind
+  the seam.
+- **Consent renames an existing OAuth client** (noticed 2026-10-06, not
+  confirmed on prod): all `/mcp/<slug>` share one AS, so a client adding a
+  second connector for another slug probably reuses its DCR registration;
+  the consent page then renames that client (oauthRoutes.ts POST) instead of
+  creating a new one, e.g. the Claude.ai access becomes "Arbeit". Local
+  repro with a fresh client showed both registrations correctly (xitl and
+  rezepte side). If it shows up: show the current name on the consent page
+  and say that it is an existing access.
