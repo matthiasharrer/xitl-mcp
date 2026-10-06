@@ -22,6 +22,14 @@
 - New finding (Matthias): Claude.ai web sends one trace id per user message
   (ADR-0016 measurement); generic chat/turn correlation is in ideas.md.
 - Released `v0.7.0` at Matthias's request (asked to release once done).
+- **The `v0.7.0` tag build failed** at "Schema matches migrations": run from
+  the repo root without prisma.config.ts, Prisma 7.10's `migrate diff` prints
+  nothing and exits 0 even for a missing migration, and sometimes crashes
+  ("Error in Schema engine:"). The check never checked. Fixed (`a96551e`,
+  npm script in apps/api, exit 2 fails, tool errors retried); same fix in
+  rezepte/haushalts-todos (`db:schema:check`; rezepte already has a
+  `db:migrate:check` for data safety). No release (Matthias); `v0.7.0` still
+  needs its failed run re-run to get an image.
 
 ## 2026-10-06 — Intent summary from the local Qwen (ADR-0025)
 
