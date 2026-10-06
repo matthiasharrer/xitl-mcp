@@ -27,3 +27,4 @@
 | 0023 | [Browser clients: allowed origins per access token (CORS on `/mcp*`)](0023-browser-origins-per-token.md) | Accepted |
 | 0024 | [An access (MCP client) can be paused and resumed](0024-pause-an-access.md) | Accepted |
 | 0025 | [Intent summary from the local LLM: advisory, asynchronous, append-only context](0025-intent-summary.md) | Accepted |
+| 0026 | ["Ablehnen und nicht mehr fragen": a deny pause per tool or upstream](0026-deny-pause.md) | Accepted |

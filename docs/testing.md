@@ -4,7 +4,7 @@
 > every time. **This process is binding.** Cases are written from what a
 > feature *should* do; a script is one way of running a case.
 >
-> _Last updated: 2026-10-06 (intent summary TC-106…116, MG-08)_
+> _Last updated: 2026-10-06 (intent v2 TC-117…120, deny pause TC-121…125)_
 
 ## Running
 
@@ -291,6 +291,27 @@ The e2e server runs with the stub model (`INTENT_LLM_STUB`, ADR-0003). The stub 
 | TC-115 | Outbound (unit). The LLM request goes through `outboundFetch` with exactly the `INTENT_LLM_URL` host as allowed internal address (the no-`fetch(` scan stays green); redirects refused; `INTENT_LLM_API_KEY` is sent as bearer and never logged; request timeout 60 s; response size capped. |
 | TC-116 | ⚡ UI at 390×844: card with summary + risk chip (Lesen/Schreiben/Destruktiv) + "KI-Zusammenfassung, beratend" label + warning line when lowered; "Rohdaten" expandable; long intent wraps, no horizontal scroll; while pending a quiet "Zusammenfassung wird erstellt…". |
 
+### Intent summary v2 (ADR-0025 amendment): unit tests, `e2e/tests/intent.spec.ts`
+
+| ID    | Case | How |
+| ----- | ---- | --- |
+| TC-117 | Request (unit, model.ts). With `INTENT_LLM_THINK_BUDGET` unset → body has `chat_template_kwargs.enable_thinking: true`, `thinking_budget_tokens: 128`, `response_format: json_object`, `max_tokens` = answer cap + budget; `=0` → thinking off, no budget field; invalid/negative → 128; capped at a max in limits.ts. Only `message.content` is parsed, never `reasoning_content` (a reasoning text containing a JSON object does not become the answer). |
+| TC-118 | Results in context (unit, prompt.ts + queue). Each earlier call's final outcome and its result excerpt (the audit `resultText`, ≤ 2000 chars) are reported **exactly once**, inside the JSON block, in the first turn after the call became final; a call still pending is reported as pending and again once final. An excerpt containing `</call>`, newlines and quotes stays JSON data (no breakout). Append-only still holds (TC-106's byte-identical prefix). Results of DENIED/TIMED_OUT calls are absent (none exist). |
+| TC-119 | Prompt v2 (unit, snapshot-ish). The system prompt says: describe what, not why; names only from earlier results; call numbers are not ids; destructive = hard to undo (permanent delete, overwrite, sending), undoable archiving/completing = write; patterns (change of direction against the preceding calls, removing what was just created, sweeping, continuing after a denial) with a count instead of repetition. |
+| TC-120 | e2e with the stub: an ALLOW call whose upstream result contains a marker, then a second call: the recorded stub request for call 2 contains call 1's result excerpt inside the block and call 1's outcome; call 3's request does not repeat call 1's result. |
+| TC-126 | AI title. The model's JSON `title` (3–5 words) is stored as `intentTitle` (trimmed, control chars removed, ≤ 60 chars; missing → null, summary still DONE) and exposed in audit list/detail and pending/SSE only when DONE. ⚡ UI at 390×844: Verlauf list, session detail and Freigaben card/detail show the title as headline and the tool name small/monospace in the meta line; without a title the row looks as before; a title arriving via SSE switches in place. Rendered as text (a title with `<b>` shows literally). |
+| TC-127 | "Pro Client" in Regeln lists every client that can reach the upstream: OAuth clients, one-upstream tokens of THIS upstream, **all-upstreams tokens** (ADR-0018; were missing until 2026-10-06), paused ones included with a "pausiert" chip. A per-client rule for an all-upstreams token can be set and applies on `/mcp` (ALLOW → forwarded, DENY → denied). A one-upstream token of upstream A is not listed at B; PUT/DELETE for it at B → 404. |
+
+### Deny pause (ADR-0026): `e2e/tests/deny-pause.spec.ts`, `apps/api/src/lib/policy.test.ts`
+
+| ID    | Case | How |
+| ----- | ---- | --- |
+| TC-121 | Policy (unit, precedence table). A live DENY pause matching the call → DENY `snooze-deny` against: upstream default ALLOW/ASK, tool rule ALLOW, client rule ALLOW, live ALLOW pause, new tool, changed tool. Unknown tool → still `unknown-tool`. Expired pause (until ≤ now) → no effect. A pause for another client, another upstream or (TOOL scope) another tool → no effect. UPSTREAM scope matches every tool of that upstream. A row with an unrecognised effect → treated as DENY (fail closed). |
+| TC-122 | API. `POST /api/approvals/:id {decision:'deny', snoozeMinutes:15, snoozeScope:'TOOL'|'UPSTREAM'}` (and `snoozeUntilMidnight`) → the held call ends DENIED (`+denied:page`), a DENY snooze row for (user, upstream, client, scope, tool) exists; `READONLY` scope with deny → 400 (German); duration over the max → 400; another user's id → 404, nothing stored. Deny without snooze fields behaves as today. |
+| TC-123 | Effect on later calls. After a TOOL deny pause, the same client calling the same tool → immediate error (no hold, no push), German text names tool and until-time, audit `DENIED` `snooze-deny`, fake upstream counts 0 requests; another tool of the upstream still asks; another client still asks. After an UPSTREAM deny pause every tool of that upstream is refused for that client, including one with an explicit ALLOW rule. Allow pause + deny pause both live → deny wins. |
+| TC-124 | Lifting. `GET /api/upstreams/:id/snoozes` lists live pauses of both effects (scope, effect, toolName, client name, until), only the caller's; `DELETE /api/upstreams/:id/snoozes/:snoozeId` removes one (another user's → 404); afterwards the tool asks again. |
+| TC-125 | ⚡ UI at 390×844. Card and detail: under Ablehnen a row "Ablehnen und nicht mehr fragen bei …" with scope (dieses Tool / ganz <Upstream>) and 15 Min. / 1 Std. / Heute; toast confirms. Regeln of the upstream: section "Aktive Pausen" with chip Erlaubt/Gesperrt, scope, client, until, "Aufheben". No horizontal scroll. |
+
 ## Manual gates
 
 Things no script can prove. Run on the deployed instance before calling
@@ -314,6 +335,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 22 | 2026-10-06 | TC-01…127, unit 374 (api 364 + web 10) (ADR-0025 v2 + title, ADR-0026 deny pause, TC-127) | all passed (implementer, then lead independently: e2e 147). Real Qwen (alias `qwen`, budget 128): 3.6–4.9 s per request, prefix hit every call, archive = write, "Richtungswechsel" flagged from call 5/6, objects named from results. Lead replaced in-domain title examples (Qwen copied "Putzaufgabe Bad EG anlegen" verbatim). |
 | 21 | 2026-10-06 | TC-01…116, unit 341 (api 331 + web 10) (ADR-0025 intent summary) | all passed (implementer, then lead independently: e2e 134). Lead found a SW race in review (update push re-opening a request after a lock-screen decision), fixed + case added to TC-112. Real-endpoint smoke (alias `qwen`): cache_n 0 / 508 / 653, model 1.1–2.1 s. |
 | 20 | 2026-10-05 | ADR-0024 on the deployed `v0.5.0` (manual, Matthias) | passed (reported): pausing an access works as intended. |
 | 19 | 2026-10-05 | TC-01…105, unit 289 (api 279 + web 10) (ADR-0024 pause, session expiry, static OPTIONS, resolved push on revoke/pause) | all passed (implementer, then lead independently: e2e 124). Mutation: without the gate's pause check TC-103 fails. |

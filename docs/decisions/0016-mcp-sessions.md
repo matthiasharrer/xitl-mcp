@@ -73,6 +73,22 @@ Four headless Claude Code runs ("chats"), two `list_tasks` calls each:
   gaps per client (decision with Matthias). The per-call diagnostics stay
   (cheap, and a future client may send a chat id).
 
+## Measurement (2026-10-06, Matthias, Claude.ai web on `v0.6.0`)
+
+Claude.ai **web** (`x-anthropic-client: ClaudeAI`, UA `Claude-User`,
+protocol 2026-07-28, clientInfo `Anthropic/ClaudeAI 1.0.0`): `traceparent`
+and `x-cloud-trace-context` carry the same trace id, and it is **the same for
+all tool calls of one user message** (one assistant turn) and new for the next
+message in the same chat. This differs from the 2026-10-05 measurement of the
+claude.ai connector *used from Claude Code* (`x-anthropic-client:
+ClaudeCode`), where it changed on every call. Single observation so far (one
+chat, two messages); not yet checked with two chats in parallel.
+
+So for Claude.ai web a trace id = one turn ("Nachricht"), not one chat. Uses
+(ideas.md): sub-groups per message in Verlauf, separating parallel chats
+whose turns overlap, and a "new user message" marker for the intent model.
+Client-sent and unauthenticated: grouping/advisory only, never policy.
+
 ## Amendment (2026-10-05): sessions expire
 
 Sessions had no end unless the client sent `DELETE`, which almost no client

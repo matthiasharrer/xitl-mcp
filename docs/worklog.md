@@ -3,6 +3,26 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-06 (later) — Intent v2, AI titles, deny pause, `v0.7.0`
+
+- Matthias's first real test on `v0.6.0` (create 3 tasks, then archive all,
+  denied): summaries invented motives, repeated themselves, never named
+  objects. Lead benchmarked prompt/thinking/results variants against the real
+  Qwen (ADR-0025 amendment table). Matthias: thinking budget 128 (≤ 5 s ok),
+  results in the context ("the upstream is what we protect"), archiving stays
+  write, flag the change of direction instead. Plus a 3–5 word AI title as
+  headline, and "Ablehnen und nicht mehr fragen" (ADR-0026). He also found
+  all-upstreams tokens missing in "Pro Client" (TC-127).
+- One Opus agent built all of it. Lead reviewed policy.ts, snooze.ts, the
+  server deny path and the approval route line by line; fixed the title
+  examples (copied verbatim by Qwen).
+- **Gotcha (lead):** `git commit -am` for docs while the agent was still
+  working swept its code into six "docs" commits; caught before push,
+  soft-reset and re-committed. Commit docs by path while an agent runs.
+- New finding (Matthias): Claude.ai web sends one trace id per user message
+  (ADR-0016 measurement); generic chat/turn correlation is in ideas.md.
+- Released `v0.7.0` at Matthias's request (asked to release once done).
+
 ## 2026-10-06 — Intent summary from the local Qwen (ADR-0025)
 
 - Matthias asked for an LLM-generated intent per call (local Qwen 3.6 via
