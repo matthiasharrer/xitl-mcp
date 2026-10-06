@@ -6,9 +6,9 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
-import { MAX_INTENT_RESPONSE_BYTES } from '../lib/limits.js';
+import { INTENT_ANSWER_MAX_TOKENS, INTENT_THINK_BUDGET_MAX, MAX_INTENT_RESPONSE_BYTES } from '../lib/limits.js';
 import { OutboundBlocked, outboundFetch } from '../lib/outbound.js';
-import { llamaEndpoint, llamaModel, intentModelFromEnv, stubModel } from './model.js';
+import { intentThinkBudgetFromEnv, llamaEndpoint, llamaModel, intentModelFromEnv, requestBody, stubModel } from './model.js';
 import { callTurn, contextMessages, type ChatMessage } from './prompt.js';
 
 const KEY = 'sk-intent-secret-key-0123456789';
@@ -19,7 +19,7 @@ interface Seen {
   body: any;
 }
 const seen: Seen[] = [];
-let mode: 'ok' | 'redirect' | 'huge' | 'hang' | '500' = 'ok';
+let mode: 'ok' | 'redirect' | 'huge' | 'hang' | '500' | 'reasoning' | 'reasoning-only' = 'ok';
 let server: http.Server;
 let port = 0;
 let other: http.Server;
@@ -45,6 +45,14 @@ beforeAll(async () => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ choices: [{ message: { content: 'x'.repeat(MAX_INTENT_RESPONSE_BYTES + 10) } }] }));
       }
+      if (mode === 'reasoning' || mode === 'reasoning-only') {
+        // Thinking on: llama.cpp returns the thinking separately. A JSON
+        // object in it must never become the answer.
+        const message: Record<string, unknown> = { reasoning_content: 'Hmm. {"intent":"AUS DEM DENKEN","risk":"read"}' };
+        if (mode === 'reasoning') message.content = '{"intent":"ok","risk":"write"}';
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ choices: [{ message }] }));
+      }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ model: 'qwen3.6:35b-a3b', choices: [{ message: { content: '{"intent":"ok","risk":"read"}' } }], timings: { prompt_n: 37, cache_n: 1823 } }));
     });
@@ -66,7 +74,7 @@ afterAll(() => {
 
 const messages: ChatMessage[] = [
   ...contextMessages([]),
-  { role: 'user', content: callTurn({ position: 1, call: { upstream: 'H', tool: 't', description: null, annotations: null, args: {} }, describe: true, earlier: [] }) },
+  { role: 'user', content: callTurn({ position: 1, call: { upstream: 'H', tool: 't', description: null, annotations: null, args: {} }, describe: true }) },
 ];
 
 /** outboundFetch with an EMPTY env exception list: only the model's own allowance applies. */
@@ -101,12 +109,14 @@ describe('llamaModel (TC-115)', () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]!.path).toBe('/v1/chat/completions');
     expect(seen[0]!.auth).toBe(`Bearer ${KEY}`);
+    // TC-117: thinking on with the default budget of 128.
     expect(seen[0]!.body).toEqual({
       model: 'qwen',
       messages,
-      max_tokens: 300,
+      max_tokens: 300 + 128,
       temperature: 0.2,
-      chat_template_kwargs: { enable_thinking: false },
+      chat_template_kwargs: { enable_thinking: true },
+      thinking_budget_tokens: 128,
       response_format: { type: 'json_object' },
     });
     expect(logs.some((l) => /prompt_n=37, cache_n=1823/.test(l))).toBe(true);
@@ -177,12 +187,59 @@ describe('model selection', () => {
     const stub = stubModel();
     const ask = (args: unknown) =>
       stub.complete(
-        [...contextMessages([]), { role: 'user', content: callTurn({ position: 1, call: { upstream: 'H', tool: 'del', description: null, annotations: null, args }, describe: false, earlier: [] }) }],
+        [...contextMessages([]), { role: 'user', content: callTurn({ position: 1, call: { upstream: 'H', tool: 'del', description: null, annotations: null, args }, describe: false }) }],
         new AbortController().signal,
       );
-    expect(JSON.parse((await ask({})).text)).toEqual({ intent: 'Stub: del', risk: 'write' });
-    expect(JSON.parse((await ask({ __stub: 'harmlos' })).text)).toEqual({ intent: 'Stub: del', risk: 'read' });
+    expect(JSON.parse((await ask({})).text)).toEqual({ title: 'Stub-Titel del', intent: 'Stub: del', risk: 'write' });
+    expect(JSON.parse((await ask({ __stub: 'harmlos' })).text)).toEqual({ title: 'Stub-Titel del', intent: 'Stub: del', risk: 'read' });
     expect((await ask({ __stub: 'garbage' })).text).toBe('Das ist kein JSON.');
     await expect(ask({ __stub: 'fail' })).rejects.toThrow();
+  });
+});
+
+// TC-117: the thinking budget and what is parsed.
+describe('thinking (TC-117)', () => {
+  test('INTENT_LLM_THINK_BUDGET: unset 128, 0 off, invalid/negative 128, capped', () => {
+    expect(intentThinkBudgetFromEnv(undefined)).toBe(128);
+    expect(intentThinkBudgetFromEnv('')).toBe(128);
+    expect(intentThinkBudgetFromEnv('0')).toBe(0);
+    expect(intentThinkBudgetFromEnv(' 256 ')).toBe(256);
+    for (const bad of ['-1', 'abc', '1.5', 'NaN', 'Infinity']) expect(intentThinkBudgetFromEnv(bad), bad).toBe(128);
+    expect(intentThinkBudgetFromEnv('999999')).toBe(INTENT_THINK_BUDGET_MAX);
+    expect(INTENT_THINK_BUDGET_MAX).toBeGreaterThanOrEqual(128);
+  });
+
+  test('budget 0: thinking off, no budget field', () => {
+    const b = requestBody('qwen', messages, 0);
+    expect(b.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(b).not.toHaveProperty('thinking_budget_tokens');
+    expect(b).not.toHaveProperty('reasoning_budget');
+    expect(b.max_tokens).toBe(INTENT_ANSWER_MAX_TOKENS);
+    expect(b.response_format).toEqual({ type: 'json_object' });
+  });
+
+  test('budget n: enable_thinking, thinking_budget_tokens n, max_tokens = answer cap + n; capped', () => {
+    const b = requestBody('qwen', messages, 200);
+    expect(b).toMatchObject({ chat_template_kwargs: { enable_thinking: true }, thinking_budget_tokens: 200, max_tokens: INTENT_ANSWER_MAX_TOKENS + 200 });
+    expect(requestBody('qwen', messages, 1e9).thinking_budget_tokens).toBe(INTENT_THINK_BUDGET_MAX);
+  });
+
+  test('the env budget reaches the request', async () => {
+    mode = 'ok';
+    seen.length = 0;
+    await llamaModel({ url: `http://127.0.0.1:${port}`, fetch: strictFetch, log: () => {}, thinkBudget: 0 }).complete(messages, new AbortController().signal);
+    expect(seen[0]!.body.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(seen[0]!.body).not.toHaveProperty('thinking_budget_tokens');
+  });
+
+  test('only message.content is the answer; reasoning_content is ignored', async () => {
+    mode = 'reasoning';
+    const m = llamaModel({ url: `http://127.0.0.1:${port}`, fetch: strictFetch, log: () => {} });
+    const a = await m.complete(messages, new AbortController().signal);
+    expect(a.text).toBe('{"intent":"ok","risk":"write"}');
+    expect(a.text).not.toContain('AUS DEM DENKEN');
+    // No content, only reasoning: a failure, never the reasoning's JSON.
+    mode = 'reasoning-only';
+    await expect(m.complete(messages, new AbortController().signal)).rejects.toThrow(/without content/);
   });
 });

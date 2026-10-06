@@ -780,6 +780,15 @@ a.btn {
 .history-path {
   color: var(--fg);
 }
+/* TC-126: the AI title as a row's headline; the tool moves into the meta line. */
+.history-link .call-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.tool-name.tool-mono {
+  font-weight: 400;
+}
 .audit-detail {
   display: flex;
   flex-direction: column;

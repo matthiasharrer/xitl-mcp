@@ -4,7 +4,7 @@ import type { PushMessage } from '../lib/push.js';
 type ApprovalPush = Extract<PushMessage, { type: 'approval' }>;
 import { approvalSummary } from './budget.js';
 import type { PendingCall } from './pending.js';
-import { MAX_INTENT_PUSH_CHARS } from '../lib/limits.js';
+import { MAX_INTENT_PUSH_CHARS, MAX_INTENT_TITLE_CHARS } from '../lib/limits.js';
 
 const MAX_UPSTREAM = 80;
 const MAX_TOOL = 100;
@@ -32,5 +32,11 @@ export function approvalUpdateMessage(
 ): ApprovalPush | null {
   const i = call.intent;
   if (!i || i.status !== 'DONE' || !i.summary || !i.risk) return null;
-  return { ...approvalMessage(call), update: true, intent: cut(i.summary, MAX_INTENT_PUSH_CHARS), risk: i.risk };
+  return {
+    ...approvalMessage(call),
+    update: true,
+    intent: cut(i.summary, MAX_INTENT_PUSH_CHARS),
+    ...(i.title ? { intentTitle: cut(i.title, MAX_INTENT_TITLE_CHARS) } : {}),
+    risk: i.risk,
+  };
 }

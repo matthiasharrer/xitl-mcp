@@ -72,11 +72,19 @@ export const MAX_INTENT_CONTEXT_CHARS = 48_000;
  * go in as a truncated string. */
 export const MAX_INTENT_ARGS_CHARS = 4000;
 
+/** Characters of an earlier call's result excerpt in the prompt (ADR-0025
+ * amendment). The audit's resultText is already capped at 2000; this cap is
+ * applied again in prompt.ts. */
+export const MAX_INTENT_RESULT_CHARS = 2000;
+
 /** Characters of a tool description in the prompt. */
 export const MAX_INTENT_DESCRIPTION_CHARS = 1500;
 
 /** Characters of the stored/shown summary (intent + concerns). */
 export const MAX_INTENT_SUMMARY_CHARS = 600;
+
+/** Characters of the model's short title (TC-126); longer ones are cut. */
+export const MAX_INTENT_TITLE_CHARS = 60;
 
 /** Characters of the intent in the replacement push (ADR-0025). */
 export const MAX_INTENT_PUSH_CHARS = 200;
@@ -85,6 +93,15 @@ export const MAX_INTENT_PUSH_CHARS = 200;
  * assistant turn); a longer answer is FAILED, never truncated (the prefix
  * must stay byte-identical). */
 export const MAX_INTENT_ANSWER_CHARS = 4000;
+
+/** Tokens of the model's answer itself (the JSON). max_tokens of a request is
+ * this plus the thinking budget. */
+export const INTENT_ANSWER_MAX_TOKENS = 300;
+
+/** INTENT_LLM_THINK_BUDGET: default thinking tokens (ADR-0025 amendment,
+ * measured 2026-10-06: 128 gives the quality at ≤ 5 s) and the cap; 0 = off. */
+export const INTENT_THINK_BUDGET_DEFAULT = 128;
+export const INTENT_THINK_BUDGET_MAX = 1024;
 
 /** One model request; then it is aborted and the call's summary FAILED. */
 export const INTENT_REQUEST_TIMEOUT_MS = 60_000;

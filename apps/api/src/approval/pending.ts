@@ -32,7 +32,9 @@ export type Via = 'page' | 'push';
 
 export type Decision =
   | { kind: 'approve'; via: Via; at: Date; snoozeUntil: Date | null; snoozeScope?: SnoozeScope }
-  | { kind: 'deny'; via: Via; at: Date }
+  /** `pauseUntil`/`pauseScope`: also refuse this tool/upstream for this
+   * client until then (deny pause, ADR-0026). */
+  | { kind: 'deny'; via: Via; at: Date; pauseUntil?: Date | null; pauseScope?: Exclude<SnoozeScope, 'READONLY'> }
   | { kind: 'timeout'; at: Date }
   | { kind: 'aborted'; at: Date }
   | { kind: 'shutdown'; at: Date }
@@ -140,7 +142,7 @@ export class ApprovalHub extends EventEmitter {
   decide(
     userId: number,
     id: string,
-    d: { kind: 'approve'; via: Via; snoozeUntil: Date | null; snoozeScope?: SnoozeScope } | { kind: 'deny'; via: Via },
+    d: { kind: 'approve'; via: Via; snoozeUntil: Date | null; snoozeScope?: SnoozeScope } | { kind: 'deny'; via: Via; pauseUntil?: Date | null; pauseScope?: Exclude<SnoozeScope, 'READONLY'> },
   ): DecideResult {
     const entry = this.entries.get(id);
     if (!entry || entry.call.userId !== userId) return 'not-found';
@@ -149,7 +151,9 @@ export class ApprovalHub extends EventEmitter {
       id,
       d.kind === 'approve'
         ? { kind: 'approve', via: d.via, snoozeUntil: d.snoozeUntil, snoozeScope: d.snoozeScope, at }
-        : { kind: 'deny', via: d.via, at },
+        : d.pauseUntil
+          ? { kind: 'deny', via: d.via, at, pauseUntil: d.pauseUntil, pauseScope: d.pauseScope === 'UPSTREAM' ? 'UPSTREAM' : 'TOOL' }
+          : { kind: 'deny', via: d.via, at },
     );
     return 'ok';
   }

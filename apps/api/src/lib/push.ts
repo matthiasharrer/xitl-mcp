@@ -28,6 +28,8 @@ export type PushMessage =
        * tag silently and drops the message otherwise (decided meanwhile). */
       update?: true;
       intent?: string;
+      /** TC-126: the model's short title (≤ 60 chars), first body line. */
+      intentTitle?: string;
       risk?: 'read' | 'write' | 'destructive';
     }
   | {

@@ -2,6 +2,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   INSTRUCTIONS_PREFIX,
+  MSG,
   RESULT_TEXT_MAX,
   askStamp,
   instructionsFor,
@@ -102,5 +103,21 @@ describe('unifiedInstructions (ADR-0017)', () => {
 
   test('is just the header without upstreams', () => {
     expect(unifiedInstructions([]).split('\n\n')).toHaveLength(2);
+  });
+});
+
+describe('MSG.blocked (ADR-0026, TC-123)', () => {
+  // 12:15 UTC = 14:15 in Berlin (CEST).
+  const until = new Date('2026-10-06T12:15:00Z');
+  test('German, names the tool and the until time (Berlin)', () => {
+    const t = MSG.blocked('archive_task', null, until);
+    expect(t).toContain('„archive_task“');
+    expect(t).toContain('bis 06.10., 14:15 Uhr gesperrt');
+    expect(t).toContain('2026-10-06T12:15:00.000Z');
+  });
+  test('whole upstream: names the upstream and the tool', () => {
+    const t = MSG.blocked('archive_task', 'Haushalt', until);
+    expect(t).toContain('alle Tools von „Haushalt“ (auch „archive_task“)');
+    expect(t).toContain('14:15 Uhr');
   });
 });

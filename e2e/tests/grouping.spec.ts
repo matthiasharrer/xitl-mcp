@@ -288,7 +288,7 @@ test.describe('TC-76 Pause-Umfang', () => {
     await expect(group1.getByLabel('nur diesem Tool')).toBeChecked();
     await expect(group1.getByLabel(`allen Lesetools von ${ctx.up.name}`)).toBeVisible();
     await expect(group1.getByLabel(`allen Tools von ${ctx.up.name}`)).toBeVisible();
-    for (const n of ['15 Min.', '1 Std.', 'Heute']) await expect(card1.getByText(n, { exact: true })).toBeVisible();
+    for (const n of ['15 Min.', '1 Std.', 'Heute']) await expect(card1.getByRole('group', { name: 'Erlauben und pausieren' }).getByText(n, { exact: true })).toBeVisible();
     expect(await noHScroll(page)).toBe(false);
     await card1.getByRole('button', { name: 'Ablehnen', exact: true }).click();
     expect((await h1).isError).toBe(true);
@@ -303,7 +303,7 @@ test.describe('TC-76 Pause-Umfang', () => {
     await expect(card2.getByText('Lesetools')).toHaveCount(0);
     expect(await noHScroll(page)).toBe(false);
     await group2.getByLabel(`allen Tools von ${ctx.up.name}`).check();
-    await card2.getByText('15 Min.', { exact: true }).click();
+    await card2.getByRole('group', { name: 'Erlauben und pausieren' }).getByText('15 Min.', { exact: true }).click();
     expect((await h2).isError).toBeFalsy();
     await expect(card2).toHaveCount(0);
 

@@ -71,6 +71,7 @@ export const prismaIntentStore: IntentStore = {
         policy: true,
         decisionPath: true,
         isError: true,
+        resultText: true,
       },
     });
     return rows.map((r) => ({ ...r, intentPrompt: r.intentPrompt!, intentAnswer: r.intentAnswer! }));
@@ -83,6 +84,7 @@ export const prismaIntentStore: IntentStore = {
         r.status === 'DONE'
           ? {
               intentStatus: 'DONE',
+              intentTitle: r.title,
               intentSummary: r.summary,
               intentRisk: r.risk,
               intentModelRisk: r.modelRisk,

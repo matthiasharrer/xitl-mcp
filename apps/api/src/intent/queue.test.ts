@@ -281,10 +281,12 @@ describe('IntentQueue (TC-109)', () => {
     // add_item described on its first appearance only.
     expect(blockOf(rows[1]!.intentPrompt!)!.description).toBe('Adds an item.');
     expect(blockOf(rows[2]!.intentPrompt!)).not.toHaveProperty('description');
-    // Outcomes of the earlier calls as a line.
-    expect(rows[2]!.intentPrompt!.split('\n')[1]).toBe('Stand der früheren Aufrufe: {"1":"ausgeführt","2":"vom Menschen abgelehnt"}');
-    // Never the results.
-    expect(JSON.stringify(reqs)).not.toContain('GEHEIMES-ERGEBNIS');
+    // Earlier calls inside the block, each once (TC-118): call 2's turn
+    // reports call 1 with its result; call 3's turn reports only call 2
+    // (denied: no result).
+    expect(blockOf(rows[1]!.intentPrompt!)!.frueher).toEqual({ '1': { ausgang: 'ausgeführt', ergebnis: 'GEHEIMES-ERGEBNIS' } });
+    expect(blockOf(rows[2]!.intentPrompt!)!.frueher).toEqual({ '2': { ausgang: 'vom Menschen abgelehnt' } });
+    expect(rows[2]!.intentPrompt!.split('\n')[1]).toBe('<call>');
   });
 
   test('a 10:01 gap, another client or a session switch starts a fresh context', async () => {
@@ -323,9 +325,9 @@ describe('IntentQueue (TC-109)', () => {
     }
     expect([r1.intentStatus, r2.intentStatus, r3.intentStatus]).toEqual(['FAILED', 'FAILED', 'DONE']);
     expect(events.map((e) => e.view)).toEqual([
-      { status: 'FAILED', summary: null, risk: null, lowered: null },
-      { status: 'FAILED', summary: null, risk: null, lowered: null },
-      { status: 'DONE', summary: 'Stub: add_item', risk: 'write', lowered: false },
+      { status: 'FAILED', title: null, summary: null, risk: null, lowered: null },
+      { status: 'FAILED', title: null, summary: null, risk: null, lowered: null },
+      { status: 'DONE', title: 'Stub-Titel add_item', summary: 'Stub: add_item', risk: 'write', lowered: false },
     ]);
     // Failed turns are not replayed (no answer), the context id carries on.
     expect(rec.requests[2]).toHaveLength(2);
@@ -338,7 +340,7 @@ describe('IntentQueue (TC-109)', () => {
     const { q, events } = setup([r]);
     q.enqueue(job(r, true, 'x'));
     await q.idle();
-    expect(events[0]!.view).toEqual({ status: 'DONE', summary: 'Stub: delete_all', risk: 'destructive', lowered: true });
+    expect(events[0]!.view).toEqual({ status: 'DONE', title: 'Stub-Titel delete_all', summary: 'Stub: delete_all', risk: 'destructive', lowered: true });
   });
 
   test('hang -> aborted at the request timeout -> FAILED (TC-111/115)', async () => {
@@ -382,6 +384,41 @@ describe('IntentQueue (TC-109)', () => {
     await q.idle();
     expect(err).toHaveBeenCalled();
     err.mockRestore();
+  });
+});
+
+describe('results in context (TC-118, queue)', () => {
+  test('pending reported once, final once with its result; denied without; replay byte-identical', async () => {
+    const r1 = row({ receivedAt: at(0), outcome: 'PENDING', policy: 'ASK', resultText: null });
+    const r2 = row({ receivedAt: at(MIN), resultText: 'ERGEBNIS-2' });
+    const r3 = row({ receivedAt: at(2 * MIN), outcome: 'DENIED', decisionPath: 'policy:tool+denied:page', resultText: '[xitl] Abgelehnt: eigener Text' });
+    const r4 = row({ receivedAt: at(3 * MIN) });
+    const r5 = row({ receivedAt: at(4 * MIN) });
+    const { q, rec } = setup([r1, r2, r3, r4, r5]);
+    const step = async (r: Row) => {
+      q.enqueue(job(r));
+      await q.idle();
+    };
+    await step(r1);
+    await step(r2); // r1 still held
+    // r1 approved and forwarded meanwhile
+    Object.assign(r1, { outcome: 'FORWARDED', resultText: 'ERGEBNIS-1' });
+    await step(r3);
+    await step(r4);
+    await step(r5);
+    const fr = (r: Row) => blockOf(r.intentPrompt!)!.frueher;
+    expect(fr(r1)).toBeUndefined();
+    expect(fr(r2)).toEqual({ '1': { ausgang: 'wartet auf Freigabe' } });
+    expect(fr(r3)).toEqual({ '1': { ausgang: 'ausgeführt', ergebnis: 'ERGEBNIS-1' }, '2': { ausgang: 'ausgeführt', ergebnis: 'ERGEBNIS-2' } });
+    // Our own denial text is never reported as a result.
+    expect(fr(r4)).toEqual({ '3': { ausgang: 'vom Menschen abgelehnt' } });
+    expect(fr(r5)).toEqual({ '4': { ausgang: 'ausgeführt', ergebnis: 'GEHEIMES-ERGEBNIS' } });
+    expect(JSON.stringify(rec.requests)).not.toContain('eigener Text');
+    // Append-only across all five.
+    for (let n = 0; n < 4; n++) {
+      const prefix = [...rec.requests[n]!, { role: 'assistant', content: [r1, r2, r3, r4, r5][n]!.intentAnswer! }];
+      expect(JSON.stringify(rec.requests[n + 1]!.slice(0, prefix.length))).toBe(JSON.stringify(prefix));
+    }
   });
 });
 

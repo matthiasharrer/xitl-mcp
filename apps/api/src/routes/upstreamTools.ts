@@ -10,6 +10,8 @@ import { errorTag } from '../upstream/oauthClient.js';
 import { refreshToolsFromUpstream } from '../upstream/tools.js';
 
 // /api/upstreams/:id/tools…: the policy UI's API (ADR-0004, TC-23/25/26).
+// Also /api/upstreams/:id/snoozes[/:snoozeId]: list and lift active pauses
+// (ADR-0026, TC-124).
 // Mounted under /api (identity). Every handler first resolves the upstream
 // among the CALLER's upstreams (404 otherwise, no oracle), and every tool is
 // addressed through that upstream, so a tool id of someone else's upstream is
@@ -29,6 +31,15 @@ function parseId(raw: string | undefined): number | null {
 
 const policyOrNull = z.object({ policy: z.enum(['ALLOW', 'ASK', 'DENY']).nullable() }, { error: 'Die Regel ist ungültig.' });
 const policyOnly = z.object({ policy: z.enum(['ALLOW', 'ASK', 'DENY']) }, { error: 'Die Regel ist ungültig.' });
+
+/** The MCP clients (of a user, scoped by the caller) that can call this
+ * upstream: OAuth clients reach all of the user's upstreams, a token either
+ * this one upstream or all (ADR-0015, ADR-0018). */
+const reachesUpstream = (upstreamId: number) => [
+  { kind: 'OAUTH' as const },
+  { upstreamId },
+  { kind: 'TOKEN' as const, allUpstreams: true },
+];
 
 async function ownUpstream(id: number | null, userId: number) {
   if (id === null) return null;
@@ -59,11 +70,18 @@ async function toolsView(upstreamId: number, userId: number) {
       include: { clientPolicies: { where: { mcpClient: { userId } } } },
       orderBy: [{ name: 'asc' }],
     }),
-    prisma.mcpClient.findMany({ where: { userId, OR: [{ kind: 'OAUTH' }, { upstreamId }] }, select: { id: true, name: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }] }),
+    // Every client of the caller that can reach this upstream: OAuth clients,
+    // tokens for this upstream, and all-upstreams tokens (ADR-0018, TC-127).
+    // Paused clients stay listed (their rules still matter once resumed).
+    prisma.mcpClient.findMany({
+      where: { userId, OR: reachesUpstream(upstreamId) },
+      select: { id: true, name: true, pausedAt: true },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+    }),
   ]);
   return {
     upstream: { id: upstream.id, name: upstream.name, defaultPolicy: upstream.defaultPolicy, status: upstream.status, auth: upstream.auth },
-    clients,
+    clients: clients.map((c) => ({ id: c.id, name: c.name, paused: c.pausedAt !== null })),
     tools: tools.map((t) => {
       // Effective policy without a client override (what most clients get).
       const base = evaluatePolicy({
@@ -148,7 +166,7 @@ upstreamTools.post('/:id/tools/:toolId/acknowledge', async (c) => {
 async function ownClient(mcpClientId: number | null, userId: number, upstreamId: number) {
   if (mcpClientId === null) return null;
   return prisma.mcpClient.findFirst({
-    where: { id: mcpClientId, userId, OR: [{ kind: 'OAUTH' }, { upstreamId }] },
+    where: { id: mcpClientId, userId, OR: reachesUpstream(upstreamId) },
     select: { id: true },
   });
 }
@@ -181,4 +199,46 @@ upstreamTools.delete('/:id/tools/:toolId/clients/:mcpClientId', async (c) => {
   if (!tool || !client) return c.json(NOT_FOUND, 404);
   await prisma.clientToolPolicy.deleteMany({ where: { toolId: tool.id, mcpClientId: client.id } });
   return c.json(await toolsView(upstream.id, userId));
+});
+
+// Active pauses (ADR-0026): the caller's live allow and deny pauses on this
+// upstream, any client. Lifting (delete) is the only edit. Scoped by the
+// caller twice: the upstream must be theirs, and the row's own userId too.
+async function pausesView(upstreamId: number, userId: number) {
+  const now = clock.now();
+  const rows = await prisma.snooze.findMany({
+    where: { upstreamId, userId, until: { gt: now } },
+    include: { mcpClient: { select: { name: true } } },
+    orderBy: [{ until: 'asc' }, { id: 'asc' }],
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    // Anything but exactly ALLOW is a deny pause (snooze.ts isAllow).
+    effect: r.effect === 'ALLOW' ? ('ALLOW' as const) : ('DENY' as const),
+    scope: r.scope,
+    toolName: r.toolName,
+    mcpClientId: r.mcpClientId,
+    clientName: r.mcpClient.name,
+    until: r.until.toISOString(),
+    createdAt: r.createdAt.toISOString(),
+  }));
+}
+
+upstreamTools.get('/:id/snoozes', async (c) => {
+  noStore(c);
+  const userId = c.get('user').id;
+  const upstream = await ownUpstream(parseId(c.req.param('id')), userId);
+  if (!upstream) return c.json(NOT_FOUND, 404);
+  return c.json(await pausesView(upstream.id, userId));
+});
+
+upstreamTools.delete('/:id/snoozes/:snoozeId', async (c) => {
+  noStore(c);
+  const userId = c.get('user').id;
+  const upstream = await ownUpstream(parseId(c.req.param('id')), userId);
+  const snoozeId = parseId(c.req.param('snoozeId'));
+  if (!upstream || snoozeId === null) return c.json(NOT_FOUND, 404);
+  const gone = await prisma.snooze.deleteMany({ where: { id: snoozeId, upstreamId: upstream.id, userId } });
+  if (gone.count === 0) return c.json(NOT_FOUND, 404);
+  return c.json(await pausesView(upstream.id, userId));
 });

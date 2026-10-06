@@ -9,6 +9,7 @@ import { Hono } from 'hono';
 import { prisma } from '../db.js';
 import type { AppEnv } from '../identity.js';
 import { isSessionId, parseNames } from '../mcp/sessions.js';
+import { auditIntentFields } from './audit.js';
 
 export const sessions = new Hono<AppEnv>();
 
@@ -90,6 +91,8 @@ sessions.get('/:id', async (c) => {
       isError: a.isError,
       receivedAt: a.receivedAt.toISOString(),
       session: { id: s.id, createdAt: s.createdAt.toISOString() },
+      // TC-126: the title as headline (and the rest of the advisory fields).
+      ...auditIntentFields(a),
     })),
   });
 });

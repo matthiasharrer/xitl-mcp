@@ -86,7 +86,9 @@ self.addEventListener('push', (event) => {
         const risk = RISK_TEXT[data.risk] || '';
         const intent = String(data.intent || '').slice(0, 200);
         const until = timeOf(data.expiresAt);
-        const body = [`${risk ? `${risk}: ` : ''}${intent}`, label, until ? `Offen bis ${until} Uhr` : ''].filter(Boolean).join('\n');
+        // TC-126: the AI title (plain text, capped) as the body's first line.
+        const title = String(data.intentTitle || '').slice(0, 60);
+        const body = [title, `${risk ? `${risk}: ` : ''}${intent}`, label, until ? `Offen bis ${until} Uhr` : ''].filter(Boolean).join('\n');
         return show('Freigabe nötig', {
           body,
           tag: tagOf(data.id),

@@ -16,7 +16,8 @@
 //   told by push and on Freigaben (ADR-0022, upstream/stateEvents.ts), the
 //   agent only by the state line in the instructions.
 // - tools/call: re-evaluates the policy (never trusts that the client saw the
-//   list; a live snooze can turn ASK into ALLOW), writes the audit row FIRST
+//   list; a live allow pause can turn ASK into ALLOW, a live deny pause
+//   refuses at once, ADR-0026), writes the audit row FIRST
 //   (PENDING), then forwards (ALLOW), refuses (DENY) or holds the call for the
 //   user's decision (ASK, approval/pending.ts): approve -> forward with what is
 //   left of the 300 s budget; deny / timeout / client abort / shutdown -> refuse.
@@ -54,7 +55,7 @@ import { syncKnownTools, usableTools } from '../upstream/tools.js';
 import { errorTag } from '../upstream/oauthClient.js';
 import { approvals, ApprovalHub, type Decision } from '../approval/pending.js';
 import { approvalDeadline, approvalTimeoutFromEnv, upstreamTimeoutMs } from '../approval/budget.js';
-import { createSnooze, isReadOnly, liveSnoozeUntil, liveSnoozesFor } from '../approval/snooze.js';
+import { createSnooze, isReadOnly, livePauses, liveSnoozesFor } from '../approval/snooze.js';
 import type { Upstream } from '../generated/prisma/client.js';
 import { intents as defaultIntents } from '../intent/index.js';
 import { NO_INTENT, type IntentQueue } from '../intent/queue.js';
@@ -308,13 +309,16 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
     // Read-only by the STORED annotations (an unknown tool is not read-only).
     const readOnly = isReadOnly(tool?.annotations);
     const snoozeOwner = { userId, upstreamId: upstream.id, mcpClientId };
-    const snoozedUntil = await liveSnoozeUntil(snoozeOwner, name, readOnly, receivedAt);
+    // Allow and deny pauses of THIS client on THIS upstream (ADR-0004,
+    // ADR-0026); a deny pause wins in the policy.
+    const pauses = await livePauses(snoozeOwner, name, readOnly, receivedAt);
     const toolState = tool ? policyTool(tool) : null;
     const decision = evaluatePolicy({
       upstreamDefault: current.defaultPolicy as Policy,
       tool: toolState,
       clientOverride: (tool?.clientPolicies[0]?.policy as Policy | undefined) ?? null,
-      snoozedUntil,
+      snoozedUntil: pauses.allowUntil,
+      denyPausedUntil: pauses.denyUntil,
       now: receivedAt,
     });
     // ASK: the id the user decides by. Written into the audit row first, so a
@@ -400,7 +404,12 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
     };
 
     if (decision.policy === 'DENY') {
-      const text = decision.path === 'unknown-tool' ? MSG.unknownTool(shownName) : MSG.denied(shownName);
+      const text =
+        decision.path === 'unknown-tool'
+          ? MSG.unknownTool(shownName)
+          : decision.path === 'snooze-deny' && pauses.denyUntil
+            ? MSG.blocked(shownName, pauses.denyScope === 'TOOL' ? null : upstream.name.slice(0, 100), pauses.denyUntil)
+            : MSG.denied(shownName);
       await finish({ outcome: 'DENIED', isError: true, resultText: text });
       return errorResult(text);
     }
@@ -476,7 +485,19 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         return forward(timeoutMs, path, d.at);
       }
       if (d.kind === 'deny') {
-        const text = MSG.declined(shownName, displayName);
+        let text = MSG.declined(shownName, displayName);
+        if (d.pauseUntil) {
+          // ADR-0026: "Ablehnen und nicht mehr fragen". Stored BEFORE the
+          // agent gets its answer, so an immediate retry already hits it.
+          // Not stored: this call is denied all the same (fail closed).
+          const scope = d.pauseScope === 'UPSTREAM' ? 'UPSTREAM' : 'TOOL';
+          try {
+            await createSnooze(snoozeOwner, scope, name, d.pauseUntil, d.at, 'DENY');
+            text = MSG.blocked(shownName, scope === 'UPSTREAM' ? upstream.name.slice(0, 100) : null, d.pauseUntil);
+          } catch (e) {
+            console.warn(`proxy: deny pause not stored: ${errorTag(e)}`);
+          }
+        }
         await finish({ outcome: 'DENIED', decisionPath: `${rule}+denied:${d.via}`, decidedAt: d.at, isError: true, resultText: text });
         return errorResult(text);
       }

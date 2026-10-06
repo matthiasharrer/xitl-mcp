@@ -58,7 +58,9 @@ export interface ToolRow {
 
 export interface ToolsView {
   upstream: { id: number; name: string; defaultPolicy: Policy; status: UpstreamStatus; auth: UpstreamAuth };
-  clients: { id: number; name: string }[];
+  /** Clients that can reach this upstream (OAuth, its tokens, all-upstreams
+   * tokens); paused ones included (TC-127). */
+  clients: { id: number; name: string; paused: boolean }[];
   tools: ToolRow[];
 }
 
@@ -122,6 +124,8 @@ export type IntentRisk = 'read' | 'write' | 'destructive';
 
 export interface IntentFields {
   intentStatus: IntentStatus;
+  /** TC-126: 3-5 word AI title (DONE only). Model output: text only. */
+  intentTitle?: string | null;
   /** Model output from agent-controlled input: render as text only. */
   intentSummary: string | null;
   /** Shown risk: never below the tool's own hint. */
@@ -175,7 +179,21 @@ export interface ResolvedApproval extends AuditIntentFields {
 
 export type ApprovalDecision =
   | { decision: 'deny' }
+  /** ADR-0026: deny and pause (this tool or the whole upstream). */
+  | { decision: 'deny'; snoozeMinutes?: number; snoozeUntilMidnight?: boolean; snoozeScope: 'tool' | 'upstream' }
   | { decision: 'approve'; snoozeMinutes?: number; snoozeUntilMidnight?: boolean; snoozeScope?: SnoozeScope };
+
+/** An active pause on an upstream (ADR-0026, TC-124): allow or deny. */
+export interface Pause {
+  id: number;
+  effect: 'ALLOW' | 'DENY';
+  scope: 'TOOL' | 'READONLY' | 'UPSTREAM';
+  toolName: string | null;
+  mcpClientId: number;
+  clientName: string;
+  until: string;
+  createdAt: string;
+}
 
 /** What a snooze covers (TC-76). */
 export type SnoozeScope = 'tool' | 'readonly' | 'upstream';
@@ -290,6 +308,8 @@ export const api = {
     request<ToolsView>('PUT', `/api/upstreams/${id}/tools/${toolId}/clients/${clientId}`, { policy }),
   clearClientPolicy: (id: number, toolId: number, clientId: number) =>
     request<ToolsView>('DELETE', `/api/upstreams/${id}/tools/${toolId}/clients/${clientId}`),
+  listPauses: (id: number) => request<Pause[]>('GET', `/api/upstreams/${id}/snoozes`),
+  liftPause: (id: number, pauseId: number) => request<Pause[]>('DELETE', `/api/upstreams/${id}/snoozes/${pauseId}`),
   listApprovals: () => request<PendingApproval[]>('GET', '/api/approvals'),
   listUpstreamFaults: () => request<UpstreamFault[]>('GET', '/api/upstreams/faults'),
   getApproval: (id: string) => request<PendingApproval | ResolvedApproval>('GET', `/api/approvals/${encodeURIComponent(id)}`),
@@ -343,6 +363,7 @@ const PATH_PART: Record<string, string> = {
   'changed-tool': 'geändertes Tool',
   'unknown-tool': 'unbekanntes Tool',
   snooze: 'pausiert, ohne Nachfrage',
+  'snooze-deny': 'gesperrt (Ablehnen und nicht mehr fragen)',
   'approved:page': 'erlaubt in der App',
   'approved:push': 'erlaubt per Benachrichtigung',
   'denied:page': 'abgelehnt in der App',

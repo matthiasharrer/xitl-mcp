@@ -59,14 +59,19 @@
     {:else}
       <ul class="list" aria-label="Aufrufe in dieser Sitzung">
         {#each s.entries as e (e.id)}
+          {@const title = e.intentStatus === 'DONE' ? e.intentTitle : null}
           <li class="item history-item">
             <a class="history-link" href={`#/verlauf/${e.id}`} data-audit={e.id}>
               <span class="item-head">
-                <span class="tool-name">{e.tool}</span>
+                {#if title}
+                  <span class="call-title" data-testid="call-title">{title}</span>
+                {:else}
+                  <span class="tool-name">{e.tool}</span>
+                {/if}
                 <span class="chip outcome-{e.outcome.toLowerCase()}">{OUTCOME_LABEL[e.outcome]}</span>
               </span>
               <span class="sub">
-                <span>{short.format(new Date(e.receivedAt))}</span>
+                <span>{#if title}<span class="tool-name tool-mono">{e.tool}</span>{' · '}{/if}{short.format(new Date(e.receivedAt))}</span>
                 <span class="history-path">{decisionPathText(e.decisionPath)}</span>
               </span>
             </a>

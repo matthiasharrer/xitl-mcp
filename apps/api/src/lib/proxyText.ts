@@ -134,7 +134,31 @@ export function errorResult(text: string) {
   return { content: [{ type: 'text' as const, text }], isError: true };
 }
 
+const berlinUntil = new Intl.DateTimeFormat('de-DE', {
+  timeZone: 'Europe/Berlin',
+  day: '2-digit',
+  month: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+/** "06.10., 14:35 Uhr" (Europe/Berlin); a broken date reads as "auf Weiteres". */
+export function untilText(until: Date): { de: string; en: string } {
+  if (!(until instanceof Date) || Number.isNaN(until.getTime()) || until.getTime() > 8.64e15 - 1) {
+    return { de: 'auf Weiteres', en: 'further notice' };
+  }
+  return { de: `${berlinUntil.format(until)} Uhr`, en: until.toISOString() };
+}
+
 export const MSG = {
+  /** ADR-0026: a deny pause ("Ablehnen und nicht mehr fragen"). Names the
+   * tool (or the whole upstream) and the end, so the agent stops retrying. */
+  blocked: (tool: string, upstream: string | null, until: Date) => {
+    const t = untilText(until);
+    return upstream !== null
+      ? `[xitl] Verweigert: Der Nutzer hat alle Tools von „${upstream}“ (auch „${tool}“) für diesen Client bis ${t.de} gesperrt. Bitte bis dahin nicht erneut versuchen. / Denied: the user blocked every tool of "${upstream}" (including "${tool}") for this client until ${t.en}. Do not retry before then.`
+      : `[xitl] Verweigert: Der Nutzer hat „${tool}“ für diesen Client bis ${t.de} gesperrt. Bitte bis dahin nicht erneut versuchen. / Denied: the user blocked "${tool}" for this client until ${t.en}. Do not retry before then.`;
+  },
   denied: (tool: string) =>
     `[xitl] Verweigert: Das Tool „${tool}“ ist für diesen Client nicht erlaubt. / Denied: tool "${tool}" is not allowed for this client by the user's policy.`,
   unknownTool: (tool: string) =>

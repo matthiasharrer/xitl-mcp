@@ -3,6 +3,8 @@
   // known tool a read/write hint, a "Neu" badge, the choice Standard /
   // Erlauben / Fragen / Verbieten and optional per-client overrides. Every
   // change is saved at once and applies to the next tools/list and tools/call.
+  // "Aktive Pausen" (ADR-0026, TC-125): live allow and deny pauses of any
+  // client on this upstream; lifting is the only edit.
   import Spinner from '../lib/Spinner.svelte';
   import {
     api,
@@ -10,6 +12,7 @@
     HINT_LABEL,
     POLICY_LABEL,
     STATUS_LABEL,
+    type Pause,
     type Policy,
     type ToolRow,
     type ToolsView,
@@ -19,6 +22,7 @@
   let { upstreamId }: { upstreamId: number } = $props();
 
   let view = $state<ToolsView | null>(null);
+  let pauses = $state<Pause[]>([]);
   let loadError = $state<string | null>(null);
   let busy = $state(false);
   let refreshing = $state(false);
@@ -33,13 +37,34 @@
 
   async function load() {
     try {
-      view = await api.getTools(upstreamId);
+      [view, pauses] = await Promise.all([api.getTools(upstreamId), api.listPauses(upstreamId)]);
       loadError = null;
     } catch (e) {
       loadError = messageOf(e);
     }
   }
   load();
+
+  const timeOnly = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' });
+  const dayTime = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const untilText = (iso: string) => {
+    const d = new Date(iso);
+    return `bis ${d.toDateString() === new Date().toDateString() ? timeOnly.format(d) : dayTime.format(d)} Uhr`;
+  };
+  const scopeText = (p: Pause) => (p.scope === 'UPSTREAM' ? 'alle Tools' : p.scope === 'READONLY' ? 'alle Lesetools' : null);
+
+  async function lift(p: Pause) {
+    busy = true;
+    try {
+      pauses = await api.liftPause(upstreamId, p.id);
+      showToast('Pause aufgehoben');
+    } catch (e) {
+      showToast(messageOf(e), { error: true });
+      pauses = await api.listPauses(upstreamId).catch(() => pauses);
+    } finally {
+      busy = false;
+    }
+  }
 
   /** Runs one change; the API answers with the whole fresh view. */
   async function apply(change: () => Promise<ToolsView>, done?: string) {
@@ -114,6 +139,29 @@
       <p class="hint section-hint">Gilt für jedes Tool ohne eigene Regel. Neue Tools werden trotzdem erst gefragt, bis du sie gesehen hast.</p>
     </section>
 
+    {#if pauses.length > 0}
+      <section aria-labelledby="pauses-title">
+        <h3 id="pauses-title" class="section-title">Aktive Pausen</h3>
+        <ul class="list" aria-label="Aktive Pausen">
+          {#each pauses as p (p.id)}
+            <li class="item pause" data-pause={p.id}>
+              <div class="item-head">
+                <span class="pause-what">
+                  {#if scopeText(p)}{scopeText(p)}{:else}<span class="tool-name">{p.toolName}</span>{/if}
+                </span>
+                <span class="chip pause-{p.effect.toLowerCase()}">{p.effect === 'ALLOW' ? 'Erlaubt' : 'Gesperrt'}</span>
+              </div>
+              <p class="hint pause-meta">{p.clientName} · {untilText(p.until)}</p>
+              <button type="button" class="btn" disabled={busy} onclick={() => lift(p)} aria-label={`Pause aufheben: ${p.toolName ?? scopeText(p)}, ${p.clientName}`}>
+                Aufheben
+              </button>
+            </li>
+          {/each}
+        </ul>
+        <p class="hint section-hint">„Erlaubt“: ohne Nachfrage erlaubt. „Gesperrt“: wird abgelehnt, ohne zu fragen.</p>
+      </section>
+    {/if}
+
     <section aria-labelledby="tools-title">
       <div class="section-head">
         <h3 id="tools-title" class="section-title">Tools</h3>
@@ -166,7 +214,10 @@
                   </summary>
                   {#each view.clients as c (c.id)}
                     <label class="client-row">
-                      <span class="client-name">{c.name}</span>
+                      <span class="client-name"
+                        >{c.name}{#if c.paused}
+                          <span class="chip paused" data-testid="client-paused">pausiert</span>{/if}</span
+                      >
                       <select
                         aria-label={`Regel für ${t.name} bei ${c.name}`}
                         value={clientPolicy(t, c.id)}
@@ -187,3 +238,39 @@
     </section>
   {/if}
 </div>
+
+<style>
+  .pause {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+  .pause-what {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+    min-width: 0;
+  }
+  .pause-meta {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .pause .btn {
+    align-self: flex-start;
+  }
+  .chip.pause-allow {
+    color: var(--ok);
+    border-color: var(--ok);
+  }
+  /* Same as Settings' "pausiert" chip. */
+  .chip.paused {
+    color: var(--warn);
+    border-color: var(--warn);
+    background: var(--warn-soft);
+    font-weight: 600;
+    margin-left: 0.375rem;
+  }
+  .chip.pause-deny {
+    color: var(--danger);
+    border-color: var(--danger);
+  }
+</style>

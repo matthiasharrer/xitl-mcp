@@ -1,13 +1,16 @@
 // Parses the model's answer (ADR-0025). Pure, unit tested (TC-107).
 //
-// Expected: one JSON object {"intent": string, "risk": read|write|destructive,
-// "concerns"?: string}. Anything else is a failure (no summary shown): the
+// Expected: one JSON object {"title"?: string, "intent": string, "risk":
+// read|write|destructive, "concerns"?: string}. A missing or empty title is
+// fine (null); the rest is required. Anything else is a failure (no summary shown): the
 // answer is model output from attacker-controlled input, so it is only ever
 // taken as plain data, length-capped, and rendered as text by the UI.
-import { MAX_INTENT_SUMMARY_CHARS } from '../lib/limits.js';
+import { MAX_INTENT_SUMMARY_CHARS, MAX_INTENT_TITLE_CHARS } from '../lib/limits.js';
 import { isRisk, type Risk } from './risk.js';
 
 export interface ParsedIntent {
+  /** 3-5 words (TC-126), one line, ≤ MAX_INTENT_TITLE_CHARS; null if absent. */
+  title: string | null;
   intent: string;
   risk: Risk;
   concerns: string | null;
@@ -16,6 +19,8 @@ export interface ParsedIntent {
 const cut = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 /** Collapses whitespace (incl. newlines) so the summary is one paragraph. */
 const flat = (s: string) => s.replace(/\s+/g, ' ').trim();
+/** Control characters (incl. bidi overrides and zero-width marks) out. */
+const clean = (s: string) => s.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, ' ');
 
 function asObject(text: string): Record<string, unknown> | null {
   const tryParse = (s: string) => {
@@ -50,7 +55,8 @@ export function parseAnswer(raw: string): ParsedIntent | null {
   let concerns: string | null = null;
   if (typeof o.concerns === 'string') concerns = flat(o.concerns) || null;
   else if (Array.isArray(o.concerns)) concerns = flat(o.concerns.filter((c): c is string => typeof c === 'string').join('; ')) || null;
-  return { intent: cut(intent, MAX_INTENT_SUMMARY_CHARS), risk, concerns: concerns ? cut(concerns, MAX_INTENT_SUMMARY_CHARS) : null };
+  const title = typeof o.title === 'string' ? flat(clean(o.title)) : '';
+  return { title: title ? cut(title, MAX_INTENT_TITLE_CHARS) : null, intent: cut(intent, MAX_INTENT_SUMMARY_CHARS), risk, concerns: concerns ? cut(concerns, MAX_INTENT_SUMMARY_CHARS) : null };
 }
 
 /** The text the UI shows: intent, then concerns, capped. */

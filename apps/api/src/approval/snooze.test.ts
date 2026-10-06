@@ -1,6 +1,6 @@
 // Snooze scopes (TC-76 unit part): which rows cover which tool.
 import { describe, expect, it } from 'vitest';
-import { covers, isReadOnly, latestCovering } from './snooze.js';
+import { covers, isAllow, isReadOnly, latestCovering, pauseState } from './snooze.js';
 
 const d = (m: number) => new Date(Date.UTC(2026, 9, 5, 12, m));
 
@@ -41,5 +41,44 @@ describe('snooze scopes', () => {
     expect(isReadOnly('{"readOnlyHint":false}')).toBe(false);
     expect(isReadOnly(null)).toBe(false);
     expect(isReadOnly('not json')).toBe(false);
+  });
+});
+
+// TC-121 (matching half): which live pauses cover a call, split by effect.
+// The DB query scopes by (user, upstream, client); here: scope, tool, expiry,
+// and that only exactly 'ALLOW' is an allow pause.
+describe('pause effects (TC-121, ADR-0026)', () => {
+  const NOW = d(0);
+  const row = (effect: string, scope: 'TOOL' | 'READONLY' | 'UPSTREAM', toolName: string | null, until: Date) => ({ effect, scope, toolName, until });
+
+  it('a deny pause never acts as an allow pause', () => {
+    const rows = [row('DENY', 'TOOL', 'add', d(30))];
+    expect(pauseState(rows, 'add', false, NOW)).toEqual({ allowUntil: null, denyUntil: d(30), denyScope: 'TOOL' });
+  });
+
+  it('an unrecognised effect is DENY (fail closed)', () => {
+    for (const effect of ['allow', 'ALLOW ', '', 'X', 'deny']) {
+      expect(isAllow({ effect })).toBe(false);
+      expect(pauseState([row(effect, 'TOOL', 'add', d(30))], 'add', false, NOW)).toEqual({ allowUntil: null, denyUntil: d(30), denyScope: 'TOOL' });
+    }
+    expect(isAllow({ effect: 'ALLOW' })).toBe(true);
+  });
+
+  it('TOOL scope: only that tool; UPSTREAM scope: every tool', () => {
+    expect(pauseState([row('DENY', 'TOOL', 'add', d(30))], 'other', false, NOW).denyUntil).toBeNull();
+    expect(pauseState([row('DENY', 'UPSTREAM', null, d(30))], 'anything', false, NOW).denyUntil).toEqual(d(30));
+  });
+
+  it('expired rows have no effect', () => {
+    expect(pauseState([row('DENY', 'UPSTREAM', null, NOW), row('ALLOW', 'UPSTREAM', null, d(-1))], 'add', false, NOW)).toEqual({
+      allowUntil: null,
+      denyUntil: null,
+      denyScope: null,
+    });
+  });
+
+  it('both effects live: both reported (the policy lets deny win)', () => {
+    const rows = [row('ALLOW', 'TOOL', 'add', d(60)), row('DENY', 'UPSTREAM', null, d(15))];
+    expect(pauseState(rows, 'add', false, NOW)).toEqual({ allowUntil: d(60), denyUntil: d(15), denyScope: 'UPSTREAM' });
   });
 });

@@ -1,7 +1,8 @@
 <script lang="ts">
   // "Verlauf" (ADR-0008, TC-35): the user's calls, newest first, 50 per page,
   // under day separators and grouped per session / client by time gaps
-  // (lib/grouping.ts, TC-75).
+  // (lib/grouping.ts, TC-75). With an AI title (TC-126) the title is the
+  // row's headline and the tool moves into the meta line.
   import Spinner from '../lib/Spinner.svelte';
   import SessionLine from '../lib/SessionLine.svelte';
   import { api, decisionPathText, messageOf, OUTCOME_LABEL, type AuditRow } from '../lib/api';
@@ -58,14 +59,19 @@
             {#if g.session}<SessionLine session={g.session} />{/if}
             <ul class="list" aria-label={`Aufrufe von ${g.clientName ?? 'Client'}`}>
               {#each g.items as e (e.id)}
+                {@const title = e.intentStatus === 'DONE' ? e.intentTitle : null}
                 <li class="item history-item">
                   <a class="history-link" href={`#/verlauf/${e.id}`} data-audit={e.id}>
                     <span class="item-head">
-                      <span class="tool-name">{e.tool}</span>
+                      {#if title}
+                        <span class="call-title" data-testid="call-title">{title}</span>
+                      {:else}
+                        <span class="tool-name">{e.tool}</span>
+                      {/if}
                       <span class="chip outcome-{e.outcome.toLowerCase()}">{OUTCOME_LABEL[e.outcome]}</span>
                     </span>
                     <span class="sub">
-                      <span>{e.upstream?.name ?? '–'} · {timeSec.format(new Date(e.receivedAt))}</span>
+                      <span>{#if title}<span class="tool-name tool-mono">{e.tool}</span>{' · '}{/if}{e.upstream?.name ?? '–'} · {timeSec.format(new Date(e.receivedAt))}</span>
                       <span class="history-path">{decisionPathText(e.decisionPath)}</span>
                     </span>
                   </a>

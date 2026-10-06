@@ -1,12 +1,14 @@
 <script lang="ts">
   // One held call (ADR-0004): who asks, what, with which arguments, how long
-  // it still waits; Ablehnen / Erlauben and the snooze choices (TC-27…30).
+  // it still waits; Ablehnen / Erlauben, the allow-pause choices (TC-27…30)
+  // and the deny pause "Ablehnen und nicht mehr fragen" (ADR-0026, TC-125).
   // Arguments come from the (untrusted) agent: shown as text, never as HTML.
   import { onDestroy, untrack } from 'svelte';
   import { api, ApiError, messageOf, type ApprovalDecision, type PendingApproval, type SnoozeScope } from './api';
   import { showToast } from './store.svelte';
   import SessionLine from './SessionLine.svelte';
   import IntentSummary from './IntentSummary.svelte';
+  import CallWhat from './CallWhat.svelte';
 
   let {
     approval,
@@ -39,6 +41,12 @@
   );
   const snooze = (d: { snoozeMinutes?: number; snoozeUntilMidnight?: boolean }, label: string) =>
     decide({ decision: 'approve', ...d, snoozeScope: scope }, `Erlaubt, ${label} ohne Nachfrage: ${scopeText}`);
+
+  /** ADR-0026: what "Ablehnen und nicht mehr fragen" blocks. */
+  let denyScope = $state<'tool' | 'upstream'>('tool');
+  const denyScopeText = $derived(denyScope === 'upstream' ? `alle Tools von ${approval.upstream.name}` : approval.tool);
+  const denyPause = (d: { snoozeMinutes?: number; snoozeUntilMidnight?: boolean }, label: string) =>
+    decide({ decision: 'deny', ...d, snoozeScope: denyScope }, `Abgelehnt, ${label} gesperrt: ${denyScopeText}`);
 
   const argsText = $derived.by(() => {
     try {
@@ -83,10 +91,12 @@
       {expired ? 'abgelaufen' : `noch ${leftText}`}
     </span>
   </div>
-  <div class="approval-what">
-    <span class="approval-upstream">{approval.upstream.name}</span>
-    <span class="tool-name">{approval.tool}</span>
-  </div>
+  <CallWhat
+    tool={approval.tool}
+    upstream={approval.upstream.name}
+    title={approval.intentStatus === 'DONE' ? approval.intentTitle : null}
+    pending={approval.intentStatus === 'PENDING'}
+  />
   <SessionLine session={approval.session} />
   {#if !approval.snoozable}
     <p class="hint approval-new">
@@ -157,4 +167,38 @@
       >
     </div>
   {/if}
+  <p class="hint snooze-label">Ablehnen und nicht mehr fragen bei …</p>
+  <div class="scope-row" role="radiogroup" aria-label="Umfang der Sperre">
+    <label class="scope-option">
+      <input type="radio" name={`deny-scope-${approval.id}`} value="tool" bind:group={denyScope} />
+      <span>dieses Tool</span>
+    </label>
+    <label class="scope-option">
+      <input type="radio" name={`deny-scope-${approval.id}`} value="upstream" bind:group={denyScope} />
+      <span>ganz {approval.upstream.name}</span>
+    </label>
+  </div>
+  <div class="snooze-row deny-pause-row" role="group" aria-label="Ablehnen und sperren">
+    <button
+      type="button"
+      class="btn danger-outline"
+      aria-label="Ablehnen, 15 Minuten sperren"
+      disabled={busy || expired}
+      onclick={() => denyPause({ snoozeMinutes: 15 }, '15 Minuten')}>15 Min.</button
+    >
+    <button
+      type="button"
+      class="btn danger-outline"
+      aria-label="Ablehnen, 1 Stunde sperren"
+      disabled={busy || expired}
+      onclick={() => denyPause({ snoozeMinutes: 60 }, '1 Stunde')}>1 Std.</button
+    >
+    <button
+      type="button"
+      class="btn danger-outline"
+      aria-label="Ablehnen, heute sperren"
+      disabled={busy || expired}
+      onclick={() => denyPause({ snoozeUntilMidnight: true }, 'heute')}>Heute</button
+    >
+  </div>
 </article>

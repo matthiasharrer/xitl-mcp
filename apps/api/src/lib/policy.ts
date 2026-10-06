@@ -5,20 +5,24 @@
 //
 // Precedence, first match wins:
 //   1. tool unknown (not in KnownTool)      -> DENY  "unknown-tool"
-//   2. per-client override                  -> it    "policy:client"
-//   3. per-tool policy                      -> it    "policy:tool"
+//   2. a live DENY pause covers the call    -> DENY  "snooze-deny" (ADR-0026)
+//      (for this client + upstream + tool, matched in approval/snooze.ts).
+//      Beats everything below: client/tool ALLOW, the upstream default, an
+//      allow pause, new and changed tools. It only ever tightens.
+//   3. per-client override                  -> it    "policy:client"
+//   4. per-tool policy                      -> it    "policy:tool"
 //      ...except that a CHANGED tool (its definition changed after xitl first
 //      recorded it, `changedAt` set; rug pull, TC-36) never resolves to ALLOW:
-//      an explicit ALLOW at 2. or 3. becomes ASK "changed-tool" (Matthias,
+//      an explicit ALLOW at 3. or 4. becomes ASK "changed-tool" (Matthias,
 //      2026-10-04). An explicit ASK or DENY applies unchanged.
-//   4. tool changed (see above), no rule    -> ASK   "changed-tool"
-//   5. tool not yet acknowledged (new)      -> ASK   "new-tool"
-//   6. the upstream's default               -> it    "policy:upstream-default"
-// Then one post-step (ADR-0004 snooze, TC-30):
-//   7. result is ASK, the tool is NOT awaiting review (new or changed, see
+//   5. tool changed (see above), no rule    -> ASK   "changed-tool"
+//   6. tool not yet acknowledged (new)      -> ASK   "new-tool"
+//   7. the upstream's default               -> it    "policy:upstream-default"
+// Then one post-step (ADR-0004 allow snooze, TC-30):
+//   8. result is ASK, the tool is NOT awaiting review (new or changed, see
 //      `awaitingReview`), and a snooze for (this client, this tool) is live
 //      at `now`                             -> ALLOW "snooze"
-//   A snooze only ever upgrades ASK. Never DENY, never an unknown tool, and
+//   An allow snooze only ever upgrades ASK. Never DENY, never an unknown tool, and
 //   never a new or changed tool, whatever path said ASK: those must be looked
 //   at in the rules first, so a snooze set before a tool changed under us
 //   cannot carry over.
@@ -35,7 +39,8 @@ export type DecisionPath =
   | 'changed-tool'
   | 'new-tool'
   | 'policy:upstream-default'
-  | 'snooze';
+  | 'snooze'
+  | 'snooze-deny';
 
 export interface PolicyDecision {
   policy: Policy;
@@ -72,6 +77,10 @@ export interface PolicyInput {
   clientOverride: Policy | null;
   /** The latest live-looking Snooze.until for (this client, this tool), if any. */
   snoozedUntil?: Date | null;
+  /** ADR-0026: the latest live DENY pause covering (this client, this tool),
+   * if any (approval/snooze.ts; any effect other than ALLOW counts). Fails
+   * closed: a value that is not provably expired at `now` denies. */
+  denyPausedUntil?: Date | null;
   /** Now (from the Clock); required for a snooze to count. */
   now?: Date;
 }
@@ -98,9 +107,23 @@ export function evaluatePolicy(input: PolicyInput): PolicyDecision {
   return base;
 }
 
+/** A deny pause is set and not provably over: anything but a valid `until`
+ * at or before a valid `now` counts as live (fail closed). */
+function denyPauseLive(until: unknown, now: unknown): boolean {
+  if (until === null || until === undefined) return false;
+  const expired =
+    until instanceof Date &&
+    now instanceof Date &&
+    !Number.isNaN(until.getTime()) &&
+    !Number.isNaN(now.getTime()) &&
+    until.getTime() <= now.getTime();
+  return !expired;
+}
+
 function baseDecision(input: PolicyInput): PolicyDecision {
   const { tool } = input;
   if (!tool) return { policy: 'DENY', path: 'unknown-tool' };
+  if (denyPauseLive(input.denyPausedUntil, input.now)) return { policy: 'DENY', path: 'snooze-deny' };
 
   const changed = isChanged(tool);
   // An explicit ALLOW does not cover a definition the user hasn't seen.

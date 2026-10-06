@@ -5,7 +5,7 @@
 //   GET /?before=<id>   newest first, 50 per page; `nextBefore` for the next page
 //   GET /:id            one entry with arguments and the result excerpt
 // Both carry the advisory intent summary (ADR-0025) as intentStatus,
-// intentSummary, intentRisk (the floored one), intentLowered, intentAt,
+// intentTitle (TC-126), intentSummary, intentRisk (the floored one), intentLowered, intentAt,
 // intentModel: never the stored prompt / raw answer / model risk.
 import { Hono } from 'hono';
 import { prisma } from '../db.js';
@@ -41,6 +41,7 @@ export const sessionRef = (s: { id: string; createdAt: Date } | null) => (s ? { 
 /** The audit row's intent summary as the UI may see it (TC-113). */
 export function auditIntentFields(a: {
   intentStatus: string;
+  intentTitle: string | null;
   intentSummary: string | null;
   intentRisk: string | null;
   intentLowered: boolean | null;
@@ -50,6 +51,7 @@ export function auditIntentFields(a: {
   const done = a.intentStatus === 'DONE';
   return {
     intentStatus: a.intentStatus,
+    intentTitle: done ? a.intentTitle : null,
     intentSummary: done ? a.intentSummary : null,
     intentRisk: done ? a.intentRisk : null,
     intentLowered: done ? (a.intentLowered ?? false) : null,

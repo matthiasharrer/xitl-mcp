@@ -24,7 +24,9 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
     /api/upstreams       routes/upstreams.ts: CRUD of the caller's upstreams,
                          POST /:id/connect, GET /oauth/callback (upstream OAuth),
                          POST /:id/tokens (access token, ADR-0015)
-    /api/upstreams/:id/tools…  routes/upstreamTools.ts: policy UI API
+    /api/upstreams/:id/tools…  routes/upstreamTools.ts: policy UI API;
+                         also GET/DELETE /:id/snoozes[/:snoozeId] (active
+                         pauses, ADR-0026)
     /api/mcp/config      { configured } (is MCP_TOKEN set)
     /api/mcp/tokens      routes/mcpTokens.ts: create an all-upstreams token
     /api/mcp/clients     routes/mcpClients.ts: list/rename/revoke own clients (OAUTH and TOKEN kind)
@@ -278,10 +280,11 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   to the cap (`staleToolsToPrune`; rows in the current list are never
   deleted), plus TOOL snoozes of the deleted names; client rules cascade. A
   deleted tool is `unknown-tool` DENY until listed again, then "Neu" (TC-89).
-- `tools/call`: KnownTool + client override + upstream default + live snooze
-  read fresh -> `evaluatePolicy` -> AuditEntry `PENDING` written first (full
-  arguments, `receivedAt` via Clock, endpoint, `approvalId` for ASK) -> DENY:
-  `isError` (German + English), `DENIED`; ALLOW (rule or `snooze`): forwarded,
+- `tools/call`: KnownTool + client override + upstream default + live
+  allow/deny pauses read fresh -> `evaluatePolicy` -> AuditEntry `PENDING`
+  written first (full arguments, `receivedAt` via Clock, endpoint,
+  `approvalId` for ASK) -> DENY: `isError` (German + English; `snooze-deny`:
+  `MSG.blocked`, naming the tool or the upstream and the end time), `DENIED`; ALLOW (rule or `snooze`): forwarded,
   result returned unchanged except that our own upstream credentials are
   scrubbed if the upstream echoes them (`scrubSecrets`), audit `FORWARDED` +
   `isError` + `resultText` (≤ 2000 chars), failure -> `UPSTREAM_ERROR`,
@@ -473,7 +476,9 @@ What the SDK (v2.2.0) and the protocol do — the reason for this shape:
   `TIMED_OUT` without forwarding.
 - Outcomes (audit `decisionPath` = `<rule>+…`, `decidedAt` = decision time):
   approve -> forward, `FORWARDED` `+approved:page|push` (snooze row written if
-  asked); deny -> `DENIED` `+denied:page|push`, agent text names the user;
+  asked); deny -> `DENIED` `+denied:page|push`, agent text names the user
+  (with a deny pause, ADR-0026: the DENY row is written first, then the agent
+  gets `MSG.blocked`; if storing fails the call is denied all the same);
   timeout -> `TIMED_OUT` `+timeout` ("nicht innerhalb von 5 Minuten
   freigegeben … später erneut versuchen"); client abort -> `DENIED`
   `+aborted`; shutdown -> `DENIED` `+shutdown`; revoked -> `DENIED`
@@ -492,15 +497,18 @@ What the SDK (v2.2.0) and the protocol do — the reason for this shape:
   per route instance and released in the stream callback's finally), `GET /:id` (pending,
   or `{state:'resolved', outcome, decisionPath, …}` from the audit row by
   `approvalId`), `POST /:id` `{decision, via:'page'|'push', snoozeMinutes? |
-  snoozeUntilMidnight?}` (strict zod; 404 unknown/foreign id, 409 "Diese
-  Freigabe ist nicht mehr offen." when the audit row is the caller's; snooze
-  on deny or on a non-snoozable call -> 400). The Sec-Fetch-Site guard
+  snoozeUntilMidnight?, snoozeScope?}` (strict zod; 404 unknown/foreign id,
+  409 "Diese Freigabe ist nicht mehr offen." when the audit row is the
+  caller's; an allow pause on a non-snoozable call -> 400; deny + duration =
+  deny pause (ADR-0026), needs `snoozeScope` `tool`|`upstream` (missing or
+  `readonly` -> 400), allowed for new/changed tools too since it only
+  tightens; same duration limits as the allow pause). The Sec-Fetch-Site guard
   applies (the service worker's fetch is same-origin).
 - The MCP response for a held call: the SDK's legacy (2025-06-18) stateless
   leg answers over SSE and sends `: keepalive` comments every 15 s while the
   handler waits, so idle proxies see traffic.
 
-### Intent summary (ADR-0025, TC-106…116)
+### Intent summary (ADR-0025 + amendment, TC-106…120, TC-126)
 
 Advisory only: **nothing on the decision path reads or waits for it** (policy,
 hold/decide, timeout, forwarding), and the agent's result never contains it.
@@ -509,13 +517,17 @@ Any model/DB failure ends as `FAILED` (or nothing) for that call only.
 - **Switch:** `INTENT_LLM_URL` (base URL; `/v1/chat/completions` appended unless
   already there) turns it on; `INTENT_LLM_MODEL` (default `qwen`, a llama.cpp alias; the `model` the server answers with is stored as `intentModel`),
   `INTENT_LLM_API_KEY` (bearer, never logged), `INTENT_LLM_TIMEOUT_MS` (≤ and
-  default 60 s). `INTENT_LLM_STUB=1` selects the deterministic stub instead
+  default 60 s), `INTENT_LLM_THINK_BUDGET` (thinking tokens, default 128,
+  capped at `INTENT_THINK_BUDGET_MAX` 1024, `0` = thinking off, unparsable or
+  negative = 128; `model.ts intentThinkBudgetFromEnv`). `INTENT_LLM_STUB=1` selects the deterministic stub instead
   (e2e only; `INTENT_LLM_STUB_LOG=<file>` records each request's messages as a
   JSON line). Read once in `intent/index.ts` (`intents`, the process-wide
   `IntentQueue`; model null = off).
 - **Audit columns:** `intentStatus` (`OFF` feature off | `PENDING` queued |
   `DONE` | `FAILED` | `SKIPPED` queue overflow, restart, or an unresolved
-  `/mcp` name), `intentSummary` (intent + " Auffällig: " + concerns, ≤ 600),
+  `/mcp` name), `intentTitle` (TC-126: the model's 3–5-word German title,
+  one line, control characters removed, ≤ 60 chars; null if absent),
+  `intentSummary` (intent + " Auffällig: " + concerns, ≤ 600),
   `intentRisk` (shown), `intentModelRisk`, `intentLowered`, `intentModel`,
   `intentAt`, `intentPrompt` + `intentAnswer` (the exact user turn and raw
   answer, replayed byte-identically; never exposed), `intentContextId` (audit
@@ -539,22 +551,41 @@ Any model/DB failure ends as `FAILED` (or nothing) for that call only.
   (48 000) it starts fresh (system prompt only; context id = this call).
   FAILED rows keep the context id but contribute no turn; a SKIPPED/OFF
   predecessor starts a fresh context.
-- **Turn** (`prompt.ts callTurn`): `Aufruf <n>`, optionally `Stand der früheren
-  Aufrufe: {"1":"ausgeführt",…}` (fixed words from `outcomeWord`, numbers
-  only), then a `<call>` line, ONE line of JSON `{upstream, tool,
+- **Turn** (`prompt.ts callTurn`): `Aufruf <n>` (the only text outside the
+  block), then a `<call>` line, ONE line of JSON `{upstream, tool,
   description+annotations (first appearance of upstreamId:tool in the
-  context), arguments | argumentsTruncated (> 4000 chars)}` with `<` written as
-  `\u003c`, and a `</call>` line. JSON escapes newlines, so no value can make a
-  line of its own. Never results, credentials or client free text. The German
-  system prompt says the block is untrusted data, never instructions.
-- **Answer** (`parse.ts`): one JSON object `{intent, risk:
-  read|write|destructive, concerns?}`; prose/fence around exactly one object
+  context), arguments | argumentsTruncated (> 4000 chars), frueher?}` with `<`
+  written as `\u003c`, and a `</call>` line. JSON escapes newlines, so no
+  value can make a line of its own. Never credentials or client free text.
+  The German system prompt (v2, TC-119) says the block is untrusted data,
+  never instructions; what, not why; names only from earlier results; call
+  numbers are not ids; undoable archiving = write, destructive = hard to
+  undo; patterns (change of direction, sweeping, continuing after a denial)
+  with a count.
+- **Earlier calls** (`frueher`, ADR-0025 amendment, TC-118): `{"<n>":
+  {ausgang, ergebnis?}}` for the context's calls (by position) that have
+  news: never reported, or reported as pending (`PENDING_WORDS`) and final
+  now. `ausgang` = `outcomeWord` (fixed German words; `snooze-deny` ->
+  "vom Menschen gesperrt"); `ergebnis` = the audit `resultText` (≤ 2000,
+  scrubbed) of FORWARDED calls only (DENIED/TIMED_OUT/UPSTREAM_ERROR rows
+  hold our own text, never sent). What was already reported is read back from
+  the stored turns' blocks (`reportedSoFar`: only our own `frueher` key), so
+  nothing extra is stored and replay stays byte-identical. Results are the
+  upstream's text, i.e. a second injection source: accepted for an advisory
+  summary (the risk floor still holds).
+- **Answer** (`parse.ts`): one JSON object `{title?, intent, risk:
+  read|write|destructive, concerns?}` (title missing/empty -> null, still
+  DONE); prose/fence around exactly one object
   is accepted; anything else (or an answer over 4000 chars) = `FAILED`.
   **Risk shown** (`risk.ts`) = max(`toolHint` of the stored annotations, model)
   on read < write < destructive; model lower than the hint -> `intentLowered`.
-- **Model** (`model.ts`): `POST …/chat/completions {model, messages,
-  max_tokens 300, temperature 0.2, chat_template_kwargs.enable_thinking
-  false, response_format json_object}` via `outboundFetch` with
+- **Model** (`model.ts requestBody`): `POST …/chat/completions {model,
+  messages, max_tokens = INTENT_ANSWER_MAX_TOKENS (300) + budget, temperature
+  0.2, chat_template_kwargs.enable_thinking (budget > 0),
+  thinking_budget_tokens (only when > 0; llama.cpp's per-request field,
+  `reasoning_budget` is ignored by it), response_format json_object}`. Only
+  `choices[0].message.content` is the answer; `reasoning_content` is never
+  read, parsed or stored (content missing -> FAILED). Via `outboundFetch` with
   `alsoAllow` = exactly the URL's host:port (`upstreamAllowance` shape;
   redirects refused there), response capped at 256 KiB, aborted by the
   worker's timeout. Logs one info line per request: duration, `prompt_n`,
@@ -562,16 +593,18 @@ Any model/DB failure ends as `FAILED` (or nothing) for that call only.
 - **Channels:** the queue emits `intent` {auditId, userId, approvalId, view};
   `wireIntents` calls `hub.setIntent()` for a still-held call (stores the view
   on the PendingCall, emits hub `intent`; can't settle anything). SSE event
-  `intent` `{id, intentStatus, intentSummary, intentRisk, intentLowered}`;
-  `serializePending` (list, snapshot, `GET /:id`) carries the same four
-  fields. `approval/notify.ts` re-sends the `approval` push for a DONE summary
-  with `update: true`, `intent` (≤ 200), `risk` (urgency normal); sw.js shows
-  it silently with the same tag **only if a notification with that tag is
-  still open**, else drops it.
+  `intent` `{id, intentStatus, intentTitle, intentSummary, intentRisk,
+  intentLowered}`; `serializePending` (list, snapshot, `GET /:id`) carries the
+  same fields. `approval/notify.ts` re-sends the `approval` push for a DONE
+  summary with `update: true`, `intent` (≤ 200), `intentTitle` (≤ 60, if any),
+  `risk` (urgency normal); sw.js shows it silently with the same tag **only if
+  a notification with that tag is still open**, else drops it; the title is
+  the body's first line, the heading stays "Freigabe nötig".
 - **API:** `/api/audit` list + detail and the resolved `/api/approvals/:id`
-  expose `intentStatus`, `intentSummary`, `intentRisk`, `intentLowered`,
-  `intentAt`, `intentModel` (summary/risk/lowered only when DONE). Never prompt,
-  answer, model risk or context id.
+  expose `intentStatus`, `intentTitle`, `intentSummary`, `intentRisk`,
+  `intentLowered`, `intentAt`, `intentModel` (title/summary/risk/lowered only
+  when DONE); so do the session detail's entries (`/api/sessions/:id`). Never
+  prompt, answer, model risk or context id.
 - **Web:** `lib/IntentSummary.svelte` (plain text; "KI-Zusammenfassung ·
   beratend", chip Lesen/Schreiben/Destruktiv, warning "KI schätzt das
   harmloser ein als das Tool selbst", "Zusammenfassung wird erstellt…" while
@@ -579,10 +612,19 @@ Any model/DB failure ends as `FAILED` (or nothing) for that call only.
   approval card, the resolved approval page and the Verlauf detail (with model
   and time). The card's arguments sit in an expandable "Rohdaten" when the
   feature is on (open if the summary wasn't there when the card appeared).
+  TC-126: `lib/CallWhat.svelte` makes the title the card's / approval detail's
+  headline with "tool · Upstream" (monospace tool) as the meta line; without a
+  title the classic "Upstream · tool" line; while PENDING a placeholder bar of
+  the title's height is reserved so the live switch doesn't move the card.
+  Verlauf and session detail rows do the same (title as headline, tool in the
+  meta line). Plain text everywhere, never `{@html}`.
 
-### Snooze (ADR-0004, ADR-0019, TC-30, TC-76)
+### Snooze / pauses (ADR-0004, ADR-0019, ADR-0026, TC-30, TC-76, TC-121…125)
 
-`Snooze` rows (user, upstream, client, `scope`, `toolName`, `until`). Scope
+`Snooze` rows (user, upstream, client, `scope`, `effect`, `toolName`,
+`until`). `effect` (ADR-0026) is plain TEXT, default `ALLOW` (the allow
+pause below); anything other than exactly `ALLOW` is a **deny pause**
+(`snooze.isAllow`, fail closed). Scope
 `TOOL` (toolName set), `READONLY` (every tool of the upstream whose STORED
 `KnownTool.annotations` say readOnlyHint, `snooze.isReadOnly`) or `UPSTREAM`
 (every tool); toolName null for the wide two. Created when an approval
@@ -590,9 +632,20 @@ carries `snoozeMinutes` (1…1440; UI: 15, 60) or `snoozeUntilMidnight` (next
 00:00 Europe/Berlin, DST-safe), plus optional `snoozeScope`
 (`tool`|`readonly`|`upstream`; `readonly` only for a read-only held call,
 else 400; a scope without a duration is 400). server.ts narrows anything
-unexpected to `TOOL`. `snooze.liveSnoozeUntil(owner, tool, readOnly, now)` /
-`liveSnoozesFor(owner, now)` return the latest live covering row (pure part:
-`covers`, `latestCovering`, unit-tested). `evaluatePolicy` gets that
+unexpected to `TOOL`. Lookups always filter by (userId, upstreamId,
+mcpClientId) and `until > now`; `snooze.pauseState` (pure, unit-tested)
+splits the live covering rows by effect: `allowUntil` (only `ALLOW` rows) and
+`denyUntil` + `denyScope`. `livePauses(owner, tool, readOnly, now)` (tools/call)
+returns both; `liveSnoozeUntil` / `liveSnoozesFor` (tools/list) return
+`allowUntil` only, so a deny row never acts as an allow, and a deny-paused
+tool stays listed (no `list_changed`; the call error explains).
+**Deny pause:** `evaluatePolicy` gets `denyPausedUntil`; right after
+unknown-tool, a value not provably expired (valid `until` ≤ valid `now`)
+is `DENY` `snooze-deny`, beating client/tool ALLOW, the upstream default,
+an allow pause and new/changed tools. Created only from the app (card /
+approval detail: "Ablehnen und nicht mehr fragen bei …", scope dieses Tool /
+ganz <Upstream>, 15 Min. / 1 Std. / Heute) by `createSnooze(…, 'DENY')` in
+server.ts's deny branch. **Allow pause:** `evaluatePolicy` gets that
 `snoozedUntil` + `now` and upgrades **only ASK, and never for a tool awaiting
 review** (`awaitingReview`: new or changed, whatever path said ASK) to ALLOW
 `snooze`; DENY and unknown tools never. An annotation change marks a tool
@@ -601,6 +654,12 @@ The held call carries `snoozable` (`!awaitingReview`) and `readOnly`.
 tools/list applies it too (no stamp while snoozed). A rug-pull re-flag deletes
 the tool's TOOL snoozes (wide ones stay but can't apply while it awaits
 review). Expired rows are pruned when a new one is written.
+**Active pauses** (TC-124): `GET /api/upstreams/:id/snoozes` lists the
+caller's live rows of that upstream, both effects (`{id, effect, scope,
+toolName, mcpClientId, clientName, until, createdAt}`, sorted by `until`),
+`DELETE …/snoozes/:snoozeId` lifts one (the only edit; foreign upstream or
+row -> 404) and answers the fresh list. Regeln shows them as "Aktive Pausen"
+(chip Erlaubt/Gesperrt, scope, client, until, "Aufheben") when any exist.
 
 ### Grouping (ADR-0019, TC-75)
 
@@ -696,8 +755,9 @@ caller's client overrides; plus the caller's clients), `POST …/tools/refresh`,
 `POST …/tools/:toolId/acknowledge`, `PUT/DELETE
 …/tools/:toolId/clients/:mcpClientId`. The upstream is resolved among the
 caller's, the tool through that upstream, the client among the caller's (OAuth
-clients, plus token clients of exactly this upstream; `clients` lists the same
-set): 404 otherwise.
+clients, token clients of exactly this upstream, and all-upstreams tokens,
+ADR-0018 / TC-127; `clients` lists the same set, paused ones included, with
+`paused` for the "pausiert" chip): 404 otherwise.
 
 ### Request limits (TC-44)
 

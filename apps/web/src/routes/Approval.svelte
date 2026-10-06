@@ -7,6 +7,7 @@
   import Spinner from '../lib/Spinner.svelte';
   import SessionLine from '../lib/SessionLine.svelte';
   import IntentSummary from '../lib/IntentSummary.svelte';
+  import CallWhat from '../lib/CallWhat.svelte';
   import { api, ApiError, decisionPathText, messageOf, OUTCOME_LABEL, type PendingApproval, type ResolvedApproval } from '../lib/api';
   import { openApprovalStream } from '../lib/approvalStream';
 
@@ -31,8 +32,8 @@
   const close = openApprovalStream({
     resolved: (ev) => ev.id === id && load(),
     // ADR-0025: the summary of this held call arrived.
-    intent: ({ id: evId, intentStatus, intentSummary, intentRisk, intentLowered }) => {
-      if (evId === id && item?.state === 'pending') item = { ...item, intentStatus, intentSummary, intentRisk, intentLowered };
+    intent: ({ id: evId, intentStatus, intentTitle, intentSummary, intentRisk, intentLowered }) => {
+      if (evId === id && item?.state === 'pending') item = { ...item, intentStatus, intentTitle, intentSummary, intentRisk, intentLowered };
     },
   });
   onDestroy(close);
@@ -65,10 +66,7 @@
         <span class="approval-client">{r.clientName ?? 'Client'}</span>
         <span class="chip outcome-{r.outcome.toLowerCase()}">{OUTCOME_LABEL[r.outcome]}</span>
       </div>
-      <div class="approval-what">
-        <span class="approval-upstream">{r.upstream?.name ?? '–'}</span>
-        <span class="tool-name">{r.tool}</span>
-      </div>
+      <CallWhat tool={r.tool} upstream={r.upstream?.name ?? '–'} title={r.intentStatus === 'DONE' ? r.intentTitle : null} />
       <SessionLine session={r.session} />
       <p class="outcome-text">Nicht mehr offen: {decisionPathText(r.decisionPath)}.</p>
       <IntentSummary intent={r} />

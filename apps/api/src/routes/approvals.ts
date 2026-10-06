@@ -7,7 +7,7 @@
 //   GET  /stream      SSE: `snapshot` (my pending list) on connect, then
 //                     `upstreams` (my upstream faults, ADR-0022), then
 //                     `pending` / `resolved` events for my calls only,
-//                     `intent` {id, intentSummary, intentRisk, intentLowered,
+//                     `intent` {id, intentTitle, intentSummary, intentRisk, intentLowered,
 //                     intentStatus} when a held call's advisory summary
 //                     changed (ADR-0025), and `upstreams` again whenever my
 //                     fault list may have changed
@@ -15,6 +15,9 @@
 //   POST /:id         { decision: 'approve'|'deny', via: 'page'|'push',
 //                       snoozeMinutes? | snoozeUntilMidnight?,
 //                       snoozeScope?: tool | readonly | upstream }
+//                     approve + snooze: allow pause (ADR-0004/0019);
+//                     deny + snooze: deny pause, scope tool | upstream only
+//                     (ADR-0026; readonly -> 400)
 //                     -> 200 { state }, 404 unknown/foreign, 409 no longer open
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
@@ -73,7 +76,7 @@ export function serializePending(call: PendingCall, now: Date) {
  * the prompt or the raw answer. */
 export function intentFields(call: Pick<PendingCall, 'intent'>) {
   const i = call.intent ?? NO_INTENT('OFF');
-  return { intentStatus: i.status, intentSummary: i.summary, intentRisk: i.risk, intentLowered: i.lowered };
+  return { intentStatus: i.status, intentTitle: i.title ?? null, intentSummary: i.summary, intentRisk: i.risk, intentLowered: i.lowered };
 }
 
 function parseArgs(raw: string): unknown {
@@ -245,21 +248,28 @@ export function makeApprovalRoutes(
     }
 
     const wantsSnooze = body.snoozeMinutes !== undefined || body.snoozeUntilMidnight === true;
-    if (body.decision === 'deny' && wantsSnooze) return c.json({ error: 'Pausieren geht nur beim Erlauben.' }, 400);
-    if (wantsSnooze && !pending.snoozable) {
+    // A deny pause (ADR-0026) only tightens: allowed for new/changed tools
+    // too, but only for this tool or the whole upstream.
+    if (body.decision === 'deny' && wantsSnooze && body.snoozeScope === undefined) {
+      return c.json({ error: 'Beim Sperren bitte angeben, ob dieses Tool oder der ganze Upstream gesperrt wird.' }, 400);
+    }
+    if (body.decision === 'deny' && body.snoozeScope === 'readonly') {
+      return c.json({ error: '„Alle Lesetools“ geht nur beim Erlauben. Wähle dieses Tool oder den ganzen Upstream.' }, 400);
+    }
+    if (body.decision === 'approve' && wantsSnooze && !pending.snoozable) {
       return c.json({ error: 'Neue oder geänderte Tools lassen sich nicht pausieren. Bitte zuerst in den Regeln ansehen.' }, 400);
     }
     if (body.snoozeScope !== undefined && !wantsSnooze) return c.json({ error: 'Ein Umfang braucht eine Pausendauer.' }, 400);
     if (body.snoozeScope === 'readonly' && !pending.readOnly) {
       return c.json({ error: '„Alle Lesetools“ geht nur bei einem Lesetool.' }, 400);
     }
-    const until = body.decision === 'approve' ? snoozeUntil(clock.now(), body) : null;
+    const until = snoozeUntil(clock.now(), body);
     const snoozeScope = body.snoozeScope === 'upstream' ? 'UPSTREAM' : body.snoozeScope === 'readonly' ? 'READONLY' : 'TOOL';
 
     const result =
       body.decision === 'approve'
         ? hub.decide(userId, id, { kind: 'approve', via: body.via, snoozeUntil: until, snoozeScope })
-        : hub.decide(userId, id, { kind: 'deny', via: body.via });
+        : hub.decide(userId, id, { kind: 'deny', via: body.via, pauseUntil: until, pauseScope: snoozeScope === 'UPSTREAM' ? 'UPSTREAM' : 'TOOL' });
     // Lost the race against the deadline / another device between get and decide.
     if (result !== 'ok') return c.json(GONE, 409);
     return c.json({ id, state: body.decision === 'approve' ? 'approved' : 'denied', snoozeUntil: until?.toISOString() ?? null });

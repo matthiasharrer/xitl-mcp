@@ -14,7 +14,8 @@
 //
 // Per call: find its predecessor in the source; if that continues the group
 // (group.ts) and has a context, continue it (unless over the caps, prompt.ts),
-// else start fresh. Ask the model (timeout), parse, floor the risk, store the
+// else start fresh. Earlier calls' outcomes and results go into the new turn
+// as "frueher", each once when final (prompt.ts earlierReports). Ask the model (timeout), parse, floor the risk, store the
 // exact turn + raw answer, emit 'intent'.
 import { EventEmitter } from 'node:events';
 import { systemClock, type Clock } from '../lib/clock.js';
@@ -30,12 +31,14 @@ export type IntentStatus = 'OFF' | 'PENDING' | 'DONE' | 'FAILED' | 'SKIPPED';
 /** What the UI may see of a call's summary (never prompt/answer text). */
 export interface IntentView {
   status: IntentStatus;
+  /** TC-126: the model's short title (null unless DONE with a title). */
+  title: string | null;
   summary: string | null;
   risk: Risk | null;
   lowered: boolean | null;
 }
 
-export const NO_INTENT = (status: IntentStatus): IntentView => ({ status, summary: null, risk: null, lowered: null });
+export const NO_INTENT = (status: IntentStatus): IntentView => ({ status, title: null, summary: null, risk: null, lowered: null });
 
 export interface IntentJob {
   auditId: number;
@@ -85,11 +88,15 @@ export interface IntentTurnRow {
   policy: string;
   decisionPath: string;
   isError: boolean | null;
+  /** The audit's scrubbed result excerpt (FORWARDED: the upstream's result;
+   * otherwise our own error text, never sent to the model). */
+  resultText: string | null;
 }
 
 export type IntentResult =
   | {
       status: 'DONE';
+      title: string | null;
       summary: string;
       risk: Risk;
       modelRisk: Risk;
@@ -284,6 +291,10 @@ export class IntentQueue extends EventEmitter {
         answer: t.intentAnswer,
         toolKey: toolKey(t.upstreamId, t.toolName),
         outcome: outcomeWord(t),
+        final: t.outcome !== 'PENDING',
+        // Results only of calls that reached the upstream (ADR-0025
+        // amendment); DENIED/TIMED_OUT/UPSTREAM_ERROR carry our own text.
+        result: t.outcome === 'FORWARDED' ? t.resultText : null,
       }));
       let annotations: unknown = null;
       try {
@@ -327,6 +338,7 @@ export class IntentQueue extends EventEmitter {
         const floored = floorRisk(hintOfStored(call.annotations), parsed.risk);
         result = {
           status: 'DONE',
+          title: parsed.title,
           summary: summaryText(parsed),
           risk: floored.risk,
           modelRisk: parsed.risk,
@@ -346,7 +358,7 @@ export class IntentQueue extends EventEmitter {
     this.emitIntent(
       job,
       result.status === 'DONE'
-        ? { status: 'DONE', summary: result.summary, risk: result.risk, lowered: result.lowered }
+        ? { status: 'DONE', title: result.title, summary: result.summary, risk: result.risk, lowered: result.lowered }
         : NO_INTENT('FAILED'),
     );
   }

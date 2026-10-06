@@ -156,9 +156,14 @@ model Snooze {
   upstream    Upstream  @relation(fields: [upstreamId], references: [id], onDelete: Cascade)
   /// TOOL: just `toolName`; READONLY: every tool of the upstream whose stored
   /// annotations say readOnlyHint; UPSTREAM: every tool of the upstream.
-  /// toolName is null for the two wide scopes. Still only ever ASK -> ALLOW,
-  /// never for new/changed tools (policy.ts).
+  /// toolName is null for the two wide scopes. An ALLOW pause only ever turns
+  /// ASK -> ALLOW, never for new/changed tools (policy.ts).
   scope       SnoozeScope @default(TOOL)
+  /// ADR-0026: "ALLOW" turns ASK into ALLOW (the original snooze); "DENY"
+  /// refuses every covered call (deny pause, policy.ts `snooze-deny`). Plain
+  /// String on purpose: any value other than exactly "ALLOW" is read as DENY
+  /// (fail closed, approval/snooze.ts).
+  effect      String    @default("ALLOW")
   toolName    String?
   mcpClientId Int
   mcpClient   McpClient @relation(fields: [mcpClientId], references: [id], onDelete: Cascade)
@@ -280,6 +285,8 @@ model AuditEntry {
   intentStatus    String      @default("OFF")
   /// What the UI shows: intent (+ concerns), length-capped, plain text.
   intentSummary   String?
+  /// TC-126: the model's short German title (≤ 60 chars, plain text), DONE only.
+  intentTitle     String?
   /// Shown risk = max(tool hint, model risk) on read < write < destructive.
   intentRisk      String?
   /// The model's own (attacker-influenced) risk verdict.

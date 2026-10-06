@@ -160,3 +160,57 @@ describe('evaluatePolicy snooze (TC-30)', () => {
     expect(evaluatePolicy({ upstreamDefault: 'ALLOW', tool: known(), clientOverride: null, snoozedUntil: live, now })).toEqual({ policy: 'ALLOW', path: 'policy:upstream-default' });
   });
 });
+
+// TC-121 (precedence half): a live deny pause (ADR-0026) beats everything but
+// unknown-tool; expired has no effect; anything not provably expired denies.
+describe('deny pause (TC-121)', () => {
+  const NOW = new Date('2026-10-06T12:00:00Z');
+  const LIVE = new Date('2026-10-06T12:15:00Z');
+  const DENIED = { policy: 'DENY', path: 'snooze-deny' };
+
+  test('beats upstream default ALLOW/ASK/DENY', () => {
+    for (const d of ['ALLOW', 'ASK', 'DENY'] as const) {
+      expect(evaluatePolicy({ upstreamDefault: d, tool: known(), clientOverride: null, denyPausedUntil: LIVE, now: NOW })).toEqual(DENIED);
+    }
+  });
+
+  test('beats a tool rule ALLOW and a client rule ALLOW', () => {
+    expect(evaluatePolicy({ upstreamDefault: 'ASK', tool: known('ALLOW'), clientOverride: null, denyPausedUntil: LIVE, now: NOW })).toEqual(DENIED);
+    expect(evaluatePolicy({ upstreamDefault: 'ASK', tool: known('ASK'), clientOverride: 'ALLOW', denyPausedUntil: LIVE, now: NOW })).toEqual(DENIED);
+  });
+
+  test('beats a live allow pause', () => {
+    expect(
+      evaluatePolicy({ upstreamDefault: 'ASK', tool: known(), clientOverride: null, snoozedUntil: LIVE, denyPausedUntil: LIVE, now: NOW }),
+    ).toEqual(DENIED);
+  });
+
+  test('applies to new and changed tools', () => {
+    expect(evaluatePolicy({ upstreamDefault: 'ALLOW', tool: known(null, null), clientOverride: null, denyPausedUntil: LIVE, now: NOW })).toEqual(DENIED);
+    expect(evaluatePolicy({ upstreamDefault: 'ALLOW', tool: changed('ALLOW'), clientOverride: null, denyPausedUntil: LIVE, now: NOW })).toEqual(DENIED);
+  });
+
+  test('unknown tool stays unknown-tool', () => {
+    expect(evaluatePolicy({ upstreamDefault: 'ASK', tool: null, clientOverride: null, denyPausedUntil: LIVE, now: NOW })).toEqual({
+      policy: 'DENY',
+      path: 'unknown-tool',
+    });
+  });
+
+  test('expired (until <= now) or absent: no effect', () => {
+    for (const until of [NOW, new Date(NOW.getTime() - 1), null, undefined]) {
+      expect(evaluatePolicy({ upstreamDefault: 'ALLOW', tool: known(), clientOverride: null, denyPausedUntil: until, now: NOW })).toEqual({
+        policy: 'ALLOW',
+        path: 'policy:upstream-default',
+      });
+    }
+  });
+
+  test('fails closed: no now, an invalid date or garbage still denies', () => {
+    const tool = known('ALLOW');
+    expect(evaluatePolicy({ upstreamDefault: 'ALLOW', tool, clientOverride: null, denyPausedUntil: LIVE })).toEqual(DENIED);
+    expect(evaluatePolicy({ upstreamDefault: 'ALLOW', tool, clientOverride: null, denyPausedUntil: new Date(NaN), now: NOW })).toEqual(DENIED);
+    expect(evaluatePolicy({ upstreamDefault: 'ALLOW', tool, clientOverride: null, denyPausedUntil: '2020-01-01' as never, now: NOW })).toEqual(DENIED);
+    expect(evaluatePolicy({ upstreamDefault: 'ALLOW', tool, clientOverride: null, denyPausedUntil: NOW, now: new Date(NaN) })).toEqual(DENIED);
+  });
+});

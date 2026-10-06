@@ -11,6 +11,13 @@
 //   INTENT_LLM_API_KEY  optional bearer; never logged
 //   INTENT_LLM_TIMEOUT_MS  request timeout, at most (and default) 60 s; e2e
 //                       shortens it for the "hang" case
+//   INTENT_LLM_THINK_BUDGET  thinking tokens per request (default 128, max
+//                       INTENT_THINK_BUDGET_MAX, 0 = thinking off; anything
+//                       unparsable or negative = the default). Sent as
+//                       `thinking_budget_tokens` (llama.cpp's per-request
+//                       field; `reasoning_budget` is ignored by it, measured
+//                       on b11429). Only `message.content` is read; the
+//                       reasoning text is dropped, never parsed or stored.
 //   INTENT_LLM_STUB=1   the stub instead (e2e only); INTENT_LLM_STUB_LOG=<file>
 //                       appends each request's messages as a JSON line.
 //
@@ -20,9 +27,17 @@
 import fs from 'node:fs';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { limitResponse } from '../lib/limitedResponse.js';
-import { INTENT_REQUEST_TIMEOUT_MS, MAX_INTENT_RESPONSE_BYTES } from '../lib/limits.js';
+import {
+  INTENT_ANSWER_MAX_TOKENS,
+  INTENT_REQUEST_TIMEOUT_MS,
+  INTENT_THINK_BUDGET_DEFAULT,
+  INTENT_THINK_BUDGET_MAX,
+  MAX_INTENT_RESPONSE_BYTES,
+} from '../lib/limits.js';
 import { outboundFetch, upstreamAllowance, type AllowEntry } from '../lib/outbound.js';
-import { CLOSE, OPEN, type ChatMessage } from './prompt.js';
+import { blockOf, type ChatMessage } from './prompt.js';
+
+export { blockOf };
 
 export interface IntentAnswer {
   /** The assistant's raw answer text. */
@@ -75,6 +90,32 @@ export interface LlamaOptions {
   log?: (line: string) => void;
   /** outboundFetch, replaceable in tests (e.g. to pass `allow: []`). */
   fetch?: typeof outboundFetch;
+  /** Thinking tokens (intentThinkBudgetFromEnv); 0 = off. Default 128. */
+  thinkBudget?: number;
+}
+
+/** INTENT_LLM_THINK_BUDGET: an integer 0…max (above: the max); anything else
+ * (unset, garbage, negative, fractional) is the default. */
+export function intentThinkBudgetFromEnv(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === '') return INTENT_THINK_BUDGET_DEFAULT;
+  const n = Number(raw.trim());
+  if (!Number.isInteger(n) || n < 0) return INTENT_THINK_BUDGET_DEFAULT;
+  return Math.min(n, INTENT_THINK_BUDGET_MAX);
+}
+
+/** The request body (TC-117). Thinking with a budget, JSON mode kept (without
+ * it 2 of 18 answers were broken, 2026-10-06), room for budget + answer. */
+export function requestBody(model: string, messages: ChatMessage[], thinkBudget: number): Record<string, unknown> {
+  const budget = Number.isInteger(thinkBudget) && thinkBudget > 0 ? Math.min(thinkBudget, INTENT_THINK_BUDGET_MAX) : 0;
+  return {
+    model,
+    messages,
+    max_tokens: INTENT_ANSWER_MAX_TOKENS + budget,
+    temperature: 0.2,
+    chat_template_kwargs: { enable_thinking: budget > 0 },
+    ...(budget > 0 ? { thinking_budget_tokens: budget } : {}),
+    response_format: { type: 'json_object' },
+  };
 }
 
 export function llamaModel(opts: LlamaOptions): IntentModel {
@@ -84,6 +125,7 @@ export function llamaModel(opts: LlamaOptions): IntentModel {
   const log = opts.log ?? ((l: string) => console.log(l));
   const doFetch = opts.fetch ?? outboundFetch;
   const apiKey = opts.apiKey?.trim() || null;
+  const thinkBudget = opts.thinkBudget ?? INTENT_THINK_BUDGET_DEFAULT;
   return {
     name: model.slice(0, 100),
     async complete(messages, signal) {
@@ -96,16 +138,7 @@ export function llamaModel(opts: LlamaOptions): IntentModel {
           method: 'POST',
           headers,
           signal,
-          // Thinking off, low temperature, JSON mode: measured 2026-10-06 to
-          // answer in ~2 s and to hit the prefix cache (ADR-0025).
-          body: JSON.stringify({
-            model,
-            messages,
-            max_tokens: 300,
-            temperature: 0.2,
-            chat_template_kwargs: { enable_thinking: false },
-            response_format: { type: 'json_object' },
-          }),
+          body: JSON.stringify(requestBody(model, messages, thinkBudget)),
         },
         { alsoAllow: allowance },
       );
@@ -116,6 +149,7 @@ export function llamaModel(opts: LlamaOptions): IntentModel {
       }
       const body = JSON.parse(await limited.text()) as {
         model?: unknown;
+        // `reasoning_content` (the thinking) is deliberately not read.
         choices?: { message?: { content?: unknown } }[];
         timings?: { prompt_n?: unknown; cache_n?: unknown };
       };
@@ -131,19 +165,6 @@ export function llamaModel(opts: LlamaOptions): IntentModel {
 
 // ---- stub (e2e) ------------------------------------------------------------------
 
-/** The call data of a turn built by prompt.ts (the JSON line in the block). */
-export function blockOf(turn: string): Record<string, unknown> | null {
-  const lines = turn.split('\n');
-  const open = lines.indexOf(OPEN);
-  if (open < 0 || lines[open + 2] !== CLOSE) return null;
-  try {
-    const v = JSON.parse(lines[open + 1]!);
-    return v && typeof v === 'object' ? (v as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-}
-
 const sleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
     if (signal.aborted) return reject(new Error('aborted'));
@@ -156,7 +177,7 @@ const sleep = (ms: number, signal: AbortSignal) =>
  * turn's `arguments.__stub`: "fail" rejects, "hang" waits for the abort,
  * "garbage" answers non-JSON, "harmlos" answers risk read, "slow" answers
  * normally after 1.5 s, "long" answers a ~400-char intent (layout checks);
- * otherwise {"intent":"Stub: <tool>","risk":"write"}.
+ * otherwise {"title":"Stub-Titel <tool>","intent":"Stub: <tool>","risk":"write"}.
  */
 export function stubModel(opts: { log?: string } = {}): IntentModel {
   return {
@@ -175,7 +196,7 @@ export function stubModel(opts: { log?: string } = {}): IntentModel {
       if (mode === 'garbage') return { text: 'Das ist kein JSON.', model: null };
       if (mode === 'slow') await sleep(1500, signal);
       const intent = mode === 'long' ? `Stub: ${tool}. ${'Eine sehr lange Zusammenfassung mit Überlänge, '.repeat(8)}Ende.` : `Stub: ${tool}`;
-      return { text: JSON.stringify({ intent, risk: mode === 'harmlos' ? 'read' : 'write' }), model: null };
+      return { text: JSON.stringify({ title: `Stub-Titel ${tool}`, intent, risk: mode === 'harmlos' ? 'read' : 'write' }), model: null };
     },
   };
 }
@@ -189,8 +210,9 @@ export function intentModelFromEnv(env: NodeJS.ProcessEnv = process.env): Intent
   const url = env.INTENT_LLM_URL?.trim();
   if (!url) return null;
   try {
-    const m = llamaModel({ url, model: env.INTENT_LLM_MODEL, apiKey: env.INTENT_LLM_API_KEY });
-    console.log(`intent: summaries on, model ${m.name} at ${llamaEndpoint(url).endpoint.host}`);
+    const thinkBudget = intentThinkBudgetFromEnv(env.INTENT_LLM_THINK_BUDGET);
+    const m = llamaModel({ url, model: env.INTENT_LLM_MODEL, apiKey: env.INTENT_LLM_API_KEY, thinkBudget });
+    console.log(`intent: summaries on, model ${m.name} at ${llamaEndpoint(url).endpoint.host}, thinking ${thinkBudget > 0 ? `${thinkBudget} tokens` : 'off'}`);
     return m;
   } catch (e) {
     console.error(`intent: INTENT_LLM_URL unusable, summaries off (${e instanceof Error ? e.message : 'invalid'})`);

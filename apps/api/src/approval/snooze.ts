@@ -4,8 +4,10 @@
 // are harmless (the policy compares `until` with the Clock) and are pruned
 // opportunistically.
 //
-// A snooze only ever turns ASK into ALLOW and never applies to a new or
-// changed tool (policy.ts); "read-only" is the tool's STORED annotations
+// Two effects (ADR-0026): an ALLOW pause only ever turns ASK into ALLOW and
+// never applies to a new or changed tool (policy.ts); a DENY pause refuses
+// every covered call ("snooze-deny", right after unknown-tool). Any effect
+// other than exactly 'ALLOW' is a DENY (fail closed). "read-only" is the tool's STORED annotations
 // (KnownTool), and an annotation change marks the tool changed, so an upstream
 // cannot relabel a tool to slip under a READONLY snooze.
 import { prisma } from '../db.js';
@@ -30,10 +32,23 @@ export function isReadOnly(annotationsJson: string | null | undefined): boolean 
   }
 }
 
+/** ADR-0026. Only exactly 'ALLOW' is an allow pause; anything else is DENY. */
+export type SnoozeEffect = 'ALLOW' | 'DENY';
+
 interface Row {
   scope: SnoozeScope;
   toolName: string | null;
   until: Date;
+}
+
+interface EffectRow extends Row {
+  /** Raw DB text: read through `isAllow`, never compared to 'DENY'. */
+  effect: string;
+}
+
+/** Fail closed: a row is an allow pause only if its effect is exactly 'ALLOW'. */
+export function isAllow(row: Pick<EffectRow, 'effect'>): boolean {
+  return row.effect === 'ALLOW';
 }
 
 /** Does this snooze row cover the tool? Pure; exported for the unit test. */
@@ -50,25 +65,72 @@ export function latestCovering(rows: Row[], toolName: string, readOnly: boolean)
   return best;
 }
 
-async function liveRows(owner: SnoozeOwner, now: Date): Promise<Row[]> {
+/** The live pauses covering one tool, split by effect. Pure (TC-121's
+ * matching half). `rows` are the owner's live rows; `until` is re-checked. A
+ * DENY row (or one with any unrecognised effect) never counts as ALLOW. */
+export function pauseState(rows: EffectRow[], toolName: string, readOnly: boolean, now: Date): PauseState {
+  const live = rows.filter((r) => r.until.getTime() > now.getTime());
+  let deny: EffectRow | null = null;
+  for (const r of live) if (!isAllow(r) && covers(r, toolName, readOnly) && (!deny || r.until > deny.until)) deny = r;
+  return {
+    allowUntil: latestCovering(live.filter(isAllow), toolName, readOnly),
+    denyUntil: deny?.until ?? null,
+    denyScope: deny?.scope ?? null,
+  };
+}
+
+export interface PauseState {
+  /** Latest live ALLOW pause covering the tool (ASK -> ALLOW). */
+  allowUntil: Date | null;
+  /** Latest live DENY pause covering the tool, and its scope (for the text). */
+  denyUntil: Date | null;
+  denyScope: SnoozeScope | null;
+}
+
+async function liveRows(owner: SnoozeOwner, now: Date): Promise<EffectRow[]> {
   return prisma.snooze.findMany({
-    where: { ...owner, until: { gt: now } },
-    select: { scope: true, toolName: true, until: true },
+    where: { userId: owner.userId, upstreamId: owner.upstreamId, mcpClientId: owner.mcpClientId, until: { gt: now } },
+    select: { scope: true, toolName: true, until: true, effect: true },
   });
 }
 
-/** The latest live snooze covering this tool for this client, or null. */
+/** The latest live ALLOW pause covering this tool for this client, or null.
+ * Deny pauses are ignored here (see `livePauses`). */
 export async function liveSnoozeUntil(owner: SnoozeOwner, toolName: string, readOnly: boolean, now: Date): Promise<Date | null> {
-  return latestCovering(await liveRows(owner, now), toolName, readOnly);
+  return (await livePauses(owner, toolName, readOnly, now)).allowUntil;
 }
 
-/** For tools/list: one query, then `untilFor(tool, readOnly)` per tool. */
+/** Both effects for one tools/call (ADR-0026): one query. */
+export async function livePauses(owner: SnoozeOwner, toolName: string, readOnly: boolean, now: Date): Promise<PauseState> {
+  return pauseState(await liveRows(owner, now), toolName, readOnly, now);
+}
+
+/** For tools/list: one query, then `untilFor(tool, readOnly)` per tool. Only
+ * ALLOW pauses count (a deny-paused tool stays listed, ADR-0026). */
 export async function liveSnoozesFor(owner: SnoozeOwner, now: Date): Promise<(toolName: string, readOnly: boolean) => Date | null> {
   const rows = await liveRows(owner, now);
-  return (toolName, readOnly) => latestCovering(rows, toolName, readOnly);
+  return (toolName, readOnly) => pauseState(rows, toolName, readOnly, now).allowUntil;
 }
 
-export async function createSnooze(owner: SnoozeOwner, scope: SnoozeScope, toolName: string, until: Date, now: Date): Promise<void> {
+export async function createSnooze(
+  owner: SnoozeOwner,
+  scope: SnoozeScope,
+  toolName: string,
+  until: Date,
+  now: Date,
+  effect: SnoozeEffect = 'ALLOW',
+): Promise<void> {
   await prisma.snooze.deleteMany({ where: { userId: owner.userId, until: { lte: now } } });
-  await prisma.snooze.create({ data: { ...owner, scope, toolName: scope === 'TOOL' ? toolName : null, until, createdAt: now } });
+  await prisma.snooze.create({
+    data: {
+      userId: owner.userId,
+      upstreamId: owner.upstreamId,
+      mcpClientId: owner.mcpClientId,
+      scope,
+      effect: effect === 'DENY' ? 'DENY' : 'ALLOW',
+      toolName: scope === 'TOOL' ? toolName : null,
+      until,
+      createdAt: now,
+    },
+  });
 }
