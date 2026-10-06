@@ -42,14 +42,6 @@ GHCR), `v0.7.0` deployed and running. GitOps already has `INTENT_LLM_URL`
 
 **To prioritize (Matthias, 2026-10-06, not ordered yet):**
 
-- **Held call stays after the chat cancelled it.** Today a held call ends on
-  a dropped HTTP request (`signal` → `hub.abort`, server.ts) or at the
-  timeout (≤ 300 s budget). Claude.ai's "Abbrechen" apparently keeps the
-  connection: MCP clients cancel with `notifications/cancelled { requestId }`,
-  which xitl ignores (no handler). Fix: map that notification to the held
-  call of the same client/session + JSON-RPC id → `aborted`, resolved push
-  closes the notification. First confirm what Claude.ai sends (diagnostics of
-  a cancelled call). Fail-closed is unaffected (aborted = deny).
 - **Optional reason when denying**, passed to the agent in the denial text
   ("[xitl] Abgelehnt: <Grund>"), e.g. "falsches Tool, nicht nochmal
   versuchen". One tap must stay one tap without a reason. Options: an

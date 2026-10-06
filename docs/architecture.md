@@ -463,6 +463,15 @@ What the SDK (v2.2.0) and the protocol do — the reason for this shape:
 
 ### Approval: held calls (ADR-0004, ADR-0009, TC-27…31, TC-37)
 
+- **Client cancel (TC-132):** `createMcpHandler` is stateless per HTTP
+  request, so the SDK can't route a later `notifications/cancelled` to the
+  request it names. `mcp/mount.ts` (after the gate, session lookup) passes
+  every such message in a POST to `approvals.cancelByRequest({userId,
+  mcpClientId, sessionId, endpoint}, requestId)`; held calls carry
+  `request: {endpoint, rpcId}` (`reqCtx.mcpReq.id`, set in server.ts). Exactly
+  one match → settled `aborted` (deny, `+aborted`); zero or several → no-op.
+  The message still reaches the handler (202).
+
 - `approval/pending.ts` `ApprovalHub` (one per process, `approvals`): a Map of
   held calls keyed by a 128-bit random id (base64url, 22 chars) with userId,
   client, upstream, tool, args, audit id, rule path, `receivedAt`,

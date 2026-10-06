@@ -17,6 +17,12 @@
 - **Gotcha:** `pkill -f "<pattern>"` inside a Bash call matches the calling
   shell itself (exit 144); kill by PID.
 - Discussed "Pause mit KI-Prüfung" and Cloudflare Clef-flash (ideas.md).
+- Cancel fix (TC-132): Claude.ai's "Abbrechen" left held calls standing;
+  the stateless SDK handler can't route `notifications/cancelled`, so
+  mount.ts matches it to the held call (client, session, endpoint, JSON-RPC
+  id). Unconfirmed that Claude.ai sends it: check the next cancelled call's
+  audit for `+aborted`. Released `v0.9.0` (Matthias: "fix fertig, dann
+  release"). llama.cpp PR #29831 (Clef, `/v1/systemone`) merged 2026-10-03.
 
 ## 2026-10-06 (late) — A pause settles the covered held calls
 

@@ -113,6 +113,7 @@ to an outbox file (Haushalt's pattern).
 | TC-35 | ⚡ "Verlauf" lists the user's calls newest first with outcome and decision path; a call's detail shows arguments and the result excerpt; `anna` sees none of Matthias's. |
 | TC-36 | A known, acknowledged tool whose description or annotations change is `ask` again ("Geändert") until acknowledged, even under default `allow` **and even with an explicit tool- or client-level `allow`** (Matthias, 2026-10-04). An explicit `ask` or `deny` still applies unchanged (a changed `deny` tool stays hidden and denied). Acknowledging restores the explicit rule. Unit (precedence) + e2e. |
 | TC-37 | Unit: approval wait and upstream call share one budget of 300 s from receipt; an approved call's upstream timeout is capped to what's left. |
+| TC-132 | The client cancels a held call (MCP `notifications/cancelled { requestId }`, Matthias 2026-10-06: Claude.ai's "Abbrechen" left the card standing). Unit (`pending.test.ts` `cancelByRequest`): settles as `aborted` only the ONE held call with the same user, client, session (none = none), endpoint and JSON-RPC id (`7` ≠ `"7"`); another user/client/endpoint/session → nothing; two matches (sessionless chats reusing an id) → nothing (waits for the timeout as before); a call without request info → never. e2e (`cancel.spec.ts`): held call id 4711; cancels with a wrong id, `"4711"`, or from another client → 202, still held; the real cancel → the call returns at once (< 4 s, timeout 5 s) with the "abgebrochen" text, audit DENIED `…+aborted`, gone from the list, a late approve fails. Mutation: without the mount.ts handler the call waits for the timeout. |
 
 ### Malicious-client suite (ADR-0003): `e2e/tests/malicious.spec.ts` (+ unit where noted)
 
@@ -344,6 +345,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 25 | 2026-10-06 | TC-01…132, unit 398 (api 388 + web 10), e2e 150 (TC-132 cancel) | all passed (lead built it directly, small). Mutation: without the mount.ts cancel handler TC-132 fails (call waits 5 s for the timeout). |
 | 24 | 2026-10-06 | TC-01…131, unit 389 (api 379 + web 10), e2e 149 (ADR-0027 self-loop) | all passed (lead built it directly, small). Mutation: without the request-time guard TC-131 fails. |
 | 23 | 2026-10-06 | TC-01…129 (TC-128 unit only), unit 378, e2e 147 | all passed (lead; small changes built by the lead, no separate runner this time). |
 | 22 | 2026-10-06 | TC-01…127, unit 374 (api 364 + web 10) (ADR-0025 v2 + title, ADR-0026 deny pause, TC-127) | all passed (implementer, then lead independently: e2e 147). Real Qwen (alias `qwen`, budget 128): 3.6–4.9 s per request, prefix hit every call, archive = write, "Richtungswechsel" flagged from call 5/6, objects named from results. Lead replaced in-domain title examples (Qwen copied "Putzaufgabe Bad EG anlegen" verbatim). |

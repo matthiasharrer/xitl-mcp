@@ -3,6 +3,15 @@
 Shipped roadmap entries, newest first. The reasoning is in `decisions/`, the
 test evidence in `testing.md`'s run log.
 
+## 2026-10-06
+
+- **Client cancel ends a held call (TC-132, Matthias):** Claude.ai's
+  "Abbrechen" left the approval card standing until the timeout; xitl now
+  honours MCP `notifications/cancelled` (matched by client, session,
+  endpoint and JSON-RPC id; ambiguous → no-op). Not yet confirmed that
+  Claude.ai sends it (check the next cancelled call's audit: `+aborted`).
+- **xitl refuses itself as an upstream (ADR-0027).**
+
 ## 2026-10-05
 
 - **`v0.5.0` released** (Matthias's call): pause an access, session expiry,
