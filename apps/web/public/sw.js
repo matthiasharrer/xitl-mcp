@@ -124,10 +124,12 @@ self.addEventListener('push', (event) => {
     return;
   }
   if (data.type === 'resolved' && typeof data.id === 'string') {
+    // Decided elsewhere (app, another device, expired, revoked/paused): the
+    // notification just goes away (Matthias, 2026-10-06: no lingering
+    // "Erlaubt" notifications).
     event.waitUntil(
       self.registration.getNotifications({ tag: tagOf(data.id) }).then((open) => {
-        const label = open[0] && open[0].data ? open[0].data.label : '';
-        return showOutcome(data.id, data.outcome, label);
+        for (const n of open) n.close();
       }),
     );
     return;
@@ -181,7 +183,13 @@ self.addEventListener('notificationclick', (event) => {
   const data = n.data || {};
   n.close();
   if ((event.action === 'approve' || event.action === 'deny') && typeof data.id === 'string') {
-    event.waitUntil(decide(data.id, event.action).then((outcome) => showOutcome(data.id, outcome, data.label)));
+    // Done: the tapped notification is already closed, nothing stays behind.
+    // Not done (gone, login, error): say so, the user has to act.
+    event.waitUntil(
+      decide(data.id, event.action).then((outcome) =>
+        outcome === 'approved' || outcome === 'denied' ? undefined : showOutcome(data.id, outcome, data.label),
+      ),
+    );
     return;
   }
   event.waitUntil(openApp(data.url));

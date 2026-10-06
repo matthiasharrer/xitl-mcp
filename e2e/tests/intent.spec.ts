@@ -272,10 +272,10 @@ test('TC-112 sw.js: update ersetzt eine offene Benachrichtigung still, ohne offe
   // update arrives: the outcome stays, no request comes back.
   await sw.push({ ...base, id: 'CCCCCCCCCCCCCCCCCCCCCC' });
   await sw.click(sw.shown[2]!, 'approve');
-  expect(sw.shown).toHaveLength(4);
-  expect(sw.shown[3]!.title).toBe('Erlaubt');
+  expect(sw.shown).toHaveLength(3);
+  expect(sw.shown[2]!.closed).toBe(true);
   await sw.push({ ...base, id: 'CCCCCCCCCCCCCCCCCCCCCC', update: true, intent: 'y', risk: 'write' });
-  expect(sw.shown).toHaveLength(4);
+  expect(sw.shown).toHaveLength(3);
 });
 
 test('TC-113 Verlauf-API: ALLOW, DENY und ASK bekommen eine Zusammenfassung; nur die sechs Felder, nie Prompt/Antwort; fremde Zeile 404', async ({ request }) => {

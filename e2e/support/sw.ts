@@ -6,6 +6,8 @@ import vm from 'node:vm';
 export interface Shown {
   title: string;
   options: any;
+  /** closed by the SW (resolved push) or by a tap */
+  closed?: boolean;
 }
 export interface SwFetch {
   url: string;
@@ -23,7 +25,9 @@ export function loadServiceWorker(source: string, origin: string, respond: (f: S
     location: { origin },
     registration: {
       showNotification: async (title: string, options: any) => void shown.push({ title, options }),
-      getNotifications: async ({ tag }: { tag: string }) => shown.filter((n) => n.options?.tag === tag).map((n) => ({ data: n.options.data })),
+      // Open ones only; close() marks the entry (real notifications vanish).
+      getNotifications: async ({ tag }: { tag: string }) =>
+        shown.filter((n) => n.options?.tag === tag && !n.closed).map((n) => ({ data: n.options.data, close: () => void (n.closed = true) })),
     },
     clients: {
       claim: async () => undefined,
@@ -50,6 +54,6 @@ export function loadServiceWorker(source: string, origin: string, respond: (f: S
     opened,
     push: (payload: unknown) => dispatch('push', { data: { json: () => payload, text: () => JSON.stringify(payload) } }),
     click: (notification: Shown, action = '') =>
-      dispatch('notificationclick', { action, notification: { data: notification.options.data, close: () => undefined } }),
+      dispatch('notificationclick', { action, notification: { data: notification.options.data, close: () => void (notification.closed = true) } }),
   };
 }

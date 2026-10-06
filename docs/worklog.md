@@ -9,7 +9,8 @@
   calls, "15 min erlauben" on one left the others waiting. Now a pause (allow
   or deny) also decides the held calls it covers (TC-128; lead built it
   directly, small). Unit + full suite green; TC-128 e2e still to write.
-  Unreleased. Session ended near Matthias's usage limit.
+  Notifications of decided calls are now closed instead of replaced with
+  an outcome (TC-129). Released `v0.8.0` at Matthias's request.
 
 ## 2026-10-06 (later) — Intent v2, AI titles, deny pause, `v0.7.0`
 

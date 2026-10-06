@@ -9,7 +9,9 @@ _Last updated: 2026-10-06 (`v0.7.0`: intent v2, titles, deny pause)_
 
 ## Next
 
-0. **`v0.7.0` (2026-10-06): intent v2 (thinking 128, results, titles), deny
+0. **`v0.8.0` (2026-10-06): a pause settles the covered held calls (TC-128,
+   e2e still to write), decided notifications are closed (TC-129).**
+   Before: **`v0.7.0`: intent v2 (thinking 128, results, titles), deny
    pause (ADR-0026), all-upstreams tokens in "Pro Client".** Next: deploy
    (tag bump in GitOps), then MG-08 (watch: Android's generic "updated in the
    background" notification on a dropped update push). Candidates after: per-message trace id
@@ -20,7 +22,7 @@ _Last updated: 2026-10-06 (`v0.7.0`: intent v2, titles, deny pause)_
 
 ## Milestone 1 status
 
-Deployed (`v0.7.0` is the latest release, deploy pending) and in daily use: Matthias's
+Deployed (`v0.8.0` is the latest release; `v0.7.0` running) and in daily use: Matthias's
 Claude.ai uses the unified `/mcp` connector (Haushalt, Rezepte, Einkaufsliste
 behind it) from 2026-10-05 on. Manual gates MG-01…04, MG-06 and MG-07 passed
 (`testing.md` run log). **Open:**

@@ -255,16 +255,20 @@ test('TC-104 Wartende Aufrufe: Pausieren beendet sie sofort (+paused), fremde bl
     expect((await pendingList(request, PA_HELD)).map((p) => p.id)).toEqual([pB.id]);
     // the stale notification is replaced
     await expect.poll(() => outbox(ep).find((e) => e.payload.type === 'resolved' && e.payload.id === pA.id)?.payload).toEqual({ type: 'resolved', id: pA.id, outcome: 'paused' });
+    const nA = sw.shown.length;
     await sw.push(outbox(ep).find((e) => e.payload.type === 'resolved' && e.payload.id === pA.id)!.payload);
-    expect(sw.shown.at(-1)).toMatchObject({ title: 'Nicht mehr offen: Zugang pausiert', options: { tag: `approval-${pA.id}`, silent: true } });
+    expect(sw.shown.filter((x) => x.options?.tag === `approval-${pA.id}` && !x.closed)).toEqual([]);
+    expect(sw.shown).toHaveLength(nA);
 
     // revoking the second client: the same "resolved" push (outcome revoked)
     expect((await request.delete(`/api/mcp/clients/${secondId}`, { headers: PA_HELD })).status()).toBe(204);
     expect((await heldB).isError).toBe(true);
     expect(auditByApproval(pB.id)).toMatchObject({ outcome: 'DENIED', decisionPath: 'policy:upstream-default+revoked' });
     await expect.poll(() => outbox(ep).find((e) => e.payload.type === 'resolved' && e.payload.id === pB.id)?.payload).toEqual({ type: 'resolved', id: pB.id, outcome: 'revoked' });
+    const nB = sw.shown.length;
     await sw.push(outbox(ep).find((e) => e.payload.type === 'resolved' && e.payload.id === pB.id)!.payload);
-    expect(sw.shown.at(-1)).toMatchObject({ title: 'Nicht mehr offen: Zugang oder Upstream entfernt', options: { tag: `approval-${pB.id}` } });
+    expect(sw.shown.filter((x) => x.options?.tag === `approval-${pB.id}` && !x.closed)).toEqual([]);
+    expect(sw.shown).toHaveLength(nB);
 
     // the race: a pause that lands after evaluation but misses the held call
     // (written straight to the DB, so nothing settles it) -> the approval is

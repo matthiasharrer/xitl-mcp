@@ -89,6 +89,7 @@ test('TC-33 Service Worker: Aktion "Erlauben"/"Ablehnen" sendet die Anfrage der 
     ]);
     expect(n.options.data.url).toBe(`/#/freigabe/${p.id}`);
 
+    const shownBefore = sw.shown.length;
     await sw.click(n, 'approve');
     expect(sw.fetches).toHaveLength(1);
     const f = sw.fetches[0]!;
@@ -97,8 +98,9 @@ test('TC-33 Service Worker: Aktion "Erlauben"/"Ablehnen" sendet die Anfrage der 
     expect(JSON.parse(f.init.body)).toEqual({ decision: 'approve', via: 'push' });
     expect(await held).toEqual({ content: [{ type: 'text', text: 'hinzugefügt: Push-Eier' }] });
     expect(lastAudit(up.id)).toMatchObject({ outcome: 'FORWARDED', decisionPath: 'policy:upstream-default+approved:push' });
-    // the notification was replaced by the outcome
-    expect(sw.shown.at(-1)).toMatchObject({ title: 'Erlaubt', options: { tag: `approval-${p.id}`, silent: true } });
+    // done: the notification is gone, no outcome notification stays behind
+    expect(n.closed).toBe(true);
+    expect(sw.shown).toHaveLength(shownBefore);
     // decided from the notification: no extra "resolved" push
     await settle();
     expect(firstPushes(ep).map((e) => e.payload.type)).toEqual(['approval']);
@@ -129,9 +131,13 @@ test('TC-33 Service Worker: Aktion "Erlauben"/"Ablehnen" sendet die Anfrage der 
     await expired.click({ title: 'x', options: { data: { id: p2.id, url: `/#/freigabe/${p2.id}` } } }, 'approve');
     expect(expired.shown.at(-1)!.title).toContain('anmelden');
 
-    // 5) a "resolved" push replaces the notification with the outcome
+    // 5) a "resolved" push closes what is still open for that call, shows nothing new
+    const open2 = () => sw.shown.filter((x) => x.options?.tag === `approval-${p2.id}` && !x.closed);
+    expect(open2().length).toBeGreaterThan(0);
+    const before5 = sw.shown.length;
     await sw.push({ type: 'resolved', id: p2.id, outcome: 'expired' });
-    expect(sw.shown.at(-1)).toMatchObject({ title: 'Zeit abgelaufen', options: { tag: `approval-${p2.id}` } });
+    expect(open2()).toEqual([]);
+    expect(sw.shown).toHaveLength(before5);
   } finally {
     await unsubscribe(request, MATTHIAS, ep);
   }
