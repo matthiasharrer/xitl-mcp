@@ -164,6 +164,9 @@ describe('model selection', () => {
     expect(intentModelFromEnv({})).toBeNull();
     expect(intentModelFromEnv({ INTENT_LLM_URL: '  ' })).toBeNull();
     expect(intentModelFromEnv({ INTENT_LLM_URL: 'not a url' })).toBeNull();
+    // A misconfigured URL turns summaries off; it never stops xitl from booting.
+    expect(intentModelFromEnv({ INTENT_LLM_URL: 'ftp://llama:8080' })).toBeNull();
+    expect(intentModelFromEnv({ INTENT_LLM_URL: 'http://user:pw@llama:8080' })).toBeNull();
     expect(intentModelFromEnv({ INTENT_LLM_URL: 'http://10.0.0.5:8080', INTENT_LLM_MODEL: 'm1' })?.name).toBe('m1');
     expect(intentModelFromEnv({ INTENT_LLM_STUB: '1' })?.name).toBe('stub');
     expect(intentModelFromEnv({ INTENT_LLM_STUB: 'true', INTENT_LLM_URL: '' })).toBeNull();
