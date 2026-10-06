@@ -23,6 +23,11 @@
   id). Unconfirmed that Claude.ai sends it: check the next cancelled call's
   audit for `+aborted`. Released `v0.9.0` (Matthias: "fix fertig, dann
   release"). llama.cpp PR #29831 (Clef, `/v1/systemone`) merged 2026-10-03.
+- Rezepte `v1.41.1` (lead): ADR references removed from MCP tool
+  descriptions (Matthias saw "(ADR-0020)" in xitl's tool view).
+- Decided, not built: per-client default per upstream (roadmap "To
+  prioritize"). Next session starts with the Clef experiment (roadmap item 0);
+  Matthias restarts the workspace first, so this chat is gone.
 
 ## 2026-10-06 (late) — A pause settles the covered held calls
 

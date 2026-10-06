@@ -15,6 +15,24 @@ GHCR), `v0.7.0` deployed and running. GitOps already has `INTENT_LLM_URL`
 
 **Open, in order:**
 
+0. **Next session, together with Matthias: try Cloudflare Clef-Flash** for
+   the "Pause mit KI-Prüfung" (ideas.md). llama.cpp PR #29831 (merged
+   2026-10-03) adds Clef/Clef-Flash and `POST /v1/systemone`: `state` + named
+   questions (`choice` with criteria map, `score` 2–10 levels, `noul` yes/no
+   → probability), one forward pass, no text (`output_tokens: 0`). Router mode
+   serves it next to Qwen (model per request); Clef-Flash Q4 ≈ 6.5 GB. Plan:
+   (1) Matthias loads `ggml-org/Clef-Flash-GGUF` in his llama-server (needs a
+   build with #29831; he restarts the workspace for the access); (2) lead
+   writes a scratch benchmark: state = anchor call + intent, calls since the
+   pause, new call; questions `passt` (noul: same intent continued?) and
+   `richtung` (choice: gleiche Richtung / Richtungswechsel / Ausweitung);
+   cases from real use (the archive-everything sequence, normal continuations);
+   (3) look for a clean probability gap / threshold (the blog: cutoffs are
+   model-specific); (4) if it separates, ADR, then Matthias decides. Design
+   constraint stays: the check can only narrow a granted pause, anything else
+   → ASK. Sources: github.com/ggml-org/llama.cpp/pull/29831,
+   huggingface.co/blog/ggml-org/decision-models-in-llamacpp.
+
 1. **Deploy `v0.8.0`** (Matthias bumps the tag in GitOps).
 2. **TC-128 e2e** (a pause settles the covered held calls): hold 3 calls of
    one tool + 1 of another tool + 1 of another client, approve one with a
@@ -41,6 +59,21 @@ GHCR), `v0.7.0` deployed and running. GitOps already has `INTENT_LLM_URL`
 8. MG-05 (Tina), whenever convenient.
 
 **To prioritize (Matthias, 2026-10-06, not ordered yet):**
+
+- **Per-client default per upstream** (Matthias, 2026-10-06: decided "volle
+  Voreinstellung", not built yet). Trigger: with everything on `/mcp`, the
+  Claude.ai client sees Rezepte twice (`rezepte_…` and the work copy
+  `rezepte-arbeit_…`). New per (client, upstream) policy ALLOW / ASK / DENY,
+  between the upstream default and per-tool rules; a per-client tool rule
+  still wins. **DENY = upstream invisible to that client**: no tools in
+  `tools/list`, no section in `/mcp` instructions, calls denied, and it beats
+  "new/changed tool → ASK" (else new tools reappear). Pauses don't change it.
+  UI: one row per client under "Pro Client" in the upstream's rules (Voreinst.
+  / Erlauben / Fragen / Verbieten). Makes the double-upstream workaround
+  unnecessary. Needs an ADR (policy change) and fail-closed cases (DENY never
+  listed/forwarded, incl. new tools, unified and per-slug endpoints).
+  Workaround today: per-client DENY on every tool (DENY tools are already
+  hidden from `tools/list`).
 
 - **Optional reason when denying**, passed to the agent in the denial text
   ("[xitl] Abgelehnt: <Grund>"), e.g. "falsches Tool, nicht nochmal
