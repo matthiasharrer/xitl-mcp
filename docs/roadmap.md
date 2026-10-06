@@ -40,6 +40,25 @@ GHCR), `v0.7.0` deployed and running. GitOps already has `INTENT_LLM_URL`
    first, then Matthias decides.
 8. MG-05 (Tina), whenever convenient.
 
+**To prioritize (Matthias, 2026-10-06, not ordered yet):**
+
+- **Held call stays after the chat cancelled it.** Today a held call ends on
+  a dropped HTTP request (`signal` → `hub.abort`, server.ts) or at the
+  timeout (≤ 300 s budget). Claude.ai's "Abbrechen" apparently keeps the
+  connection: MCP clients cancel with `notifications/cancelled { requestId }`,
+  which xitl ignores (no handler). Fix: map that notification to the held
+  call of the same client/session + JSON-RPC id → `aborted`, resolved push
+  closes the notification. First confirm what Claude.ai sends (diagnostics of
+  a cancelled call). Fail-closed is unaffected (aborted = deny).
+- **Optional reason when denying**, passed to the agent in the denial text
+  ("[xitl] Abgelehnt: <Grund>"), e.g. "falsches Tool, nicht nochmal
+  versuchen". One tap must stay one tap without a reason. Options: an
+  optional text field on the card/detail always visible above the buttons
+  (empty = as today); or a few quick chips ("Falsches Tool", "Nicht
+  nochmal") plus free text. Not on the lock-screen action. The reason comes
+  from the human, so it is instruction to the agent by design; length-cap it
+  and store it on the audit row. Also fits the deny pause (ADR-0026).
+
 Ideas noted 2026-10-06 (ideas.md): session descriptions by the intent model;
 per-client policy floor / DCR `client_name` per upstream / profiles (work
 agent platform; the double-upstream workaround suffices for now).
