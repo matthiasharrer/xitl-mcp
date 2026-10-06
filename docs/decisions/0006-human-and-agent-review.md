@@ -1,6 +1,6 @@
 # 0006. Intent summary advises; the reviewer agent decides; both kept separate
 
-- **Status:** Deferred 2026-10-04: UI-only approval first; LLM review later (Matthias). Keep as the design to start from.
+- **Status:** Deferred 2026-10-04: UI-only approval first; LLM review later (Matthias). Keep as the design to start from. 2026-10-06: the intent summary is built per [ADR-0025](0025-intent-summary.md); the reviewer agent stays deferred.
 - **Date:** 2026-10-04
 
 ## Context

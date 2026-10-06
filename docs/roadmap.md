@@ -5,10 +5,13 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-05 (pause an access, ADR-0024; session expiry; static OPTIONS; released as `v0.5.0`)_
+_Last updated: 2026-10-06 (intent summary, ADR-0025, in progress)_
 
 ## Next
 
+0. **Intent summary from the local Qwen (ADR-0025)**, in progress 2026-10-06:
+   TC-106…116, then MG-08 on the deployed app. Deploy needs `INTENT_LLM_URL`
+   in the Flux manifest and the llama host allowed from the xitl pod.
 1. **LLM proposes policy, user confirms in the app** (ideas.md): design + ADR
    first, then Matthias decides.
 2. MG-05 (Tina), whenever convenient.

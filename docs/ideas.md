@@ -34,10 +34,12 @@
 
 - **LLM proposes policy, user confirms in the app.** Replaces the meta server
   (ADR-0005, rejected). Never an MCP tool that applies.
-- **Intent summary / reviewer agent** (ADR-0006, deferred): when approvals turn
-  out hard to judge or too frequent. Ollama host is a candidate endpoint;
-  since 2026-10-05 Matthias runs local Qwen 3.6 via llama.cpp, which works
-  well with xitl's 41 tools. Needs injection protection first.
+- **Reviewer agent** (ADR-0006, deferred): the intent summary is built
+  (ADR-0025, local Qwen via llama.cpp); a deciding reviewer still needs more
+  injection protection than a risk floor. Could reuse ADR-0025's queue and
+  context builder.
+- **Intent summary with tool results** in the context (declined for now,
+  ADR-0025): better narratives, second injection source.
 - **stdio upstreams:** wrap them into HTTP elsewhere and connect as usual.
 - **Cache `tools/list` on `/mcp`** for a few seconds per user + client if the
   fan-out (one upstream connection per upstream per list) ever shows up.
