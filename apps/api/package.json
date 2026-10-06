@@ -10,6 +10,7 @@
     "build": "DATABASE_URL=file:generate-placeholder.db prisma generate && tsc -p tsconfig.json",
     "start:prod": "node dist/index.js",
     "db:generate": "DATABASE_URL=file:generate-placeholder.db prisma generate",
+    "db:migrate:check": "DATABASE_URL=file:check-placeholder.db prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --exit-code",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",

@@ -42,13 +42,25 @@ jobs:
       # this, the image ships code expecting columns the database doesn't have,
       # and the failure surfaces at runtime in production instead of here.
       - name: Schema matches migrations
-        # Prisma 7: `--to-schema-datamodel` -> `--to-schema`, and
-        # `--shadow-database-url` is gone (SQLite manages the shadow itself).
+        # Runs in apps/api with its prisma.config.ts (npm script): from the
+        # repo root, without a config, Prisma 7.10's `migrate diff` printed
+        # nothing and exited 0 even for a schema WITH a missing migration, and
+        # sometimes crashed ("Error in Schema engine:") — the check never
+        # checked (found 2026-10-06). Exit codes: 0 = in sync, 2 = schema and
+        # migrations differ (fail at once), anything else = the tool itself
+        # failed (retried twice).
         run: |
-          npx prisma migrate diff \
-            --from-migrations apps/api/prisma/migrations \
-            --to-schema apps/api/prisma/schema.prisma \
-            --exit-code
+          for attempt in 1 2 3; do
+            set +e
+            npm --workspace @xitl/api run db:migrate:check
+            code=$?
+            set -e
+            if [ "$code" -eq 0 ]; then exit 0; fi
+            if [ "$code" -eq 2 ]; then echo "::error::schema.prisma has changes without a migration"; exit 2; fi
+            echo "::warning::migrate diff failed (exit $code), attempt $attempt"
+            sleep 5
+          done
+          exit 1
 
 
   build:
