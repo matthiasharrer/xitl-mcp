@@ -19,6 +19,7 @@
   `INTENT_LLM_MODEL=qwen`; llama.cpp echoes the requested alias as `model`,
   so `intentModel` says `qwen`, not the version.
 - GitOps env + NetworkPolicy done by Matthias's agent ahead of the release.
+  Released `v0.6.0` at Matthias's request.
 - Open: MG-08 on the deployed app (incl. whether a dropped update push makes
   Android show Chrome's generic "updated in the background" notification);
   system prompt tends to repeat itself between intent and "Auffällig".

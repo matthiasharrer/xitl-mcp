@@ -9,8 +9,8 @@ _Last updated: 2026-10-06 (intent summary, ADR-0025, built)_
 
 ## Next
 
-0. **Intent summary (ADR-0025): built on `main`, unreleased.** Next: release
-   (Matthias), then MG-08. GitOps env/NetworkPolicy already in place. Watch:
+0. **Intent summary (ADR-0025): released as `v0.6.0`** (2026-10-06). Next:
+   Matthias bumps the tag in GitOps, then MG-08. GitOps env/NetworkPolicy already in place. Watch:
    Android generic notification on a dropped update push; prompt verbosity.
 1. **LLM proposes policy, user confirms in the app** (ideas.md): design + ADR
    first, then Matthias decides.
@@ -18,7 +18,7 @@ _Last updated: 2026-10-06 (intent summary, ADR-0025, built)_
 
 ## Milestone 1 status
 
-Deployed (`v0.5.0` is the latest release) and in daily use: Matthias's
+Deployed (`v0.6.0` is the latest release, deploy pending; `v0.5.0` running) and in daily use: Matthias's
 Claude.ai uses the unified `/mcp` connector (Haushalt, Rezepte, Einkaufsliste
 behind it) from 2026-10-05 on. Manual gates MG-01…04, MG-06 and MG-07 passed
 (`testing.md` run log). **Open:**
