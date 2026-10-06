@@ -73,6 +73,19 @@ export interface PendingCall {
   session: { id: string; createdAt: Date } | null;
   /** The advisory intent summary (ADR-0025); absent = feature off. */
   intent?: IntentView;
+  /** The JSON-RPC request this call came in as, for the client's
+   * `notifications/cancelled` (`cancelByRequest`). Never shown to a channel. */
+  request?: { endpoint: string; rpcId: string | number };
+}
+
+/** Who sent a `notifications/cancelled`, as the gate verified it. */
+export interface CancelOwner {
+  userId: number;
+  mcpClientId: number;
+  /** The MCP session of the cancel request; null when sessionless. */
+  sessionId: string | null;
+  /** `/mcp` or `/mcp/<slug>`. */
+  endpoint: string;
 }
 
 export interface ResolvedEvent {
@@ -175,6 +188,28 @@ export class ApprovalHub extends EventEmitter {
   /** The client went away (request aborted): deny. */
   abort(id: string): void {
     this.settle(id, { kind: 'aborted', at: this.clock.now() });
+  }
+
+  /** The client cancelled its request (`notifications/cancelled`, MCP): the
+   * held call with the same user, client, session (or none on both sides),
+   * endpoint and JSON-RPC id is settled as "aborted" (deny). Only when exactly
+   * ONE call matches: sessionless clients (Claude.ai) can reuse ids across
+   * parallel chats, and an ambiguous cancel must not deny the other chat's
+   * call; it then simply waits for its timeout as before. Returns how many
+   * were settled (0 or 1). */
+  cancelByRequest(owner: CancelOwner, rpcId: string | number): number {
+    const matches = [...this.entries].filter(
+      ([, e]) =>
+        e.call.userId === owner.userId &&
+        e.call.mcpClientId === owner.mcpClientId &&
+        (e.call.session?.id ?? null) === owner.sessionId &&
+        e.call.request !== undefined &&
+        e.call.request.endpoint === owner.endpoint &&
+        e.call.request.rpcId === rpcId,
+    );
+    if (matches.length !== 1) return 0;
+    this.settle(matches[0][0], { kind: 'aborted', at: this.clock.now() });
+    return 1;
   }
 
   /** Settles every held call matching `pred` as denied: "revoked" when a

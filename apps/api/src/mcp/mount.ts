@@ -63,6 +63,7 @@ import type { AppEnv } from '../identity.js';
 import type { AuthInfo } from '@modelcontextprotocol/server';
 import { createMcpHandler, getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from '@modelcontextprotocol/server';
 import { buildMcpServer } from './server.js';
+import { approvals } from '../approval/pending.js';
 import { makeGateVerifier, makeVerifier, touchTokenLastUsed } from './verifier.js';
 import { originListedByAnyToken, preflight, withCors } from './cors.js';
 import { normalizeOrigin, originListed } from '../lib/origins.js';
@@ -286,6 +287,20 @@ export function mountMcp(app: Hono<AppEnv>): void {
         await touchSession(session, { headers: c.req.raw.headers, messages }, systemClock);
       } catch (e) {
         console.warn(`mcp: session bookkeeping failed: ${errorTag(e)}`);
+      }
+    }
+
+    // `notifications/cancelled` (MCP): the handler is stateless per request,
+    // so the SDK can't reach the request being cancelled; a held call is
+    // matched here by the verified owner + session + endpoint + JSON-RPC id
+    // (approval/pending.ts cancelByRequest). Only ever denies. The message
+    // still goes to the handler (202 as before).
+    if (c.req.method === 'POST') {
+      for (const m of messages) {
+        if (m.method !== 'notifications/cancelled' || 'id' in m) continue;
+        const requestId = (m.params as { requestId?: unknown } | undefined)?.requestId;
+        if (typeof requestId !== 'string' && typeof requestId !== 'number') continue;
+        approvals.cancelByRequest({ userId, mcpClientId, sessionId: session?.id ?? null, endpoint: path }, requestId);
       }
     }
 

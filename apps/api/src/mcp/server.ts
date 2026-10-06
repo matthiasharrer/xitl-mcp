@@ -291,8 +291,10 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
     name: string;
     args: Record<string, unknown>;
     signal: AbortSignal;
+    /** The JSON-RPC id of this tools/call (for `notifications/cancelled`). */
+    rpcId: string | number;
   }): Promise<CallToolResult> {
-    const { call, displayName, upstream, endpoint, name, args, signal } = p;
+    const { call, displayName, upstream, endpoint, name, args, signal, rpcId } = p;
     const { userId, mcpClientId } = call;
     // The 300 s budget (TC-37) counts from here.
     const receivedAt = clock.now();
@@ -435,6 +437,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           readOnly,
           session: call.session,
           intent: NO_INTENT(intents.initialStatus),
+          request: { endpoint, rpcId },
         },
         approvalId,
       );
@@ -555,6 +558,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         name: request.params.name,
         args: request.params.arguments ?? {},
         signal: reqCtx.mcpReq.signal,
+        rpcId: reqCtx.mcpReq.id,
       }),
     );
     return server;
@@ -620,6 +624,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         name: split.tool,
         args,
         signal: reqCtx.mcpReq.signal,
+        rpcId: reqCtx.mcpReq.id,
       });
     });
     return server;

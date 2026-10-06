@@ -189,3 +189,60 @@ describe('ApprovalHub', () => {
     expect(seen).toHaveLength(1);
   });
 });
+
+describe('cancelByRequest (TC-132: the client cancels a held call)', () => {
+  let hub: ApprovalHub;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    hub = new ApprovalHub(fixedClock(T0));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  const owner = { userId: 1, mcpClientId: 10, sessionId: null, endpoint: '/mcp' };
+  const req = (rpcId: string | number, endpoint = '/mcp') => ({ request: { endpoint, rpcId } });
+
+  test('the matching held call is settled as aborted (deny); others stay', async () => {
+    const a = hub.hold(call(req(7)));
+    const b = hub.hold(call(req(8)));
+    expect(hub.cancelByRequest(owner, 7)).toBe(1);
+    await expect(a.decision).resolves.toMatchObject({ kind: 'aborted' });
+    expect(hub.list(1).map((c) => c.id)).toEqual([b.call.id]);
+    expect(hub.cancelByRequest(owner, 7)).toBe(0); // already settled
+  });
+
+  test('string ids match strings only (JSON-RPC: 7 and "7" differ)', () => {
+    hub.hold(call(req('7')));
+    expect(hub.cancelByRequest(owner, 7)).toBe(0);
+    expect(hub.cancelByRequest(owner, '7')).toBe(1);
+  });
+
+  test.each([
+    ['another user', { ...owner, userId: 2 }],
+    ['another client of the same user', { ...owner, mcpClientId: 11 }],
+    ['another endpoint', { ...owner, endpoint: '/mcp/haushalt' }],
+    ['a session when the call had none', { ...owner, sessionId: 's1' }],
+  ])('%s cannot cancel it', (_label, who) => {
+    hub.hold(call(req(7)));
+    expect(hub.cancelByRequest(who, 7)).toBe(0);
+    expect(hub.list(1)).toHaveLength(1);
+  });
+
+  test('sessions must match on both sides', () => {
+    hub.hold(call({ ...req(7), session: { id: 's1', createdAt: new Date(T0) } }));
+    expect(hub.cancelByRequest(owner, 7)).toBe(0);
+    expect(hub.cancelByRequest({ ...owner, sessionId: 's2' }, 7)).toBe(0);
+    expect(hub.cancelByRequest({ ...owner, sessionId: 's1' }, 7)).toBe(1);
+  });
+
+  test('ambiguous (two sessionless chats reused the id): nothing is cancelled', () => {
+    hub.hold(call(req(7)));
+    hub.hold(call(req(7)));
+    expect(hub.cancelByRequest(owner, 7)).toBe(0);
+    expect(hub.list(1)).toHaveLength(2);
+  });
+
+  test('a call held without request info is never matched', () => {
+    hub.hold(call());
+    expect(hub.cancelByRequest(owner, 7)).toBe(0);
+  });
+});
