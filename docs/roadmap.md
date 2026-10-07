@@ -49,6 +49,20 @@ GHCR), `v0.7.0` deployed and running. GitOps already has `INTENT_LLM_URL`
    option (bare labels route worse, per the blog). Still wanted: real
    sequences from Matthias (the archive-everything run) as extra cases.
 
+   **Result 2026-10-07 (first full run, 14 cases × de/en, 1 run):** the
+   clef server needed `--batch-size/--ubatch-size 4096` (prompt must fit one
+   ubatch, else 500 "input too large"; prompts are 470–650 tokens and grow
+   with calls-since). Latency ~0.5–0.6 s (vs 3.6–4.9 s for qwen intent).
+   `passt` (noul) is useless: ok cases at 0.05, archive-everything at 0.95,
+   drop it. `richtung`/`gleich` works except for one case: all direction changes
+   (add→archive, add→remove, injection, rewrite) are low; en: min ok 0.715,
+   max ask 0.552 *without* archive-everything (de: 0.518 vs 0.522, en
+   wording separates better). **archive-everything scores gleich ≈ 0.91**:
+   "more of the same" is invisible to it (the model can't know ids 1–4
+   aren't done). Next: decided by Matthias (see worklog), candidates: en
+   instructions, `gleich` only, threshold ~0.7, plus a deterministic count
+   cap for destructive tools under a pause; more real cases; `--runs 3`.
+
 1. **Deploy `v0.8.0`** (Matthias bumps the tag in GitOps).
 2. **TC-128 e2e** (a pause settles the covered held calls): hold 3 calls of
    one tool + 1 of another tool + 1 of another client, approve one with a
