@@ -64,7 +64,7 @@ GHCR), `v0.7.0` deployed and running. GitOps already has `INTENT_LLM_URL`
    need bulk approval). Plan: full Clef, en, `gleich` only, threshold ~0.8,
    below/timeout/error → ASK; "more of the same" (archive-everything) stays a
    documented gap, no worse than today's blind pause. Optional later: a silent
-   "Pause: n× tool in m Min." notice with "Pause beenden" (holds nothing).
+   "Zeitfreigabe: n× tool in m Min." notice with "Zeitfreigabe beenden" (holds nothing).
    Next: ADR, then build.
    `--runs 3` (en): **fully deterministic**, identical probabilities each run.
    More probes 2026-10-07 (`scripts/bench/clef_probes.py`, ~250 ms each):

@@ -32,6 +32,9 @@ Matthias's decisions (2026-10-07):
 - **No count cap** on repeated destructive calls under a pause: often intended,
   annoying, and it would need bulk approval. "More of the same" stays a known gap.
 - **A mismatch ends the pause** for that access (the pause is per client).
+- **UI wording** (same day): an allow pause is a **"Zeitfreigabe"**, a deny
+  pause a **"Sperre"**; "pausiert" means only a blocked access (ADR-0024).
+  "Pause" below is the code/ADR term (`Snooze`), never UI text.
 
 ## Decision
 
@@ -60,7 +63,7 @@ Matthias's decisions (2026-10-07):
    Otherwise → **end the pause** (delete the Snooze row; same effect as ending it
    in the UI) and **hold this call as a normal ASK** with decision path
    `snooze-ki-mismatch`. The card and the push say why:
-   "KI-Prüfung: passt nicht zur Pause (Richtungswechsel) – Pause beendet"
+   "KI-Prüfung: weicht ab (Richtungswechsel) – Zeitfreigabe beendet"
    (option label from the winning choice). Approving it can grant a new pause
    with this call as its anchor.
 5. **Model down, timeout (default 10 s), garbage:** this call is **held** (fail
@@ -87,7 +90,7 @@ Matthias's decisions (2026-10-07):
   never a wrong forward.
 - **Known gap:** "more of the same" (archive everything, one by one) passes the
   check. Optional later (not decided): a silent "Pause: n× tool in m min"
-  notice with "Pause beenden", which holds nothing.
+  notice with "Zeitfreigabe beenden", which holds nothing.
 - Two chats on one connector share the access: one chat's swerve ends the pause
   for the other too (more questions, never more access).
 - Call arguments go to a second in-cluster service (as with ADR-0025).
