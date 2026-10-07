@@ -19,6 +19,11 @@
 - The OAuth callback still lands on Einstellungen, also when "Neu verbinden"
   was tapped on the upstream page (known, roadmap debt list).
 - Matthias said "release dann wenn du fertig bist": tagged `v0.13.0`.
+- Bug found by Matthias right after: tapping "Freigaben" in the tab bar
+  paused an upstream. The switch's enlarged tap area had `z-index: 1`, the
+  fixed tab bar none, so a switch scrolled under the bar took the tap. Fix:
+  tab bar `z-index: 10`, the switch input without z-index (track
+  `pointer-events: none`). TC-211.
 
 ## 2026-10-07 — ADR-0033 upstream pause, ADR-0034 tool freshness (lead + implementer)
 

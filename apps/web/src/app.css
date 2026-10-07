@@ -144,6 +144,8 @@ textarea {
   padding-bottom: env(safe-area-inset-bottom);
   background: var(--surface);
   border-top: 1px solid var(--border);
+  /* above anything positioned in the page (e.g. a switch's tap area) */
+  z-index: 10;
 }
 .tab-bar a {
   flex: 1;

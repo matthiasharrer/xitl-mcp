@@ -1,6 +1,6 @@
 // Settings > Upstreams on a phone: TC-08.
 import { test, expect, type Page } from '@playwright/test';
-import { uniq } from '../support/db.js';
+import { createUpstream, dbAll, uniq } from '../support/db.js';
 
 async function noHorizontalScroll(page: Page) {
   const overflow = await page.evaluate(
@@ -82,4 +82,29 @@ test('TC-08 Einstellungen: Upstream hinzufügen, bearbeiten, löschen (mit Best�
   await expect(page.getByRole('heading', { name: 'Upstreams' })).toBeVisible();
   await expect(page.locator('li.item[data-slug]', { hasText: name })).toHaveCount(0);
   await noHorizontalScroll(page);
+});
+
+test('TC-211 a tap on the tab bar never reaches a switch scrolled under it (Matthias 2026-10-07)', async ({ page, request }) => {
+  const user = { 'Remote-User': uniq('tabbar').replace(/[^A-Za-z0-9-]/g, ''), 'Remote-Name': 'Tab' };
+  const ups = [];
+  for (let i = 0; i < 8; i++) ups.push(await createUpstream(request, user, { name: uniq(`Tab ${i}`), auth: 'NONE' }));
+  await page.setExtraHTTPHeaders(user);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/#/einstellungen');
+
+  // scroll so the first switch sits right under the "Freigaben" tab
+  const sw = page.getByRole('switch', { name: `Aktiv: ${ups[0]!.name}` });
+  await expect(sw).toBeVisible();
+  const tab = page.locator('.tab-bar a', { hasText: 'Freigaben' });
+  const tabBox = (await tab.boundingBox())!;
+  const swBox = (await sw.boundingBox())!;
+  const targetY = tabBox.y + tabBox.height / 2;
+  await page.evaluate((dy) => window.scrollBy(0, dy), swBox.y + swBox.height / 2 - targetY);
+  const now = (await sw.boundingBox())!;
+  expect(now.y).toBeLessThan(targetY);
+  expect(now.y + now.height).toBeGreaterThan(targetY);
+
+  await page.mouse.click(now.x + now.width / 2, targetY);
+  await expect(page).toHaveURL(/#\/$/);
+  expect(dbAll('select pausedAt from Upstream where id = ?', ups[0]!.id)[0].pausedAt).toBeNull();
 });

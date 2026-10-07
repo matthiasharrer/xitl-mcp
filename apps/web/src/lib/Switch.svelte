@@ -42,12 +42,14 @@
     opacity: 0;
     margin: 0;
     cursor: pointer;
-    z-index: 1;
   }
   input:disabled {
     cursor: default;
   }
   span span {
+    /* the track is drawn after the input: let taps through to it (no
+     * z-index on the input, so fixed bars always cover it) */
+    pointer-events: none;
     position: absolute;
     inset: 0;
     border-radius: 999px;
