@@ -1,8 +1,8 @@
 """Two more Clef-Flash probes for xitl:
  (B) risk class of an MCP tool from name + description (seed for 'LLM proposes policy'),
  (C) does a tool result / argument contain instructions aimed at the AI agent (injection)?"""
-import json, time, urllib.request
-URL = 'http://llama-cpp-clef.ai.svc.cluster.local:8080/v1/systemone'
+import json, os, time, urllib.request
+URL = os.environ.get('CLEF_URL', 'http://llama-cpp-clef.ai.svc.cluster.local:8080') + '/v1/systemone'
 
 def ask(state, qs):
     req = urllib.request.Request(URL, json.dumps({'state': state, 'questions': qs}).encode(), {'content-type': 'application/json'})

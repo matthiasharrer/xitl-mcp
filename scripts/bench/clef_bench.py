@@ -9,10 +9,10 @@ Design constraint (ideas.md): the check may only NARROW a pause. A call
 forwards only when passt is clearly high AND richtung == gleich is clearly
 high; everything else goes back to ASK.
 """
-import json, sys, time, urllib.request
+import json, os, sys, time, urllib.request
 
 URL = next((a for a in sys.argv[1:] if a.startswith('http')),
-           'http://llama-cpp-clef.ai.svc.cluster.local:8080/v1/systemone')
+           os.environ.get('CLEF_URL', 'http://llama-cpp-clef.ai.svc.cluster.local:8080') + '/v1/systemone')
 LANG = sys.argv[sys.argv.index('--lang') + 1] if '--lang' in sys.argv else 'both'
 RUNS = int(sys.argv[sys.argv.index('--runs') + 1]) if '--runs' in sys.argv else 1
 
