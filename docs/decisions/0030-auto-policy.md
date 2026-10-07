@@ -107,3 +107,17 @@ outage notice and the strict response validation are reused.
   the clutter Matthias wants to avoid.
 - **Qwen instead of Clef as judge:** generated JSON, 3–5 s, shared slots;
   Clef gives a calibrated probability in one pass.
+
+## Implementation notes (2026-10-07, `5b8b9f5`)
+
+- Paths: `auto`, `auto-ask`, `auto-error`, `auto-off` (Clef or switch off),
+  `auto-norule` (empty rule); all but `auto` are ASK. Every decision goes
+  through one point (`resolveAuto` → `relaxSperre` in mcp/server.ts); an
+  unresolved AUTO reaching the forward step is refused.
+- An explicit AUTO on a new tool is ASK `new-tool`, on a changed tool ASK
+  `changed-tool`. A live allow Zeitfreigabe turns AUTO into `snooze` (ADR-0029
+  path).
+- `<call` / `</call` in the rule text are defused; other `<` kept ("< 22 Grad").
+- The per-user switch is shared ("KI-Prüfung (Clef)", ADR-0029 amendment).
+- Threshold still the lead's 0.8; real data via "Mit Verlauf testen" (MG-11)
+  and the calibration idea (ideas.md).

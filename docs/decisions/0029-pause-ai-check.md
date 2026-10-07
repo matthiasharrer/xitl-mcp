@@ -126,3 +126,25 @@ Matthias's decisions (2026-10-07):
 - **Clef-Flash.** 3–4× faster but separates worse (gap ~0.15 vs ~0.3) and the
   rewrite case sits close to the line. The model is a deployment choice behind
   the seam; the bench decides.
+
+## Amendment 2026-10-07: purpose line ("Wofür?"), shared Clef switch
+
+Decided by Matthias the same day, built in `5b8b9f5`.
+
+- Approving with a duration may carry an optional human purpose (≤ 200
+  chars, one line, `/api` with Remote-User only), stored on `Snooze.purpose`
+  and copied to `AuditEntry.pausePurpose`. When present, the state starts
+  with "Purpose the human stated when granting the pause (trusted, written by
+  the human):" + the text (`<` escaped, never inside a `<call>` block), and
+  the `richtung` instructions are prefixed with "Does the new call serve
+  exactly the purpose the human stated, in the same way as the anchor
+  call? ". Without a purpose the request is byte-identical to before. Held
+  calls settled by the new Zeitfreigabe are checked with its purpose.
+- Bench (`scripts/bench/clef_pause_intent.py`, full Clef): without purpose
+  max ask 0.96, with purpose max ask 0.21, min ok 0.94. **With a purpose the
+  known gap ("more of the same") is closed**; without one it remains.
+- Scores move between llama.cpp builds (one case 0.61 → 0.82 after an
+  update). Rerun the benches after every Clef/llama.cpp update.
+- One Clef endpoint and one per-user switch, now labelled "KI-Prüfung
+  (Clef)", cover this check, Sperren with purpose (ADR-0026 amendment), AUTO
+  (ADR-0030) and tool labels (ADR-0031). One shared outage notice.

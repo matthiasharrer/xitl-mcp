@@ -45,3 +45,21 @@ opposite: "forbid this for 15 minutes and stop asking".
 - **A third push button.** Android shows few actions, iPhone none, and no
   scope/duration choice there. Not now.
 - **Setting the tool's rule to DENY.** Permanent; the user wanted temporary.
+
+## Amendment 2026-10-07: Sperre with a purpose (ADR-0029 machinery)
+
+Decided by Matthias, built in `5b8b9f5`.
+
+- Deny pauses store their anchor (the refused call) and an optional human
+  purpose ("Wofür?", same field as the Zeitfreigabe).
+- **No purpose: unchanged, Clef is never asked** (Matthias).
+- With a purpose and Clef active, each covered call gets one `noul`: "Is the
+  new call clearly outside what the human wanted to block? If in doubt: no."
+  (state: trusted purpose, refused anchor, new call). Only if p ≥
+  `PAUSE_CHECK_THRESHOLD` for **every** covering Sperre does the call fall
+  back to **ASK** (`snooze-deny-ki-ask`), never ALLOW; a rule DENY under it
+  stays DENY (no request then). Below, error, timeout, garbage, Clef or switch
+  off, missing anchor: refused as before; errors raise the shared outage
+  notice. The Sperre stays in place either way. `AuditEntry.sperreScore`.
+- Held calls covered when a Sperre is set are still refused at once, without
+  a check (stricter).
