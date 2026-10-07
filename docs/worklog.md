@@ -3,7 +3,22 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
-## 2026-10-07 — Review hint (ADR-0031), AUTO policy (ADR-0030), "Wofür?" for Zeitfreigabe and Sperre, unreleased
+## 2026-10-07 — Lead: Clef session, `v0.10.0` released
+
+- Clef-Flash, then Clef 27B benchmarked with Matthias (server needed
+  `--ubatch-size` ≥ the prompt; alias now `clef`). Decisions: no count cap;
+  a mismatch ends the Zeitfreigabe; Clef optional with an in-app switch;
+  wording Zeitfreigabe / Sperre; AUTO as a prose rule; review hint instead of
+  a Clef decision on changed tools; purpose line for allow and deny; result
+  injection scan lower priority (ideas.md).
+- Review fixes by the lead: TC-135 race (live Verlauf test), ADR-0029
+  mismatch now ends every allow Zeitfreigabe of the access on the upstream
+  (was only the matched row; mutation-checked).
+- Gotcha: a llama.cpp update moved one pause score 0.61 → 0.82. Rerun the
+  Clef benches after every update.
+- Released `v0.10.0` at Matthias's request (unit 521, e2e 210).
+
+## 2026-10-07 — Review hint (ADR-0031), AUTO policy (ADR-0030), "Wofür?" for Zeitfreigabe and Sperre (released in `v0.10.0`)
 
 - Shared `apps/api/src/clef/` (transport, strict noul/choice parsing,
   `withTimeout` that also fires when a client ignores the abort); pausecheck
@@ -28,7 +43,7 @@
   becomes "Genauer ansehen". Description growth (> 50 %) makes small test
   descriptions with markers "attention": keep markers short.
 
-## 2026-10-07 — Zeitfreigabe with AI check built (ADR-0029), unreleased
+## 2026-10-07 — Zeitfreigabe with AI check built (ADR-0029), released in `v0.10.0`
 
 - `apps/api/src/pausecheck/` (prompt, check, gate, outage, text, index);
   server.ts runs the gate only after `evaluatePolicy` said ALLOW `snooze`,

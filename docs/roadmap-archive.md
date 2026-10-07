@@ -3,6 +3,20 @@
 Shipped roadmap entries, newest first. The reasoning is in `decisions/`, the
 test evidence in `testing.md`'s run log.
 
+## 2026-10-07 (`v0.10.0`)
+
+- **Clef experiments → three features.** Clef-Flash and Clef 27B benchmarked
+  (pause check, tool risk, injection, prose policy; `scripts/bench/clef_*.py`,
+  numbers in ADR-0029/0030 and ideas.md). Built: **Zeitfreigabe AI check**
+  (ADR-0029, no count cap per Matthias, a mismatch ends all Zeitfreigaben of
+  the access on the upstream), **tool review hint + inputSchema change
+  detection** (ADR-0031), **AUTO policy with a prose rule** (ADR-0030),
+  **"Wofür?" purpose** for Zeitfreigabe and Sperre (amendments 0029/0026).
+  All optional: without `PAUSE_CHECK_URL` nothing changes.
+- **Verlauf live** (ADR-0028).
+- **Wording:** "Pause" → "Zeitfreigabe" (allow) / "Sperre" (deny);
+  "pausiert" only for a blocked access.
+
 ## 2026-10-06
 
 - **Client cancel ends a held call (TC-132, Matthias):** Claude.ai's
