@@ -3,6 +3,16 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-07 — Clef-Flash benchmark prepared, not run
+
+- Matthias deployed Clef-Flash as its own service `llama-cpp-clef` (ns `ai`).
+  From the workspace it resolves but TCP times out, even after his
+  NetworkPolicy update; he is restarting the workspace. Resume steps are in
+  the status note of roadmap item 0.
+- Wrote `scripts/bench/clef_bench.py` (14 cases, de/en). It has not run yet.
+- **Gotcha:** `/v1/systemone` questions use `instructions`, not `question`.
+  The qwen server (b11429) has the endpoint but answers 501 there.
+
 ## 2026-10-06 (evening) — Self-loop guard, Clef research
 
 - Matthias saw no registration in Rezepte for his second Rezepte upstream:

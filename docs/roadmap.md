@@ -33,6 +33,22 @@ GHCR), `v0.7.0` deployed and running. GitOps already has `INTENT_LLM_URL`
    → ASK. Sources: github.com/ggml-org/llama.cpp/pull/29831,
    huggingface.co/blog/ggml-org/decision-models-in-llamacpp.
 
+   **Status 2026-10-07:** Matthias runs Clef-Flash as its *own* service
+   `http://llama-cpp-clef.ai.svc.cluster.local:8080` (not router mode; qwen
+   on `llama-cpp` unchanged, its build b11429 already answers
+   `/v1/systemone` with 501 "not a decision model"). From the workspace
+   (pod in ns `coder-workspaces`) the clef Service resolves
+   (10.152.183.113) but **TCP times out**, also after Matthias's
+   NetworkPolicy update; he is updating/restarting the workspace. First
+   step next time: `curl -m5 …-clef…:8080/health` → 200? Then run
+   `python3 -I scripts/bench/clef_bench.py` (14 cases, 6 ok / 8 ask,
+   de + en instructions; prints probabilities, latency, and the gap min-ok
+   vs. max-ask for `passt` and `gleich`). API detail: each question's text
+   field is **`instructions`** (not `question`); `noul` → `{noul: p}`,
+   `choice` → `{choice, probabilities, confidence}`; describe each choice
+   option (bare labels route worse, per the blog). Still wanted: real
+   sequences from Matthias (the archive-everything run) as extra cases.
+
 1. **Deploy `v0.8.0`** (Matthias bumps the tag in GitOps).
 2. **TC-128 e2e** (a pause settles the covered held calls): hold 3 calls of
    one tool + 1 of another tool + 1 of another client, approve one with a

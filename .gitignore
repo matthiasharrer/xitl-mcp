@@ -30,3 +30,4 @@ playwright-report/
 test-results/
 # playwright-cli session output (snapshots, screenshots, console logs)
 .playwright-cli/
+scripts/bench/*_out.json
