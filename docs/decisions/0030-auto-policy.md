@@ -1,6 +1,6 @@
 # 0030. AUTO policy: a prose rule per upstream, checked by Clef per call
 
-- **Status:** Proposed (2026-10-07; lead's draft from Matthias's idea, his review open)
+- **Status:** Accepted (2026-10-07, Matthias; build after ADR-0029, Decision 7 first)
 - **Date:** 2026-10-07
 
 ## Context

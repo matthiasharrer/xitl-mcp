@@ -129,3 +129,16 @@
   Threshold 0.8: **0/14 forbidden pass, 10/12 allowed pass**; the 2 misses
   are asked (safe direction). ~1.1 s per call. German question slightly
   better than English here. Lead's cases only; needs real calls before an ADR.
+
+- **Changed tool: let Clef judge whether the change needs a human?**
+  (Matthias, 2026-10-07). Lead's position: not as a decider. The changed-tool
+  ASK (TC-36) exists for a hostile upstream (rug pull), and then the new
+  description is attacker-written text that Clef would judge, so an injection
+  aimed at the judge is the attack itself. Instead: (1) deterministic
+  auto-ack when the description differs only in whitespace / punctuation /
+  case and annotations are unchanged; (2) Clef as an **advisory label** on the
+  review in Regeln ("Änderung wirkt geringfügig" / "neue Fähigkeit: …") plus
+  the injection noul on the new text as a warning ("Beschreibung enthält
+  Anweisungen an KI-Agenten"), which is a strong rug-pull signal; (3) never
+  automatic when readOnlyHint goes true → false or destructiveHint appears.
+  Note: `inputSchema` changes aren't detected at all yet (roadmap debt).

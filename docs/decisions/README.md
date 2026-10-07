@@ -31,4 +31,4 @@
 | 0027 | [xitl is never its own upstream](0027-no-self-upstream.md) | Accepted |
 | 0028 | [Verlauf updates live: a `history` event on the approval stream](0028-live-history.md) | Accepted |
 | 0029 | [Pause with AI check: Clef narrows an allow pause, a mismatch ends it](0029-pause-ai-check.md) | Accepted |
-| 0030 | [AUTO policy: a prose rule per upstream, checked by Clef per call](0030-auto-policy.md) | Proposed |
+| 0030 | [AUTO policy: a prose rule per upstream, checked by Clef per call](0030-auto-policy.md) | Accepted |
