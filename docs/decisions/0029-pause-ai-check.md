@@ -1,6 +1,6 @@
 # 0029. Pause with AI check: Clef narrows an allow pause, a mismatch ends it
 
-- **Status:** Proposed (2026-10-07; lead's draft from Matthias's decisions, his review open)
+- **Status:** Accepted (2026-10-07, Matthias)
 - **Date:** 2026-10-07
 
 ## Context
