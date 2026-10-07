@@ -7,7 +7,9 @@
 // (= every (re)connect) so events missed while disconnected are healed.
 // `intent` carries a held call's advisory summary once it is there (ADR-0025).
 // `running` (no payload) says the user's Zeitfreigaben/Sperren/paused
-// accesses changed ("Läuft gerade", TC-181).
+// accesses / paused upstreams changed ("Läuft gerade", TC-181, ADR-0033).
+// `tools` (no payload) says a sync changed one of the user's tool lists
+// (ADR-0034, TC-206): an open Regeln page re-reads its view.
 import type { AuditRow, IntentFields, PauseCheckOutage, PauseCheckView, PendingApproval, UpstreamFault } from './api';
 
 export interface StreamHandlers {
@@ -25,6 +27,8 @@ export interface StreamHandlers {
   pausecheck?: (state: PauseCheckOutage) => void;
   /** "Läuft gerade" changed (TC-181): re-read /api/running. */
   running?: () => void;
+  /** ADR-0034: a sync changed a tool list: re-read the Regeln view. */
+  tools?: () => void;
   connected?: (ok: boolean) => void;
 }
 
@@ -71,6 +75,7 @@ export function openApprovalStream(h: StreamHandlers): () => void {
     if (ev && typeof ev.failing === 'boolean') h.pausecheck?.(ev);
   });
   es.addEventListener('running', () => h.running?.());
+  es.addEventListener('tools', () => h.tools?.());
   es.onopen = () => h.connected?.(true);
   es.onerror = () => h.connected?.(false);
   return () => es.close();

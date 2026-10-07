@@ -43,7 +43,7 @@ describe('wireUpstreamPush', () => {
   beforeEach(() => {
     now = new Date('2026-10-05T12:00:00Z');
     sent.length = 0;
-    upstreamFindFirst.mockReset().mockResolvedValue({ id: 5, name: 'Haushalt' });
+    upstreamFindFirst.mockReset().mockResolvedValue({ id: 5, name: 'Haushalt', pausedAt: null });
     subsFindMany.mockReset().mockResolvedValue([{ id: 1, endpoint: 'https://push.example/a', p256dh: 'p', auth: 'a' }]);
   });
 
@@ -57,7 +57,7 @@ describe('wireUpstreamPush', () => {
 
     states.emit({ userId: 3, upstreamId: 5, state: 'unreachable', cause: 'transition' });
     await flush();
-    expect(upstreamFindFirst).toHaveBeenCalledWith({ where: { id: 5, userId: 3 }, select: { id: true, name: true } });
+    expect(upstreamFindFirst).toHaveBeenCalledWith({ where: { id: 5, userId: 3 }, select: { id: true, name: true, pausedAt: true } });
     expect(subsFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 3 } }));
     expect(sent).toEqual([
       {
@@ -82,6 +82,15 @@ describe('wireUpstreamPush', () => {
     await flush();
     expect(sent).toHaveLength(2);
     expect((sent[1]!.payload as { state: string }).state).toBe('reconnect');
+  });
+
+  test('a paused upstream (ADR-0033) is never pushed about', async () => {
+    upstreamFindFirst.mockResolvedValue({ id: 5, name: 'Haushalt', pausedAt: new Date('2026-10-07T10:00:00Z') });
+    const states = new UpstreamStateEvents();
+    wireUpstreamPush(states, { clock, deps });
+    states.emit({ userId: 3, upstreamId: 5, state: 'unreachable', cause: 'transition' });
+    await flush();
+    expect(sent).toHaveLength(0);
   });
 
   test('upstream gone (or foreign): nothing sent, nothing thrown', async () => {

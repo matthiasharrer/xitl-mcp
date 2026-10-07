@@ -12,6 +12,10 @@ describe('summary line (TC-178)', () => {
     expect(runningSummary(0, 3, 2, plus(60), now)).toBe('Läuft gerade: 3 Sperren · 2 Zugänge pausiert · nächstes Ende in 1 Std.');
     expect(runningSummary(0, 0, 1, null, now)).toBe('Läuft gerade: 1 Zugang pausiert');
     expect(runningSummary(0, 0, 0, null, now)).toBeNull();
+    // ADR-0033 (TC-200): paused upstreams
+    expect(runningSummary(0, 0, 0, null, now, 1)).toBe('Läuft gerade: 1 Upstream pausiert');
+    expect(runningSummary(1, 0, 1, plus(12), now, 2)).toBe('Läuft gerade: 1 Zeitfreigabe · 1 Zugang pausiert · 2 Upstreams pausiert · nächstes Ende in 12 Min.');
+    expect(runningSummary(0, 0, 0, null, now, 0)).toBeNull();
   });
 });
 
@@ -46,5 +50,7 @@ describe('"Alle beenden" dialog (TC-180)', () => {
   it('counts; paused accesses stay', () => {
     expect(endAllMessage(2, 1, 0)).toBe('2 Zeitfreigaben beenden und 1 Sperre aufheben?');
     expect(endAllMessage(1, 0, 2)).toBe('1 Zeitfreigabe beenden? Pausierte Zugänge bleiben pausiert – die setzt du einzeln mit „Fortsetzen“ fort.');
+    expect(endAllMessage(1, 0, 0, 1)).toBe('1 Zeitfreigabe beenden? Pausierte Upstreams bleiben pausiert – die setzt du einzeln mit „Fortsetzen“ fort.');
+    expect(endAllMessage(0, 1, 1, 1)).toBe('1 Sperre aufheben? Pausierte Zugänge und Upstreams bleiben pausiert – die setzt du einzeln mit „Fortsetzen“ fort.');
   });
 });

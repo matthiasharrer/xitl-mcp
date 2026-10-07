@@ -179,6 +179,9 @@ export const MSG = {
     `Upstream „${name}“ muss in xitl neu verbunden werden. / Upstream "${name}" must be reconnected in xitl.`,
   notConnected: (name: string) =>
     `Upstream „${name}“ ist in xitl noch nicht verbunden. / Upstream "${name}" is not connected in xitl yet.`,
+  /** ADR-0034: the re-check of a stale tool list failed; nothing forwarded. */
+  staleTools: (name: string) =>
+    `[xitl] Verweigert: Die Tool-Liste von „${name}“ konnte gerade nicht geprüft werden; der Aufruf wurde nicht weitergeleitet. Bitte später erneut versuchen. / Denied: the tool list of "${name}" could not be checked right now; the call was not forwarded. Try again later.`,
   upstreamError: (name: string) =>
     `[xitl] Upstream „${name}“ ist gerade nicht erreichbar oder hat einen Fehler gemeldet. / Upstream "${name}" is unavailable or returned an error.`,
 };

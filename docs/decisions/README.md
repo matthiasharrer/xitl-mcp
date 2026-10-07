@@ -34,5 +34,5 @@
 | 0030 | [AUTO policy: a prose rule per upstream, checked by Clef per call](0030-auto-policy.md) | Accepted |
 | 0031 | [Review hint for new and changed tools (advisory), and inputSchema change detection](0031-tool-review-hint.md) | Accepted |
 | 0032 | [A default per client and upstream; "Verbieten" hides the upstream from that client](0032-client-upstream-default.md) | Accepted |
-| 0033 | [An upstream can be paused: hidden from every client until resumed](0033-pause-an-upstream.md) | Accepted (not built) |
-| 0034 | [A call re-checks the tool list when it is older than 5 minutes](0034-tool-freshness-on-call.md) | Accepted (not built) |
+| 0033 | [An upstream can be paused: hidden from every client until resumed](0033-pause-an-upstream.md) | Accepted |
+| 0034 | [A call re-checks the tool list when it is older than 5 minutes](0034-tool-freshness-on-call.md) | Accepted |

@@ -22,6 +22,7 @@ import {
   REPORT_DIR,
   SERVER_ENTRY,
   TEST_RESULTS_DIR,
+  TOOLS_FRESH_MS,
   WEB_DIST,
 } from './e2e/support/paths.js';
 
@@ -69,6 +70,8 @@ export default defineConfig({
         // ADR-0029: the AI check against the fake Clef (real client).
         PAUSE_CHECK_URL: FAKE_CLEF,
         PAUSE_CHECK_TIMEOUT_MS: String(PAUSE_CHECK_TIMEOUT_MS),
+        // ADR-0034: the tool-list freshness window (default 5 min).
+        TOOLS_FRESH_MS: String(TOOLS_FRESH_MS),
       },
     },
     {

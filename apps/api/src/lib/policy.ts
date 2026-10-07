@@ -1,10 +1,13 @@
 // The policy engine (ADR-0004): ONE pure function that decides what happens to
 // a tools/call (and whether/how a tool is listed). No DB, no clock, no I/O: the
 // caller loads the rows and passes them in, so every precedence rule is
-// unit-tested (policy.test.ts, TC-24, TC-184).
+// unit-tested (policy.test.ts, TC-24, TC-184, TC-194).
 //
-// Precedence, first match wins (ADR-0032 table):
+// Precedence, first match wins (ADR-0032 table, ADR-0033 step 1b):
 //   1. tool unknown (not in KnownTool)      -> DENY  "unknown-tool"
+//  1b. the upstream is paused (ADR-0033), or the flag is anything but
+//      exactly `false`                      -> DENY  "upstream-paused"
+//      Hidden from every client: beats everything below, like 2.
 //   2. the client's default for this upstream is DENY (ADR-0032), or any
 //      value that isn't a recognised Policy -> DENY "client-hidden"
 //      The upstream is hidden from this client: beats everything below
@@ -36,7 +39,7 @@
 //      `awaitingReview`), and a snooze for (this client, this tool) is live
 //      at `now`                             -> ALLOW "snooze"
 //   An allow snooze only ever upgrades ASK. Never DENY (so never
-//   "client-hidden"), never an unknown tool, and never a new or changed tool,
+//   "upstream-paused" or "client-hidden"), never an unknown tool, and never a new or changed tool,
 //   whatever path said ASK: those must be looked at in the rules first, so a
 //   snooze set before a tool changed under us cannot carry over.
 //
@@ -45,7 +48,7 @@
 // clearly says the user's rule covers the call, and into ASK otherwise
 // (below the threshold, error, Clef off, no rule). A live allow pause wins
 // over the AUTO check (step 10, then the ADR-0029 check); a deny pause (3.)
-// and a hidden upstream (2.) win over everything.
+// and a paused (1b.) or hidden (2.) upstream win over everything.
 //
 // Fail closed: anything that is not a recognised Policy value (ALLOW, ASK,
 // DENY, AUTO; e.g. "AUTOO") is treated as DENY (a corrupted row must never
@@ -55,6 +58,7 @@ export type Policy = 'ALLOW' | 'ASK' | 'DENY' | 'AUTO';
 
 export type DecisionPath =
   | 'unknown-tool'
+  | 'upstream-paused'
   | 'policy:client'
   | 'policy:tool'
   | 'client-hidden'
@@ -103,6 +107,9 @@ export interface PolicyInput {
    * `changedAt`: forgetting it must not quietly fall back. DENY (or anything
    * unrecognised) hides the upstream from the client. */
   clientUpstream: Policy | null;
+  /** ADR-0033: the upstream is paused (`Upstream.pausedAt` set). Required on
+   * purpose; anything but exactly `false` counts as paused (fail closed). */
+  upstreamPaused: boolean;
   /** The latest live-looking Snooze.until for (this client, this tool), if any. */
   snoozedUntil?: Date | null;
   /** ADR-0026: the latest live DENY pause covering (this client, this tool),
@@ -159,6 +166,8 @@ function denyPauseLive(until: unknown, now: unknown): boolean {
 function baseDecision(input: PolicyInput): PolicyDecision {
   const { tool } = input;
   if (!tool) return { policy: 'DENY', path: 'unknown-tool' };
+  // ADR-0033: paused for every client. Only exactly `false` is active.
+  if (input.upstreamPaused !== false) return { policy: 'DENY', path: 'upstream-paused' };
   // ADR-0032: hidden from this client. `sane` makes garbage DENY (hidden).
   if (hidesUpstream(input.clientUpstream)) {
     return { policy: 'DENY', path: 'client-hidden' };

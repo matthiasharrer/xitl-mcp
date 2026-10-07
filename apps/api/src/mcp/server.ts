@@ -35,6 +35,21 @@
 //   the prefixed name, as denyUnresolved does), audited DENIED
 //   `client-hidden`, no Clef gate, no hold, no intent. The read of the
 //   ClientUpstreamPolicy row never falls back: a failure throws.
+// - ADR-0033: a paused upstream (`pausedAt`) is hidden from EVERY client the
+//   same way, and checked before anything could contact it: listFor returns
+//   [], `/mcp` leaves it out of the instructions (no section, no state line,
+//   no live fetch), `/mcp/<slug>` initialize gets only xitl's line, a call is
+//   refused at once with the unknown-tool text, audited DENIED
+//   `upstream-paused` (policy step 1b, before client-hidden). Held calls are
+//   settled by the pause (routes/upstreams.ts) and re-checked after an
+//   approval; withUpstream refuses a paused row as the backstop.
+// - ADR-0034: before a call is decided, an upstream whose tool list is older
+//   than TOOLS_FRESH_MS (or never synced) is listed and synced first, one
+//   list per upstream however many calls wait (single-flight); the KnownTool
+//   row is read again afterwards, and a row the latest list did not contain
+//   counts as unknown (vanished). A failed re-list refuses the call (generic
+//   text, audit DENIED `stale-tools`), never forwarded. Not for a paused or
+//   hidden upstream: those are refused before anything is contacted.
 //
 // WHO is acting and WHICH upstream comes only from `AuthInfo.extra`, which
 // mcp/verifier.ts (user, client) and mcp/mount.ts (upstream, resolved among
@@ -59,8 +74,18 @@ import {
   type UpstreamState,
 } from '../lib/proxyText.js';
 import { splitUnifiedName, unifiedName } from '../lib/unifiedNames.js';
-import { CONNECT_TIMEOUT_MS, CALL_TIMEOUT_MS, UpstreamNeedsReconnect, UpstreamNotConnected, isUsable, storedState, withUpstream } from '../upstream/connection.js';
-import { syncKnownTools, usableTools } from '../upstream/tools.js';
+import {
+  CONNECT_TIMEOUT_MS,
+  CALL_TIMEOUT_MS,
+  UpstreamNeedsReconnect,
+  UpstreamNotConnected,
+  UpstreamPaused,
+  isUsable,
+  storedState,
+  withUpstream,
+} from '../upstream/connection.js';
+import { refreshToolsFromUpstream, syncKnownTools, usableTools } from '../upstream/tools.js';
+import { SingleFlight, toolsFreshFromEnv, toolsStale, vanished } from '../upstream/freshness.js';
 import { errorTag } from '../upstream/oauthClient.js';
 import { approvals, ApprovalHub, type Decision } from '../approval/pending.js';
 import { approvalDeadline, approvalTimeoutFromEnv, upstreamTimeoutMs } from '../approval/budget.js';
@@ -230,6 +255,8 @@ export interface ProxyDeps {
   autoGate?: AutoGate;
   /** The purpose check of a Sperre (ADR-0026 amendment). */
   sperreGate?: SperreGate;
+  /** ADR-0034: how old a tool list may be before a call re-lists it. */
+  toolsFreshMs?: number;
 }
 
 /** What a held call shows about the AUTO check that asked it (ADR-0030). */
@@ -254,6 +281,9 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
   const gate = deps.pauseGate ?? defaultPauseGate;
   const auto = deps.autoGate ?? defaultAutoGate;
   const sperre = deps.sperreGate ?? defaultSperreGate;
+  const toolsFreshMs = deps.toolsFreshMs ?? toolsFreshFromEnv(process.env.TOOLS_FRESH_MS);
+  /** ADR-0034: one re-list per upstream in flight, shared by its calls. */
+  const recheck = new SingleFlight<number, void>();
 
   /** ADR-0029 §6 (TC-145): a new allow pause settles the held calls it covers
    * (TC-128) through the same AI check, in order, under the access's serial
@@ -299,7 +329,8 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
    * stores the length-capped, scrubbed text; read back), else the stored ones.
    * `state` is what the live contact found (ADR-0022); stored when not usable. */
   async function liveInstructions(upstream: Upstream): Promise<{ instructions: string | null; state: UpstreamState }> {
-    if (!isUsable(upstream)) return { instructions: upstream.instructions, state: storedState(upstream) };
+    // ADR-0033: never contacted while paused (callers leave it out already).
+    if (upstream.pausedAt !== null || !isUsable(upstream)) return { instructions: upstream.instructions, state: storedState(upstream) };
     try {
       await withUpstream(upstream.id, upstream.userId, async () => undefined, { clock, timeoutMs: INSTRUCTIONS_TIMEOUT_MS });
       const row = await prisma.upstream.findFirst({ where: { id: upstream.id, userId: upstream.userId }, select: { instructions: true } });
@@ -316,6 +347,9 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
    * ProtocolError with a generic text) when the upstream fails. */
   async function listFor(upstream: Upstream, mcpClientId: number, displayName: string): Promise<Tool[]> {
     const userId = upstream.userId;
+    // ADR-0033: paused: hidden from every client, nothing contacted. First,
+    // before any other read or contact.
+    if (upstream.pausedAt !== null) return [];
     // ADR-0032: hidden from this client: nothing listed, nothing contacted
     // (new tools included). A failed read throws (never a fallback).
     const clientUpstream = await clientUpstreamOf(userId, mcpClientId, upstream.id);
@@ -343,7 +377,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         include: { clientPolicies: { where: { mcpClientId } } },
       }),
       // The default may have changed since the factory ran; read it fresh.
-      prisma.upstream.findFirst({ where: { id: upstream.id, userId }, select: { defaultPolicy: true } }),
+      prisma.upstream.findFirst({ where: { id: upstream.id, userId }, select: { defaultPolicy: true, pausedAt: true } }),
       liveSnoozesFor({ userId, upstreamId: upstream.id, mcpClientId }, now),
     ]);
     const byName = new Map(known.map((k) => [k.name, k]));
@@ -355,6 +389,8 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         tool: k ? policyTool(k) : null,
         clientOverride: (k?.clientPolicies[0]?.policy as Policy | undefined) ?? null,
         clientUpstream,
+        // Paused meanwhile (or the row is gone): DENY, nothing listed.
+        upstreamPaused: current ? current.pausedAt !== null : true,
         snoozedUntil: snoozes(t.name, isReadOnly(k?.annotations)),
         now,
       });
@@ -421,30 +457,96 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
     // Fresh reads: policy state at call time, scoped by the token's user.
     // A failed read (incl. the client's upstream default) throws: nothing is
     // forwarded, nothing falls back.
-    const [tool, current, clientUpstream] = await Promise.all([
-      prisma.knownTool.findFirst({
-        where: { upstreamId: upstream.id, name, upstream: { userId } },
-        include: { clientPolicies: { where: { mcpClientId } } },
-      }),
-      prisma.upstream.findFirst({ where: { id: upstream.id, userId }, select: { defaultPolicy: true, autoRule: true } }),
-      clientUpstreamOf(userId, mcpClientId, upstream.id),
-    ]);
+    const readState = () =>
+      Promise.all([
+        prisma.knownTool.findFirst({
+          where: { upstreamId: upstream.id, name, upstream: { userId } },
+          include: { clientPolicies: { where: { mcpClientId } } },
+        }),
+        prisma.upstream.findFirst({
+          where: { id: upstream.id, userId },
+          select: { defaultPolicy: true, autoRule: true, pausedAt: true, toolsSyncedAt: true },
+        }),
+        clientUpstreamOf(userId, mcpClientId, upstream.id),
+      ]);
+    let [tool, current, clientUpstream] = await readState();
     if (!current) throw new Error('upstream vanished mid-request');
-    // ADR-0032: refused like an unknown tool, with the name as called.
+    // ADR-0032/0033: refused like an unknown tool, with the name as called.
     const unknownText = MSG.unknownTool(calledName.slice(0, 100));
+
+    /** Refused before any decision: audited DENIED with `path`, no Clef gate,
+     * no hold, no push, no intent summary, never forwarded. */
+    const refuseAtOnce = async (path: string, text: string): Promise<CallToolResult> => {
+      const created = await prisma.auditEntry.create({
+        data: {
+          userId,
+          mcpClientId,
+          upstreamId: upstream.id,
+          endpoint,
+          toolName: name.slice(0, MAX_TOOL_NAME_IN_AUDIT),
+          arguments: JSON.stringify(args),
+          policy: 'DENY',
+          decisionPath: path,
+          outcome: 'DENIED',
+          isError: true,
+          resultText: text,
+          receivedAt,
+          decidedAt: receivedAt,
+          finishedAt: receivedAt,
+          sessionId: call.session?.id ?? null,
+          intentStatus: intents.enabled ? 'SKIPPED' : 'OFF',
+          ...auditDiagnostics(call.diagnostics),
+        },
+      });
+      auditEvents.emit({ userId, auditId: created.id });
+      return errorResult(text);
+    };
+
+    // ADR-0034: the tool list is re-checked before deciding when it is stale,
+    // but never for a paused (ADR-0033) or hidden (ADR-0032) upstream: those
+    // are refused below without contacting anything.
+    if (current.pausedAt === null && !hidesUpstream(clientUpstream) && toolsStale(current.toolsSyncedAt, receivedAt, toolsFreshMs)) {
+      try {
+        await recheck.run(upstream.id, async () => {
+          await refreshToolsFromUpstream(upstream.id, userId, clock);
+        });
+      } catch (e) {
+        // Paused while we were about to list: refused as paused.
+        if (e instanceof UpstreamPaused) return refuseAtOnce('upstream-paused', unknownText);
+        // Fail closed: never decided on a definition xitl couldn't check.
+        console.warn(`proxy: upstream ${upstream.id}: tools re-check failed: ${errorTag(e)}`);
+        const text =
+          e instanceof UpstreamNeedsReconnect
+            ? MSG.reconnect(upstream.name)
+            : e instanceof UpstreamNotConnected
+              ? MSG.notConnected(upstream.name)
+              : MSG.staleTools(upstream.name);
+        return refuseAtOnce('stale-tools', text);
+      }
+      // The sync may have changed, added or flagged this tool: read again.
+      [tool, current, clientUpstream] = await readState();
+      if (!current) throw new Error('upstream vanished mid-request');
+    }
+    // ADR-0034: a row the latest successful list did not contain is unknown.
+    if (tool && vanished(tool.lastSeenAt, current.toolsSyncedAt)) tool = null;
+
+    const policyState = current;
     // Read-only by the STORED annotations (an unknown tool is not read-only).
     const readOnly = isReadOnly(tool?.annotations);
     const snoozeOwner = { userId, upstreamId: upstream.id, mcpClientId };
     const toolState = tool ? policyTool(tool) : null;
+    const clientOverride = (tool?.clientPolicies[0]?.policy as Policy | undefined) ?? null;
+    const upstreamPaused = policyState.pausedAt !== null;
     // Allow and deny pauses of THIS client on THIS upstream (ADR-0004,
     // ADR-0026); a deny pause wins in the policy.
     const evaluate = async (now: Date) => {
       const pauses = await livePauses(snoozeOwner, name, readOnly, now);
       const decision = evaluatePolicy({
-        upstreamDefault: current.defaultPolicy as Policy,
+        upstreamDefault: policyState.defaultPolicy as Policy,
         tool: toolState,
-        clientOverride: (tool?.clientPolicies[0]?.policy as Policy | undefined) ?? null,
+        clientOverride,
         clientUpstream,
+        upstreamPaused,
         snoozedUntil: pauses.allowUntil,
         denyPausedUntil: pauses.denyUntil,
         now,
@@ -454,12 +556,13 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
       const withoutSperre =
         decision.path === 'snooze-deny' && SperreGate.needsCheck(pauses.denies)
           ? evaluatePolicy({
-              upstreamDefault: current.defaultPolicy as Policy,
+              upstreamDefault: policyState.defaultPolicy as Policy,
               tool: toolState,
-              clientOverride: (tool?.clientPolicies[0]?.policy as Policy | undefined) ?? null,
-              // A hidden upstream never gets here (client-hidden comes before
-              // snooze-deny); passed anyway so this can't loosen it.
+              clientOverride,
+              // A hidden or paused upstream never gets here (both come before
+              // snooze-deny); passed anyway so this can't loosen them.
               clientUpstream,
+              upstreamPaused,
               snoozedUntil: pauses.allowUntil,
               denyPausedUntil: null,
               now,
@@ -522,39 +625,22 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
       ev.base.policy === 'AUTO'
         ? auto.evaluate({
             userId,
-            rule: current.autoRule,
+            rule: policyState.autoRule,
             call: { upstream: upstream.name, tool: name, description: tool?.description ?? null, annotations: parseAnnotations(tool?.annotations ?? null), args },
           })
         : null;
 
     const first = await evaluate(receivedAt);
-    // ADR-0032: hidden from this client. Refused at once like an unknown tool:
-    // no Clef gate, no hold, no push, no intent summary, never forwarded.
-    // The audit row tells the truth (client-hidden).
-    if (first.base.path === 'client-hidden' || (first.base.policy === 'DENY' && hidesUpstream(clientUpstream))) {
-      const created = await prisma.auditEntry.create({
-        data: {
-          userId,
-          mcpClientId,
-          upstreamId: upstream.id,
-          endpoint,
-          toolName: name.slice(0, MAX_TOOL_NAME_IN_AUDIT),
-          arguments: JSON.stringify(args),
-          policy: 'DENY',
-          decisionPath: first.base.path,
-          outcome: 'DENIED',
-          isError: true,
-          resultText: unknownText,
-          receivedAt,
-          decidedAt: receivedAt,
-          finishedAt: receivedAt,
-          sessionId: call.session?.id ?? null,
-          intentStatus: intents.enabled ? 'SKIPPED' : 'OFF',
-          ...auditDiagnostics(call.diagnostics),
-        },
-      });
-      auditEvents.emit({ userId, auditId: created.id });
-      return errorResult(unknownText);
+    // ADR-0033 / ADR-0032: paused, or hidden from this client. Refused at once
+    // like an unknown tool: no Clef gate, no hold, no push, no intent summary,
+    // never forwarded. The audit row tells the truth (upstream-paused /
+    // client-hidden; unknown-tool for a name it never listed).
+    if (
+      first.base.path === 'upstream-paused' ||
+      first.base.path === 'client-hidden' ||
+      (first.base.policy === 'DENY' && (upstreamPaused || hidesUpstream(clientUpstream)))
+    ) {
+      return refuseAtOnce(first.base.path, unknownText);
     }
     // ADR-0029: an ALLOW that only an allow pause gave goes through the AI
     // check, under the access's serial lock, re-evaluated there (an earlier
@@ -624,6 +710,12 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         await finish({ outcome: 'FORWARDED', decisionPath, decidedAt, isError: result.isError === true, resultText: resultExcerpt(result) });
         return result;
       } catch (e) {
+        // ADR-0033 backstop: paused after every check above; withUpstream
+        // refused before contacting it. Refused like an unknown tool.
+        if (e instanceof UpstreamPaused) {
+          await finish({ outcome: 'DENIED', decisionPath: `${decisionPath ?? decision.path}+denied:upstream-paused`, decidedAt, isError: true, resultText: unknownText });
+          return errorResult(unknownText);
+        }
         const text =
           e instanceof UpstreamNeedsReconnect
             ? MSG.reconnect(upstream.name)
@@ -638,7 +730,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
 
     if (decision.policy === 'DENY') {
       const text =
-        decision.path === 'unknown-tool' || decision.path === 'client-hidden'
+        decision.path === 'unknown-tool' || decision.path === 'client-hidden' || decision.path === 'upstream-paused'
           ? unknownText
           : decision.path === 'snooze-deny' && pauses.denyUntil
             ? MSG.blocked(shownName, pauses.denyScope === 'TOOL' ? null : upstream.name.slice(0, 100), pauses.denyUntil)
@@ -718,6 +810,13 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           await finish({ outcome: 'DENIED', decisionPath: `${rule}+denied:client-hidden`, decidedAt: d.at, isError: true, resultText: unknownText });
           return errorResult(unknownText);
         }
+        // ADR-0033 §4: the same for pausing the upstream (every client). A
+        // vanished row counts as paused here (the delete settles it anyway).
+        const stillActive = await prisma.upstream.findFirst({ where: { id: upstream.id, userId }, select: { pausedAt: true } });
+        if (!stillActive || stillActive.pausedAt !== null) {
+          await finish({ outcome: 'DENIED', decisionPath: `${rule}+denied:upstream-paused`, decidedAt: d.at, isError: true, resultText: unknownText });
+          return errorResult(unknownText);
+        }
         if (d.snoozeUntil && held.call.snoozable) {
           try {
             // READONLY only from a read-only tool; anything else narrows to TOOL.
@@ -740,9 +839,9 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         return forward(timeoutMs, path, d.at);
       }
       if (d.kind === 'deny') {
-        // ADR-0032 §4: settled because the upstream was hidden from this
-        // client: the same text as an unknown tool.
-        let text = d.via === 'client-hidden' ? unknownText : MSG.declined(shownName, displayName);
+        // ADR-0032 §4 / ADR-0033 §4: settled because the upstream was hidden
+        // from this client or paused: the same text as an unknown tool.
+        let text = d.via === 'client-hidden' || d.via === 'upstream-paused' ? unknownText : MSG.declined(shownName, displayName);
         if (d.pauseUntil) {
           // ADR-0026: "Ablehnen und nicht mehr fragen". Stored BEFORE the
           // agent gets its answer, so an immediate retry already hits it.
@@ -795,9 +894,10 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
     const upstream = await prisma.upstream.findFirst({ where: { id: ref.id, userId: call.userId } });
     if (!upstream) throw new Error('upstream vanished mid-request');
     const endpoint = `/mcp/${upstream.slug}`;
-    // ADR-0032: hidden from this client: only xitl's line, nothing of the
-    // upstream (not contacted). tools/list and calls check it again.
-    const hidden = hidesUpstream(await clientUpstreamOf(call.userId, call.mcpClientId, upstream.id));
+    // ADR-0032 / ADR-0033: hidden from this client, or paused: only xitl's
+    // line, nothing of the upstream (not contacted). tools/list and calls
+    // check it again.
+    const hidden = upstream.pausedAt !== null || hidesUpstream(await clientUpstreamOf(call.userId, call.mcpClientId, upstream.id));
     const upstreamInstructions = hidden ? null : call.wantsInstructions ? (await liveInstructions(upstream)).instructions : upstream.instructions;
 
     const server = new Server(
@@ -835,7 +935,10 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
       select: { upstreamId: true, policy: true },
     });
     const hiddenIds = new Set(defaults.filter((d) => hidesUpstream(d.policy as Policy)).map((d) => d.upstreamId));
-    const upstreams = (await prisma.upstream.findMany({ where: { userId }, orderBy: { slug: 'asc' } })).filter((u) => !hiddenIds.has(u.id));
+    // ADR-0033: a paused upstream is left out for every client, the same way.
+    const upstreams = (await prisma.upstream.findMany({ where: { userId }, orderBy: { slug: 'asc' } })).filter(
+      (u) => u.pausedAt === null && !hiddenIds.has(u.id),
+    );
 
     // Live only when the client asks for them (initialize): one connection per
     // usable upstream, in parallel; the stored ones otherwise.

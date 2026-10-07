@@ -3,6 +3,20 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-07 — ADR-0033 upstream pause, ADR-0034 tool freshness (lead + implementer)
+
+- Lead wrote both ADRs with defaults (Matthias may veto 0033) and TC-194…206;
+  an Opus implementer built them; lead reviewed policy order, the re-list
+  path (fail closed, never re-lists a paused/hidden upstream) and reran
+  everything (run log 33).
+- Interpretations by the implementer, kept: connect/refresh 409 while paused;
+  Regeln shows rules as they apply once resumed; a KnownTool row whose
+  `lastSeenAt` is older than `toolsSyncedAt` counts as vanished (unknown),
+  so syncs stamp both with the same time.
+- Known edge (fails closed): two overlapping syncs of one upstream can make a
+  still-listed tool look vanished until the next sync (≤ 5 min, false DENY).
+- Pausing in Claude.ai shows in the next new chat (tools/list is cached).
+
 ## 2026-10-07 — ADR-0032 client default per upstream, TC-128 e2e (lead)
 
 - ADR-0032 decided with Matthias: Verbieten hides the upstream from a client

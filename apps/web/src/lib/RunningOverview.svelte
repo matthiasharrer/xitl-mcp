@@ -1,7 +1,9 @@
 <script lang="ts">
   // "Läuft gerade" (TC-178…183, Matthias 2026-10-07): the user's active
   // time-based decisions at the top of Freigaben. All live Zeitfreigaben and
-  // Sperren across upstreams and accesses, plus paused accesses. Collapsed to
+  // Sperren across upstreams and accesses, plus paused accesses and paused
+  // upstreams (ADR-0033, TC-200: "Upstream pausiert", resumed one by one,
+  // "Alle beenden" leaves them paused). Collapsed to
   // one line by default (remembered per device), absent when nothing runs.
   // Ending one reuses the per-upstream DELETE and the access PATCH; "Alle
   // beenden" is one user-scoped call. Live: the parent bumps `refresh` on the
@@ -60,9 +62,10 @@
 
   const live = $derived((data?.pauses ?? []).filter((p) => new Date(p.until).getTime() > now.getTime()));
   const paused = $derived(data?.paused ?? []);
+  const pausedUpstreams = $derived(data?.pausedUpstreams ?? []);
   const allows = $derived(live.filter((p) => p.effect === 'ALLOW').length);
   const denies = $derived(live.length - allows);
-  const summary = $derived(runningSummary(allows, denies, paused.length, live[0]?.until ?? null, now));
+  const summary = $derived(runningSummary(allows, denies, paused.length, live[0]?.until ?? null, now, pausedUpstreams.length));
 
   async function end(p: RunningPause) {
     busy = true;
@@ -82,6 +85,20 @@
     try {
       await api.setClientPaused(c.id, false);
       showToast(`„${c.name}“ fortgesetzt`);
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 404)) showToast(messageOf(e), { error: true });
+    } finally {
+      busy = false;
+      await load();
+    }
+  }
+
+  /** ADR-0033: resume a paused upstream for every client. */
+  async function resumeUpstream(u: { id: number; name: string }) {
+    busy = true;
+    try {
+      await api.setUpstreamPaused(u.id, false);
+      showToast(`„${u.name}“ fortgesetzt`);
     } catch (e) {
       if (!(e instanceof ApiError && e.status === 404)) showToast(messageOf(e), { error: true });
     } finally {
@@ -112,7 +129,7 @@
       <span class="running-caret" aria-hidden="true">{open ? '▴' : '▾'}</span>
     </button>
     {#if open}
-      <ul class="running-list" aria-label="Aktive Zeitfreigaben, Sperren und pausierte Zugänge">
+      <ul class="running-list" aria-label="Aktive Zeitfreigaben, Sperren, pausierte Zugänge und Upstreams">
         {#each live as p (p.id)}
           <li class="running-row" data-running-pause={p.id} data-effect={p.effect}>
             <div class="running-main">
@@ -147,6 +164,18 @@
             <button type="button" class="btn" disabled={busy} onclick={() => resume(c)} aria-label={`Zugang fortsetzen: ${c.name}`}>Fortsetzen</button>
           </li>
         {/each}
+        {#each pausedUpstreams as u (u.id)}
+          <li class="running-row" data-running-upstream={u.id}>
+            <div class="running-main">
+              <p class="running-line">
+                <span class="chip pause-client">Upstream pausiert</span>
+                <span class="running-what">{u.name}</span>
+              </p>
+              <p class="hint running-meta">{sinceText(u.pausedAt, now)}</p>
+            </div>
+            <button type="button" class="btn" disabled={busy} onclick={() => resumeUpstream(u)} aria-label={`Upstream fortsetzen: ${u.name}`}>Fortsetzen</button>
+          </li>
+        {/each}
       </ul>
       {#if live.length > 0}
         <button type="button" class="btn danger-outline wide running-all" disabled={busy} onclick={() => (confirming = true)}>Alle beenden</button>
@@ -158,7 +187,7 @@
 {#if confirming}
   <ConfirmDialog
     title="Alle beenden?"
-    message={endAllMessage(allows, denies, paused.length)}
+    message={endAllMessage(allows, denies, paused.length, pausedUpstreams.length)}
     confirmLabel="Alle beenden"
     onconfirm={endAll}
     oncancel={() => (confirming = false)}

@@ -72,6 +72,10 @@ switch to reject refreshes) and a Streamable-HTTP MCP server with server
 instructions and tools `list_items` (`readOnlyHint`), `add_item`, `delete_all`
 (`destructiveHint`), plus a control endpoint to add a tool, read call counts
 and the tokens it issued. Never the real Haushalt: e2e stays hermetic.
+For ADR-0034 it also removes a tool (`/control/t/<t>/remove-tool`), counts
+tools/list requests (`lists` in `/state`) and can fail only tools/list
+(`malice.failList` = 500, `malice.listError` = JSON-RPC error). The e2e
+server runs with `TOOLS_FRESH_MS` = 3000 (paths.ts).
 
 ### Upstream connection (ADR-0013): `e2e/tests/upstream-connect.spec.ts`
 
@@ -524,6 +528,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 33 | 2026-10-07 | TC-01…206, unit 569 (api 538 + web 31), e2e 261 (ADR-0033 upstream pause TC-194…200, ADR-0034 tool freshness TC-201…206) | all passed (implementer, then lead independently). Mutations: paused check removed from listFor → TC-196 fails; pause ignored in callTool → TC-197 fails; failed re-list falls through → TC-203 fails (call forwarded). The e2e server runs with TOOLS_FRESH_MS=3000. TC-07's key list gains `pausedAt`/`toolsSyncedAt`. Not covered: a hanging tools/list in TC-203 (30 s timeout). Screenshots 390×844 checked; lead fix: the client page's "Sieht" names a paused upstream "<Name> (pausiert)". |
 | 32 | 2026-10-07 | TC-01…193, unit 554 (api 523 + web 31), e2e 246 (ADR-0032 client default per upstream TC-184…193; TC-128 e2e) | all passed (implementer for TC-184…191, lead for TC-192/193 and the review). Mutations (lead's): listFor without the hidden check: TC-186 fails; callTool without the hidden check (and clientUpstream null): TC-188 fails. TC-54's key list gains `sees`/`hidden`; Settings UI tests scope upstream rows to `li.item[data-slug]` (client rows now name upstreams). Screenshots 390×844 checked. |
 | 31 | 2026-10-07 | TC-01…183, unit 545 (api 514 + web 31), e2e 231 (purpose suggestions TC-172…177, "Läuft gerade" TC-178…183) | all passed (implementer). Mutations (lead's): S3 server check removed (deny + `suggested` accepted): TC-174 fails (200 instead of 400); "Läuft gerade" list query without `userId`: TC-182 fails (other user's rows listed); "Alle beenden" delete without `userId`: TC-182 fails (other user's rows gone). TC-124's key list gains `purposeSource`. Real Qwen (TC-175, alias `qwen`, production prompt/model/parser via tsx, archive_task id 21, fresh context): "Nur dies: Aufgabe mit ID 21 archivieren", "Diese Art: Haushaltsaufgaben archivieren", risk write, 4.6 s. Screenshots 390×844 checked (chips normal and 120-char clamped; overview collapsed and open). |
 | 30 | 2026-10-07 | TC-01…171, unit 521 (api 501 + web 20), e2e 210 (Zeitfreigabe purpose TC-163…166, Sperre purpose TC-167…171) | all passed (implementer). Mutations (lead's): Sperre "outside" → ALLOW: TC-168 fails (call forwarded, not held); Sperre error → ASK: TC-169 fails (3 cases). TC-124's key list gains `purpose`; TC-163 no longer rejects a purpose on a Sperre. Real Clef: TC-166 archive-everything without purpose p(gleich) 0.928 match, with purpose 0.071 mismatch (1.3 s); TC-171 Sperre "keine Aufgaben archivieren": archive_task p(outside) 0.075 refused, add_task 0.954 asked (0.84 s). Screenshots 390×844 checked (card with the one "Wofür?" field, Sperre note). |

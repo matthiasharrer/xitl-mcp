@@ -21,7 +21,7 @@ interface SnoozeRow {
   toolName: string | null;
 }
 
-const db = { tools: [] as Row[], snoozes: [] as SnoozeRow[], nextId: 1 };
+const db = { tools: [] as Row[], snoozes: [] as SnoozeRow[], nextId: 1, syncedAt: null as Date | null };
 
 /** Matches the `where` shapes tools.ts uses: plain equality, `{ in }`, `{ lt }`. */
 function matches(row: Record<string, unknown>, where: Record<string, unknown>): boolean {
@@ -58,7 +58,14 @@ const fakePrisma = {
       return { count: before - db.tools.length };
     },
   },
-  upstream: { findUnique: async () => ({ userId: 1 }) },
+  upstream: {
+    findUnique: async () => ({ userId: 1 }),
+    // ADR-0034: the toolsSyncedAt stamp (recorded, not matched).
+    updateMany: async ({ data }: { data: { toolsSyncedAt?: Date } }) => {
+      db.syncedAt = data.toolsSyncedAt ?? null;
+      return { count: 1 };
+    },
+  },
   snooze: {
     deleteMany: async ({ where }: { where: Record<string, unknown> }) => {
       const before = db.snoozes.length;

@@ -14,6 +14,11 @@
 // (MAX_UPSTREAM_RESPONSE_BYTES, TC-48), and the
 // upstream's instructions are scrubbed of our own credentials before they are
 // stored (they are handed to agents).
+//
+// ADR-0033: a paused upstream (`pausedAt` set) is never contacted: the re-read
+// row is checked before anything else (no token refresh, no connect, no
+// request), and UpstreamPaused is thrown. The callers check the pause earlier
+// themselves; this is the backstop for any path that forgets to.
 import { Client, StreamableHTTPClientTransport, type FetchLike } from '@modelcontextprotocol/client';
 import { prisma } from '../db.js';
 import type { Upstream } from '../generated/prisma/client.js';
@@ -39,6 +44,12 @@ export class UpstreamNotConnected extends Error {
 /** The upstream's tokens are gone: the user must reconnect in xitl (TC-17). */
 export class UpstreamNeedsReconnect extends Error {
   override name = 'UpstreamNeedsReconnect';
+}
+
+/** ADR-0033: the upstream is paused; nothing was contacted. Not a failure of
+ * the upstream (no lastFailureAt, no push). */
+export class UpstreamPaused extends Error {
+  override name = 'UpstreamPaused';
 }
 
 /** Is the upstream ready to be called without a connect step? */
@@ -120,6 +131,8 @@ export async function withUpstream<T>(
 
   let row = await prisma.upstream.findFirst({ where: { id: upstreamId, userId } });
   if (!row) throw new UpstreamNotConnected();
+  // Before the connection states and before any refresh: not contacted at all.
+  if (row.pausedAt !== null) throw new UpstreamPaused();
   if (row.auth === 'OAUTH') {
     if (row.status === 'NEEDS_RECONNECT') throw new UpstreamNeedsReconnect();
     if (!isUsable(row)) throw new UpstreamNotConnected();

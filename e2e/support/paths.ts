@@ -63,3 +63,8 @@ export const FAKE_CLEF_PORT = 3212;
 export const FAKE_CLEF = `http://127.0.0.1:${FAKE_CLEF_PORT}`;
 /** A Clef request older than this is aborted ("hang" waits longer). */
 export const PAUSE_CHECK_TIMEOUT_MS = 1500;
+
+// ADR-0034: a call re-lists an upstream's tools when its list is older than
+// this. Short in e2e so "after the window" needs no 5-minute wait; specs that
+// must be outside it also backdate `Upstream.toolsSyncedAt` directly.
+export const TOOLS_FRESH_MS = 3000;

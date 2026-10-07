@@ -5,12 +5,15 @@
 //
 //   GET    /          { pauses: live Snooze rows (allow = Zeitfreigabe, deny =
 //                       Sperre), soonest end first; paused: accesses with
-//                       pausedAt set (ADR-0024), oldest first }. No arguments,
+//                       pausedAt set (ADR-0024), oldest first;
+//                       pausedUpstreams: upstreams with pausedAt set
+//                       (ADR-0033), oldest first }. No arguments,
 //                       no credentials: names, scope, times and the human's
 //                       "Wofür?" only.
 //   DELETE /pauses    "Alle beenden": ends every Zeitfreigabe and Sperre of the
-//                       caller (paused accesses stay; they are resumed one by
-//                       one via PATCH /api/mcp/clients/:id). -> { ended: n }
+//                       caller (paused accesses and upstreams stay; they are
+//                       resumed one by one via PATCH /api/mcp/clients/:id and
+//                       PATCH /api/upstreams/:id). -> { ended: n }
 //
 // Ending one entry reuses DELETE /api/upstreams/:id/snoozes/:snoozeId; a change
 // is announced on the approval stream as `running` (lib/pauseEvents.ts).
@@ -31,7 +34,7 @@ export function makeRunningRoutes(clock: Clock = systemClock, events: PauseEvent
   r.get('/', async (c) => {
     const userId = c.get('user').id;
     const now = clock.now();
-    const [rows, clients] = await Promise.all([
+    const [rows, clients, upstreams] = await Promise.all([
       prisma.snooze.findMany({
         where: { userId, until: { gt: now } },
         select: {
@@ -53,6 +56,11 @@ export function makeRunningRoutes(clock: Clock = systemClock, events: PauseEvent
         select: { id: true, name: true, pausedAt: true },
         orderBy: [{ pausedAt: 'asc' }, { id: 'asc' }],
       }),
+      prisma.upstream.findMany({
+        where: { userId, pausedAt: { not: null } },
+        select: { id: true, name: true, pausedAt: true },
+        orderBy: [{ pausedAt: 'asc' }, { id: 'asc' }],
+      }),
     ]);
     return c.json({
       pauses: rows.map((p) => ({
@@ -69,6 +77,7 @@ export function makeRunningRoutes(clock: Clock = systemClock, events: PauseEvent
         purposeSource: p.purpose ? (p.purposeSource === 'suggested' ? 'suggested' : 'typed') : null,
       })),
       paused: clients.map((cl) => ({ id: cl.id, name: cl.name, pausedAt: cl.pausedAt!.toISOString() })),
+      pausedUpstreams: upstreams.map((u) => ({ id: u.id, name: u.name, pausedAt: u.pausedAt!.toISOString() })),
     });
   });
 

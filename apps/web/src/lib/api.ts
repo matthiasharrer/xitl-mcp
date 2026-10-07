@@ -103,6 +103,10 @@ export interface Upstream {
   description: string | null;
   /** ADR-0022: the last contact failed (ISO); null when it worked / none yet. */
   lastFailureAt: string | null;
+  /** ADR-0033: ISO while paused (hidden from every client), else null. */
+  pausedAt: string | null;
+  /** ADR-0034: the last successful tool sync, ISO, null = never. */
+  toolsSyncedAt: string | null;
   defaultPolicy: Policy;
   auth: UpstreamAuth;
   status: UpstreamStatus;
@@ -184,7 +188,18 @@ export interface ToolReview {
 }
 
 export interface ToolsView {
-  upstream: { id: number; name: string; defaultPolicy: Policy; status: UpstreamStatus; auth: UpstreamAuth; autoRule: string | null };
+  upstream: {
+    id: number;
+    name: string;
+    defaultPolicy: Policy;
+    status: UpstreamStatus;
+    auth: UpstreamAuth;
+    autoRule: string | null;
+    /** ADR-0033: ISO while paused, else null. */
+    pausedAt: string | null;
+    /** ADR-0034: the last successful tool sync, ISO, null = never. */
+    toolsSyncedAt: string | null;
+  };
   /** Clients that can reach this upstream (OAuth, its tokens, all-upstreams
    * tokens); paused ones included (TC-127). */
   clients: { id: number; name: string; paused: boolean }[];
@@ -371,6 +386,8 @@ export interface RunningPause {
 export interface Running {
   pauses: RunningPause[];
   paused: { id: number; name: string; pausedAt: string }[];
+  /** ADR-0033: paused upstreams, oldest first. */
+  pausedUpstreams: { id: number; name: string; pausedAt: string }[];
 }
 
 /** What a snooze covers (TC-76). */
@@ -488,6 +505,8 @@ export const api = {
     request<McpClient>('PATCH', `/api/mcp/clients/${id}`, { allowedOrigins }),
   /** ADR-0024: pause (true) or resume (false) an access, TOKEN or OAuth. */
   setClientPaused: (id: number, paused: boolean) => request<McpClient>('PATCH', `/api/mcp/clients/${id}`, { paused }),
+  /** ADR-0033: pause / resume an upstream for every client. */
+  setUpstreamPaused: (id: number, paused: boolean) => request<Upstream>('PATCH', `/api/upstreams/${id}`, { paused }),
   getHealth: () => request<{ status: string; version: string }>('GET', '/api/health'),
   getMcpConfig: () => request<{ configured: boolean }>('GET', '/api/mcp/config'),
   connectUpstream: (id: number) => request<{ authorizationUrl: string }>('POST', `/api/upstreams/${id}/connect`),
@@ -577,6 +596,11 @@ const PATH_PART: Record<string, string> = {
   'client-hidden': 'für diesen Client verborgen',
   'policy:client-upstream': 'Client-Voreinstellung',
   'denied:client-hidden': 'abgelehnt: für diesen Client verborgen',
+  // ADR-0033: the upstream is paused for every client.
+  'upstream-paused': 'Upstream pausiert',
+  'denied:upstream-paused': 'abgelehnt: Upstream pausiert',
+  // ADR-0034: the re-check of a stale tool list failed; never forwarded.
+  'stale-tools': 'Tool-Liste nicht prüfbar',
   'new-tool': 'neues Tool',
   'changed-tool': 'geändertes Tool',
   'unknown-tool': 'unbekanntes Tool',

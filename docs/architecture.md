@@ -23,20 +23,23 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
     /api/me
     /api/upstreams       routes/upstreams.ts: CRUD of the caller's upstreams,
                          POST /:id/connect, GET /oauth/callback (upstream OAuth),
-                         POST /:id/tokens (access token, ADR-0015)
+                         POST /:id/tokens (access token, ADR-0015);
+                         PATCH {paused} pauses/resumes it (ADR-0033)
     /api/upstreams/:id/tools…  routes/upstreamTools.ts: policy UI API;
                          also GET/DELETE /:id/snoozes[/:snoozeId] (active
                          pauses, ADR-0026; each row has `purposeSource`)
     /api/running         routes/running.ts: "Läuft gerade" (TC-178…183):
                          GET my live Snooze rows (all upstreams/accesses,
-                         soonest end first) + paused accesses; DELETE
+                         soonest end first) + paused accesses + paused
+                         upstreams (`pausedUpstreams`, ADR-0033); DELETE
                          /pauses = "Alle beenden" (every Snooze of the
-                         caller; paused accesses stay). Changes are announced
+                         caller; paused accesses and upstreams stay). Changes are announced
                          by lib/pauseEvents.ts (emitted in createSnooze, the
                          snooze DELETE, the ADR-0029 mismatch deletion,
-                         access pause/resume/delete, upstream URL change /
-                         delete, tool change / prune) as the payload-free
-                         `running` event on the approval stream
+                         access pause/resume/delete, upstream pause/resume,
+                         upstream URL change / delete, tool change / prune)
+                         as the payload-free `running` event on the approval
+                         stream
     /api/mcp/config      { configured } (is MCP_TOKEN set)
     /api/mcp/tokens      routes/mcpTokens.ts: create an all-upstreams token
     /api/mcp/clients     routes/mcpClients.ts: list/rename/revoke own clients (OAUTH and TOKEN kind)
@@ -46,8 +49,10 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
                          per create/change of my audit rows, fed by
                          lib/auditEvents.ts (emitted in mcp/server.ts and
                          intent/store.ts); the row is re-read per stream with
-                         the user in the query; and `running` {} ("Läuft
-                         gerade" changed: re-read /api/running)
+                         the user in the query; `running` {} ("Läuft
+                         gerade" changed: re-read /api/running); and
+                         `tools` {} (a sync changed one of my tool lists,
+                         ADR-0034: an open Regeln page re-reads)
     /api/audit           routes/audit.ts: my call history (Verlauf)
     /api/sessions        routes/sessions.ts: my MCP sessions + diagnostics
     /api/push            routes/push.ts: VAPID key, subscriptions, test push
@@ -81,7 +86,11 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
                          only fetch), guarded DNS lookup, web-push agent,
                          save-time checkUrlHost, upstreamAllowance (the
                          per-upstream exception), OUTBOUND_ALLOW_PRIVATE
-  upstream/tools.ts      KnownTool sync from tools/list
+  upstream/tools.ts      KnownTool sync from tools/list; stamps
+                         Upstream.toolsSyncedAt, emits lib/toolEvents.ts
+                         (`tools` on the approval stream) on a change
+  upstream/freshness.ts  ADR-0034: TOOLS_FRESH_MS window, the vanished rule,
+                         SingleFlight (pure, freshness.test.ts)
   approval/pending.ts    ApprovalHub: in-memory held calls + EventEmitter
   approval/budget.ts     300 s budget, approval deadline, snooze ends,
                          push summary (pure, budget.test.ts)
@@ -423,6 +432,40 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   `AuditEntry.sperreScore` (+ `pausePurpose`) for inside/outside;
   `PendingCall.sperreCheck` for the card/push note. Held calls covered by a
   NEW Sperre are still all denied at once by the approvals route (no Clef).
+- **Pausing an upstream (ADR-0033, `Upstream.pausedAt`).** `evaluatePolicy`
+  takes a required `upstreamPaused` (anything but exactly `false` = paused),
+  checked right after `unknown-tool` and before `client-hidden`: DENY
+  `upstream-paused`. Checked before anything could contact the upstream:
+  `listFor` returns [] first thing, `/mcp` leaves it out of the instructions
+  (no section, no state line, no live fetch), `/mcp/<slug>` initialize gets
+  xitl's line only, a call is refused at once (`refuseAtOnce`, unknown-tool
+  text for the name as called, audited `upstream-paused`, intent SKIPPED, no
+  gate/hold/push), and the ADR-0034 re-check is skipped. Backstop:
+  `withUpstream` throws `UpstreamPaused` for a paused row before any refresh
+  or request (not a failure: no lastFailureAt, no push); "Tools
+  aktualisieren" and "Verbinden" answer 409. `faultList` and the ADR-0022
+  push skip paused upstreams. `PATCH /api/upstreams/:id {paused}` sets
+  `pausedAt` only where null (first pause kept) inside the PATCH transaction,
+  then settles held calls on the upstream (every client) with `via:
+  'upstream-paused'` (`+denied:upstream-paused`, unknown-tool text, resolved
+  push `denied`); the proxy re-reads `pausedAt` after an approval before
+  forwarding. The Regeln view evaluates with `upstreamPaused: false` (rules as
+  they apply once resumed; `upstream.pausedAt` drives the chip).
+- **Tool freshness on call (ADR-0034, `Upstream.toolsSyncedAt`).** Every
+  successful `syncKnownTools` stamps `toolsSyncedAt` (only forwards) with the
+  same time as the listed tools' `lastSeenAt`. In `callTool`, before
+  `evaluate`: not paused, not hidden, and `toolsStale(toolsSyncedAt, now,
+  TOOLS_FRESH_MS)` (default 300000; null/garbage/future = stale) →
+  `refreshToolsFromUpstream` through a per-upstream `SingleFlight` (concurrent
+  calls share one tools/list), then the KnownTool/upstream/client-default rows
+  are read again. A failure refuses the call (`MSG.staleTools`, or the
+  reconnect / not-connected text; audit DENIED `stale-tools`), never
+  forwarded. A KnownTool row with `lastSeenAt < toolsSyncedAt` was not in the
+  latest list (vanished) and is evaluated as unknown (`unknown-tool`), inside
+  the window too. A URL or login change resets `toolsSyncedAt`. A sync that
+  changed something (new, changed, cosmetic, pruned) emits `toolEvents`; the
+  approval stream sends the payload-free `tools` event, and an open Regeln
+  page re-reads its view (also on `running`).
 - **Client default per upstream (ADR-0032, `ClientUpstreamPolicy`).**
   `evaluatePolicy` takes a required `clientUpstream`. DENY (or garbage) =
   `client-hidden`, right after `unknown-tool`, before every pause and rule;
@@ -939,9 +982,12 @@ another user's id is 404. The UI renders `decisionPath` in German
 ### Policy engine (ADR-0004, TC-24, TC-30)
 
 `lib/policy.ts` `evaluatePolicy({ upstreamDefault, tool: { policy,
-acknowledgedAt, changedAt } | null, clientOverride, snoozedUntil?, now? })`
-(`changedAt` is required in the type on purpose): unknown tool (no KnownTool)
--> DENY `unknown-tool`; client override -> `policy:client`; tool policy ->
+acknowledgedAt, changedAt } | null, clientOverride, clientUpstream,
+upstreamPaused, snoozedUntil?, denyPausedUntil?, now? })`
+(`changedAt`, `clientUpstream` and `upstreamPaused` are required in the type
+on purpose): unknown tool (no KnownTool) -> DENY `unknown-tool`; paused
+upstream -> DENY `upstream-paused` (ADR-0033); hidden for this client -> DENY
+`client-hidden` (ADR-0032); live deny pause -> `snooze-deny`; client override -> `policy:client`; tool policy ->
 `policy:tool`, except that an ALLOW from either becomes ASK `changed-tool`
 when `changedAt` is set; changed, no rule -> ASK `changed-tool`;
 unacknowledged (new) -> ASK `new-tool`; else default ->

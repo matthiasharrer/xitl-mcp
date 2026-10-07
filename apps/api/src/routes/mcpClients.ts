@@ -25,7 +25,8 @@ const clock = systemClock;
 // The list (GET /) also carries `sees` / `hidden` (ADR-0032): the names of the
 // caller's upstreams the client can reach, split by its per-upstream default
 // (DENY or anything unrecognised = hidden), for the "Sieht: … · Verborgen: …"
-// line. Display only; the proxy decides on its own reads.
+// line; a paused upstream (ADR-0033) is named "<Name> (pausiert)". Display
+// only; the proxy decides on its own reads.
 export const mcpClients = new Hono<AppEnv>();
 
 export const clientSelect = {
@@ -123,7 +124,7 @@ mcpClients.get('/', async (c) => {
       select: { ...listSelect, upstreamId: true },
       orderBy: [{ lastUsedAt: 'desc' }, { createdAt: 'desc' }],
     }),
-    prisma.upstream.findMany({ where: { userId }, select: { id: true, name: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }] }),
+    prisma.upstream.findMany({ where: { userId }, select: { id: true, name: true, pausedAt: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }] }),
     prisma.clientUpstreamPolicy.findMany({
       where: { mcpClient: { userId }, upstream: { userId } },
       select: { mcpClientId: true, upstreamId: true, policy: true },
@@ -136,7 +137,7 @@ mcpClients.get('/', async (c) => {
       const reach = row.kind === 'OAUTH' || row.allUpstreams ? upstreams : upstreams.filter((u) => u.id === row.upstreamId);
       return {
         ...serialize(row),
-        sees: reach.filter((u) => !hidden.has(`${row.id}:${u.id}`)).map((u) => u.name),
+        sees: reach.filter((u) => !hidden.has(`${row.id}:${u.id}`)).map((u) => (u.pausedAt ? `${u.name} (pausiert)` : u.name)),
         hidden: reach.filter((u) => hidden.has(`${row.id}:${u.id}`)).map((u) => u.name),
       };
     }),

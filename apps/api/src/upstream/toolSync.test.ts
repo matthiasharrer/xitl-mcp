@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { fixedClock } from '../lib/clock.js';
 
 type Row = Record<string, unknown> & { id: number; name: string };
-const db = { tools: [] as Row[], snoozes: [] as { toolName: string }[], nextId: 1 };
+const db = { tools: [] as Row[], snoozes: [] as { toolName: string }[], nextId: 1, syncedAt: null as Date | null };
 
 function matches(row: Record<string, unknown>, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([k, cond]) => {
@@ -40,7 +40,14 @@ const fakePrisma = {
     },
     deleteMany: async () => ({ count: 0 }),
   },
-  upstream: { findUnique: async () => ({ userId: 1 }) },
+  upstream: {
+    findUnique: async () => ({ userId: 1 }),
+    // ADR-0034: the toolsSyncedAt stamp (recorded, not matched).
+    updateMany: async ({ data }: { data: { toolsSyncedAt?: Date } }) => {
+      db.syncedAt = data.toolsSyncedAt ?? null;
+      return { count: 1 };
+    },
+  },
   snooze: {
     deleteMany: async ({ where }: { where: { toolName: string } }) => {
       db.snoozes = db.snoozes.filter((s) => s.toolName !== where.toolName);
@@ -152,5 +159,35 @@ describe('cosmetic auto-ack (TC-150)', () => {
     expect(row().changedAt).toBeInstanceOf(Date);
     expect(row().cosmeticAckAt).toBeNull();
     expect(row().prevDescription).toBe('Adds an item.');
+  });
+});
+
+// ADR-0034 (TC-204, TC-206 unit parts): every sync stamps toolsSyncedAt; a
+// `tools` event only when something the Regeln page shows changed; every
+// listed tool's lastSeenAt is the sync time (the vanished rule).
+describe('toolsSyncedAt and the tools event (ADR-0034)', () => {
+  test('stamped on every sync; event only on a change', async () => {
+    const { toolEvents } = await import('../lib/toolEvents.js');
+    const seen: number[] = [];
+    const off = toolEvents.on((ev) => seen.push(ev.userId));
+    try {
+      db.syncedAt = null;
+      await seedAcknowledged('Adds an item.'); // new tool: a change
+      expect(db.syncedAt).toEqual(clock.now());
+      expect(seen).toEqual([1]);
+      clock.advance(1000);
+      await syncKnownTools(UP, [tool('Adds an item.')], clock); // unchanged
+      expect(db.syncedAt).toEqual(clock.now());
+      expect(seen).toEqual([1]);
+      expect(row().lastSeenAt).toEqual(clock.now());
+      clock.advance(1000);
+      await syncKnownTools(UP, [tool('Adds two items.')], clock); // real change
+      expect(seen).toEqual([1, 1]);
+      clock.advance(1000);
+      await syncKnownTools(UP, [tool('adds two items')], clock); // cosmetic: shown text changed
+      expect(seen).toEqual([1, 1, 1]);
+    } finally {
+      off();
+    }
   });
 });

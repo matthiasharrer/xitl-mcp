@@ -12,6 +12,14 @@ test evidence in `testing.md`'s run log.
   has a "Gilt für <client>" view with the effective policy and source per tool;
   the client page shows "Sieht / Verborgen". TC-184…193.
 - **TC-128 e2e** (held calls settled by a new pause).
+- **ADR-0033: pause an upstream.** Hidden from every client, never
+  contacted (withUpstream refuses a paused row as the backstop; connect and
+  refresh answer 409), calls get the unknown-tool text, held calls refused;
+  Einstellungen/Regeln toggle and "Läuft gerade". TC-194…200.
+- **ADR-0034: tool freshness on call.** A call re-lists an upstream whose
+  tools are older than 5 min (single-flight), a failed re-list refuses
+  (`stale-tools`), a tool missing from the latest list is unknown; Regeln
+  re-reads on a `tools` event. TC-201…206.
 
 ## 2026-10-07 (`v0.11.0`)
 

@@ -4,7 +4,9 @@
 // the state, never an error text, URL, status code or credential (ADR-0007).
 // No push on recovery or on edits. At most one push per upstream per hour
 // (in memory, single replica), so a flapping upstream doesn't spam. Never
-// throws into the emitter (the contact path).
+// throws into the emitter (the contact path). A paused upstream (ADR-0033) is
+// never pushed about (a contact still in flight when it was paused can end
+// in a failure transition).
 import { prisma } from '../db.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { sendToSubscriptions, type SenderDeps } from '../lib/push.js';
@@ -41,8 +43,8 @@ export function wireUpstreamPush(states: UpstreamStateEvents, opts: { clock?: Cl
     const state = ev.state;
     if (!cooldown.take(ev.upstreamId)) return;
     void (async () => {
-      const upstream = await prisma.upstream.findFirst({ where: { id: ev.upstreamId, userId: ev.userId }, select: { id: true, name: true } });
-      if (!upstream) return;
+      const upstream = await prisma.upstream.findFirst({ where: { id: ev.upstreamId, userId: ev.userId }, select: { id: true, name: true, pausedAt: true } });
+      if (!upstream || upstream.pausedAt !== null) return;
       const subs = await prisma.pushSubscription.findMany({
         where: { userId: ev.userId },
         select: { id: true, endpoint: true, p256dh: true, auth: true },

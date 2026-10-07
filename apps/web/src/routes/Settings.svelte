@@ -175,6 +175,23 @@
     await load();
   }
 
+  /** ADR-0033: the upstream whose pause/resume request is in flight. */
+  let pausingUpstreamId = $state<number | null>(null);
+
+  async function setUpstreamPaused(u: Upstream, paused: boolean) {
+    if (pausingUpstreamId !== null) return;
+    pausingUpstreamId = u.id;
+    try {
+      await api.setUpstreamPaused(u.id, paused);
+      showToast(paused ? `„${u.name}“ pausiert` : `„${u.name}“ fortgesetzt`);
+    } catch (e) {
+      showToast(messageOf(e), { error: true });
+    } finally {
+      pausingUpstreamId = null;
+    }
+    await load();
+  }
+
   /** ADR-0024: the client whose pause/resume request is in flight. */
   let pausingId = $state<number | null>(null);
 
@@ -384,6 +401,7 @@
             <li class="item" data-slug={u.slug}>
               <div class="item-head">
                 <span class="item-name">{u.name}</span>
+                {#if u.pausedAt}<span class="chip paused" data-testid="upstream-paused">pausiert</span>{/if}
                 {#if u.allowInternal}<span class="badge internal" title="Interne Adresse, von dir erlaubt">intern</span>{/if}
                 {#if unreachable(u)}
                   <span class="badge status-unreachable">Nicht erreichbar</span>
@@ -415,21 +433,27 @@
                   </button>
                 </div>
               {/if}
-              {#if u.status === 'NEEDS_RECONNECT'}
+              {#if u.pausedAt}
+                <!-- ADR-0033: hidden from every client, never contacted. -->
+                <p class="hint paused-note">
+                  Pausiert seit {dateTime.format(new Date(u.pausedAt))}: Kein Client sieht seine Tools, xitl ruft ihn nicht auf. Regeln
+                  und Verbindung bleiben.
+                </p>
+              {:else if u.status === 'NEEDS_RECONNECT'}
                 <p class="hint reconnect-note">Die Anmeldung ist abgelaufen. Claude erreicht diesen Upstream erst wieder nach „Neu verbinden“.</p>
               {/if}
-              {#if unreachable(u)}
+              {#if unreachable(u) && !u.pausedAt}
                 <p class="hint unreachable-note">
                   Zuletzt nicht erreichbar ({failedAt(u)}). Claude sieht seine Tools gerade nicht.
                 </p>
               {/if}
               <div class="item-actions">
-                {#if unreachable(u)}
+                {#if unreachable(u) && !u.pausedAt}
                   <button type="button" class="btn primary" disabled={rechecking !== null} onclick={() => recheck(u)}>
                     {rechecking === u.id ? 'Prüfe…' : 'Erneut prüfen'}
                   </button>
                 {/if}
-                {#if u.auth === 'OAUTH'}
+                {#if u.auth === 'OAUTH' && !u.pausedAt}
                   <button
                     type="button"
                     class="btn"
@@ -449,7 +473,17 @@
                   </button>
                 </div>
               {/if}
-              <div class="item-actions">
+              <div class="item-actions client-actions">
+                <button
+                  type="button"
+                  class="btn"
+                  class:primary={u.pausedAt !== null}
+                  disabled={pausingUpstreamId === u.id}
+                  aria-label={`${u.pausedAt === null ? 'Pausieren' : 'Fortsetzen'}: ${u.name}`}
+                  onclick={() => setUpstreamPaused(u, u.pausedAt === null)}
+                >
+                  {u.pausedAt === null ? 'Pausieren' : 'Fortsetzen'}
+                </button>
                 <button type="button" class="btn" onclick={() => (sheet = u)}>Bearbeiten</button>
                 <button type="button" class="btn danger-outline" onclick={() => (deleting = u)}>Löschen</button>
               </div>

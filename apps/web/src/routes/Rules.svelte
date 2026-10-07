@@ -11,6 +11,13 @@
   // API computes it (`forClient`, never recomputed here); the row control
   // edits that client's tool rule. The choice lives in the URL hash
   // (`#/regeln/<id>?client=<id>`), so it survives a reload.
+  // ADR-0033 (TC-200): the header shows a paused upstream ("pausiert") with
+  // "Pausieren" / "Fortsetzen"; its rules stay editable and shown as they
+  // apply once resumed. ADR-0034 (TC-206): the page listens on the approval
+  // stream and re-reads its view on `tools` (a sync changed a tool list,
+  // e.g. a proxied tools/list or the call-time re-check) and on `running`
+  // (the upstream may have been paused or resumed elsewhere).
+  import { onDestroy } from 'svelte';
   import Spinner from '../lib/Spinner.svelte';
   import ToolReview from '../lib/ToolReview.svelte';
   import {
@@ -29,6 +36,7 @@
   } from '../lib/api';
   import { showToast } from '../lib/store.svelte';
   import { scopeText, untilText } from '../lib/pauses';
+  import { openApprovalStream } from '../lib/approvalStream';
 
   let { upstreamId }: { upstreamId: number } = $props();
 
@@ -173,6 +181,49 @@
   }
   load();
 
+  // ADR-0034: re-read on changes made elsewhere; a re-read in flight is not
+  // stacked (one more after it, at most).
+  let reloading: Promise<void> | null = null;
+  let again = false;
+  function reloadSoon() {
+    if (reloading) {
+      again = true;
+      return;
+    }
+    // A failed background re-read keeps what is shown (no error page).
+    reloading = Promise.all([fetchView(), api.listPauses(upstreamId)])
+      .then(([v, p]) => {
+        view = v;
+        pauses = p;
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        reloading = null;
+        if (again) {
+          again = false;
+          reloadSoon();
+        }
+      });
+  }
+  const closeStream = openApprovalStream({ tools: reloadSoon, running: reloadSoon });
+  onDestroy(closeStream);
+
+  /** ADR-0033: pause / resume this upstream for every client. */
+  async function setPaused(paused: boolean) {
+    if (!view) return;
+    const name = view.upstream.name;
+    busy = true;
+    try {
+      await api.setUpstreamPaused(upstreamId, paused);
+      view = await fetchView();
+      showToast(paused ? `„${name}“ pausiert` : `„${name}“ fortgesetzt`);
+    } catch (e) {
+      showToast(messageOf(e), { error: true });
+    } finally {
+      busy = false;
+    }
+  }
+
   async function choose(id: number | null) {
     if (scope === id) return;
     scope = id;
@@ -293,7 +344,17 @@
     <Spinner />
   {:else}
     {@const u = view.upstream}
-    <h2 class="rules-title">Regeln für „{u.name}“</h2>
+    <h2 class="rules-title">
+      Regeln für „{u.name}“{#if u.pausedAt}<span class="chip paused" data-testid="rules-paused">pausiert</span>{/if}
+    </h2>
+    <div class="pause-row">
+      {#if u.pausedAt}
+        <p class="hint pause-note">Kein Client sieht diesen Upstream, xitl ruft ihn nicht auf. Die Regeln gelten wieder, sobald er fortgesetzt ist.</p>
+      {/if}
+      <button type="button" class="btn" class:primary={u.pausedAt !== null} disabled={busy} onclick={() => setPaused(u.pausedAt === null)}>
+        {u.pausedAt === null ? 'Pausieren' : 'Fortsetzen'}
+      </button>
+    </div>
     {#if u.status !== 'CONNECTED'}
       <p class="hint">Status: {STATUS_LABEL[u.status]}. Verbinde den Upstream in den Einstellungen, um seine Tools zu laden.</p>
     {/if}
@@ -554,6 +615,19 @@
 </div>
 
 <style>
+  /* ADR-0033: pause/resume under the title. */
+  .pause-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin: 0 0 0.75rem;
+  }
+  .pause-note {
+    flex: 1 1 12rem;
+    margin: 0;
+  }
   /* ADR-0032 "Gilt für": wrapping pills, each a full touch target. */
   .scope-switch {
     display: flex;

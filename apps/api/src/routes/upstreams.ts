@@ -25,6 +25,15 @@ import { MAX_AUTO_RULE_CHARS } from '../lib/limits.js';
 // The Upstream row holds credentials (tokens, header value, OAuth client). The
 // ONE serializer below is the only way a row leaves this file: it whitelists
 // fields and never spreads the row (TC-07).
+//
+// ADR-0033: PATCH { paused: true | false } (alone or with other fields)
+// pauses / resumes the upstream for every client. true sets `pausedAt` only
+// where it is null (the first pause is kept) and settles the held calls on it
+// as denied (`+denied:upstream-paused`, the agent gets the unknown-tool
+// text); false clears it. Rules, client defaults, pauses, tokens and the
+// connection stay. Both announce `running` ("Läuft gerade") and recompute the
+// fault list (a paused upstream has no Störung card). Connecting a paused
+// upstream is refused (409): it is never contacted while paused.
 export const upstreams = new Hono<AppEnv>();
 
 export function serializeUpstream(row: Upstream) {
@@ -35,6 +44,10 @@ export function serializeUpstream(row: Upstream) {
     url: row.url,
     description: row.description,
     lastFailureAt: row.lastFailureAt?.toISOString() ?? null,
+    /** ADR-0033: ISO while paused (hidden from every client), else null. */
+    pausedAt: row.pausedAt?.toISOString() ?? null,
+    /** ADR-0034: the last successful tool sync, ISO, null = never. */
+    toolsSyncedAt: row.toolsSyncedAt?.toISOString() ?? null,
     defaultPolicy: row.defaultPolicy,
     auth: row.auth,
     status: row.status,
@@ -134,6 +147,8 @@ const patchSchema = z.object({
   headerValue: headerValueSchema.nullish(),
   allowInternal: z.boolean().optional(),
   autoRule: autoRuleSchema.optional(),
+  /** ADR-0033: pause / resume for every client. */
+  paused: z.boolean({ error: 'paused muss true oder false sein.' }).optional(),
 });
 
 /** Save-time half of ADR-0020 (UX only; the request-time guard in
@@ -250,6 +265,8 @@ upstreams.post('/:id/connect', async (c) => {
   const row = await prisma.upstream.findFirst({ where: { id, userId: c.get('user').id } });
   if (!row) return c.json({ error: 'Nicht gefunden.' }, 404);
   if (row.auth !== 'OAUTH') return c.json({ error: 'Dieser Upstream braucht keine Verbindung.' }, 400);
+  // ADR-0033: a paused upstream is not contacted, not even its AS.
+  if (row.pausedAt !== null) return c.json({ error: 'Der Upstream ist pausiert. Setze ihn erst fort.', code: 'upstream_paused' }, 409);
   try {
     const authorizationUrl = await startConnect(row, `${externalOrigin(c)}${CALLBACK_PATH}`);
     return c.json({ authorizationUrl });
@@ -354,6 +371,8 @@ upstreams.patch('/:id', async (c) => {
       refreshToken: null,
       tokenExpiresAt: null,
       pendingAuth: null,
+      // ADR-0034: the next call re-lists the new server / login first.
+      toolsSyncedAt: null,
     });
   }
 
@@ -371,6 +390,9 @@ upstreams.patch('/:id', async (c) => {
       // explicit tool/client ALLOW becomes ASK "changed-tool" until the user
       // acknowledges the tool or sets its policy (lib/policy.ts); the
       // policies themselves are kept. Every pause of this upstream ends.
+      // ADR-0033: only where not yet paused, so a repeat keeps the first time.
+      if (v.paused === true) await tx.upstream.updateMany({ where: { id, userId, pausedAt: null }, data: { pausedAt: clock.now() } });
+      else if (v.paused === false) await tx.upstream.updateMany({ where: { id, userId }, data: { pausedAt: null } });
       if (urlChanged) {
         await tx.knownTool.updateMany({
           where: { upstreamId: id, upstream: { userId } },
@@ -385,6 +407,16 @@ upstreams.patch('/:id', async (c) => {
     // to the new one.
     if (urlChanged) pauseEvents.emit({ userId });
     if (urlChanged || authChanged) approvals.cancelWhere((call) => call.userId === userId && call.upstreamId === id);
+    // ADR-0033 §4: pausing refuses the held calls on it (every client), like
+    // an unknown tool. The row is written first: a call evaluated after this
+    // is refused by the policy itself, one held in between by the proxy's
+    // re-check after an approval (mcp/server.ts).
+    if (v.paused === true) {
+      for (const held of approvals.list(userId)) {
+        if (held.upstreamId === id) approvals.decide(userId, held.id, { kind: 'deny', via: 'upstream-paused' });
+      }
+    }
+    if (v.paused !== undefined) pauseEvents.emit({ userId });
     // The fault list may have changed (name, or a reset state): Freigaben
     // recomputes it. Not a transition: nothing is pushed.
     upstreamStates.emit({ userId, upstreamId: id, state: 'ok', cause: 'edit' });

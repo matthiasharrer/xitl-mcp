@@ -110,6 +110,14 @@ model Upstream {
   /// every AUTO decision on this upstream (default, tool or client rule).
   /// NULL/empty = AUTO behaves like ASK.
   autoRule      String?
+  /// ADR-0033: since when the upstream is paused (Clock); null = active. A
+  /// paused upstream is hidden from every client and never contacted. Set
+  /// and cleared only through /api (PATCH /api/upstreams/:id {paused}).
+  pausedAt      DateTime?
+  /// ADR-0034: when the tool list was last synced successfully
+  /// (syncKnownTools); a call re-lists first when null or older than
+  /// TOOLS_FRESH_MS.
+  toolsSyncedAt DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

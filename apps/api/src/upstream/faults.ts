@@ -1,6 +1,7 @@
 // The user's current upstream faults (ADR-0022): what the Freigaben page shows
 // as "Störung" cards. Only names and states, never an error text, URL or
 // status code (ADR-0007). Read from the stored state; nothing is contacted.
+// A paused upstream (ADR-0033) has no card: it is off on purpose.
 import { prisma } from '../db.js';
 import { storedState } from './connection.js';
 
@@ -14,7 +15,7 @@ export interface UpstreamFault {
 
 export async function faultList(userId: number): Promise<UpstreamFault[]> {
   const rows = await prisma.upstream.findMany({
-    where: { userId },
+    where: { userId, pausedAt: null },
     orderBy: [{ name: 'asc' }, { id: 'asc' }],
     select: { id: true, name: true, auth: true, status: true, accessToken: true, lastFailureAt: true },
   });

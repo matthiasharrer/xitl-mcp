@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 const findFirst = vi.fn();
 const updateMany = vi.fn();
 vi.mock('../db.js', () => ({ prisma: { upstream: { findFirst, updateMany } } }));
-const { withUpstream, UpstreamNeedsReconnect, UpstreamNotConnected, storedState, recordFailure, recordSuccess } = await import('./connection.js');
+const { withUpstream, UpstreamNeedsReconnect, UpstreamNotConnected, UpstreamPaused, storedState, recordFailure, recordSuccess } = await import('./connection.js');
 const { upstreamStates } = await import('./stateEvents.js');
 
 const NOW = new Date('2026-10-05T12:00:00Z');
@@ -14,7 +14,7 @@ const clock = { now: () => NOW } as never;
 const row = (over: Record<string, unknown> = {}) => ({
   id: 7, userId: 1, auth: 'NONE', status: 'CONNECTED', url: 'http://127.0.0.1:1/mcp',
   accessToken: null, refreshToken: null, headerName: null, headerValue: null,
-  tokenExpiresAt: null, instructions: null, lastFailureAt: null, allowInternal: false, ...over,
+  tokenExpiresAt: null, instructions: null, lastFailureAt: null, allowInternal: false, pausedAt: null, ...over,
 });
 const run = () => withUpstream(7, 1, async () => 'ok', { clock, timeoutMs: 2000 });
 
@@ -46,6 +46,32 @@ describe('withUpstream failure bookkeeping (TC-90)', () => {
     await expect(run()).rejects.toBeInstanceOf(UpstreamNeedsReconnect);
     findFirst.mockResolvedValue(null);
     await expect(run()).rejects.toBeInstanceOf(UpstreamNotConnected);
+    expect(updateMany).not.toHaveBeenCalled();
+  });
+});
+
+// ADR-0033 (TC-196 unit part): a paused row is refused before anything is
+// contacted or refreshed; not a failure (nothing written, no transition).
+describe('paused upstream (ADR-0033)', () => {
+  test('UpstreamPaused before any contact, token refresh or bookkeeping', async () => {
+    let contacted = false;
+    const fn = async () => {
+      contacted = true;
+      return 'ok';
+    };
+    const paused = new Date('2026-10-05T11:00:00Z');
+    const rows = [
+      row({ pausedAt: paused }),
+      // an expired OAuth token would be refreshed first: not while paused
+      row({ pausedAt: paused, auth: 'OAUTH', status: 'CONNECTED', accessToken: 'x', tokenExpiresAt: new Date('2000-01-01') }),
+      // a row without the field (anything but null) counts as paused
+      { ...row(), pausedAt: undefined },
+    ];
+    for (const r of rows) {
+      findFirst.mockResolvedValue(r);
+      await expect(withUpstream(7, 1, fn, { clock, timeoutMs: 2000 })).rejects.toBeInstanceOf(UpstreamPaused);
+    }
+    expect(contacted).toBe(false);
     expect(updateMany).not.toHaveBeenCalled();
   });
 });

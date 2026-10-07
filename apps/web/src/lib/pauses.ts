@@ -67,24 +67,26 @@ export function sinceText(iso: string, now: Date): string {
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** The collapsed line (TC-178): zero parts left out; null = nothing active. */
-export function runningSummary(allows: number, denies: number, paused: number, nextEnd: string | null, now: Date): string | null {
+/** The collapsed line (TC-178): zero parts left out; null = nothing active.
+ * `pausedUpstreams`: ADR-0033 (TC-200). */
+export function runningSummary(allows: number, denies: number, paused: number, nextEnd: string | null, now: Date, pausedUpstreams = 0): string | null {
   const parts: string[] = [];
   if (allows > 0) parts.push(plural(allows, 'Zeitfreigabe', 'Zeitfreigaben'));
   if (denies > 0) parts.push(plural(denies, 'Sperre', 'Sperren'));
   if (paused > 0) parts.push(`${plural(paused, 'Zugang', 'Zugänge')} pausiert`);
+  if (pausedUpstreams > 0) parts.push(`${plural(pausedUpstreams, 'Upstream', 'Upstreams')} pausiert`);
   if (parts.length === 0) return null;
   if (nextEnd) parts.push(`nächstes Ende in ${durationText(new Date(nextEnd).getTime() - now.getTime())}`);
   return `Läuft gerade: ${parts.join(' · ')}`;
 }
 
-/** Text of the "Alle beenden" confirmation (TC-180). */
-export function endAllMessage(allows: number, denies: number, paused: number): string {
+/** Text of the "Alle beenden" confirmation (TC-180; paused upstreams stay
+ * paused too, ADR-0033). */
+export function endAllMessage(allows: number, denies: number, paused: number, pausedUpstreams = 0): string {
   const what: string[] = [];
   if (allows > 0) what.push(`${plural(allows, 'Zeitfreigabe', 'Zeitfreigaben')} beenden`);
   if (denies > 0) what.push(`${plural(denies, 'Sperre', 'Sperren')} aufheben`);
   const head = `${what.join(' und ')}?`;
-  return paused > 0
-    ? `${head} Pausierte Zugänge bleiben pausiert – die setzt du einzeln mit „Fortsetzen“ fort.`
-    : head;
+  const stay = paused > 0 && pausedUpstreams > 0 ? 'Pausierte Zugänge und Upstreams' : paused > 0 ? 'Pausierte Zugänge' : pausedUpstreams > 0 ? 'Pausierte Upstreams' : null;
+  return stay ? `${head} ${stay} bleiben pausiert – die setzt du einzeln mit „Fortsetzen“ fort.` : head;
 }

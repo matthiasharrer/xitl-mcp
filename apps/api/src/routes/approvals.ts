@@ -18,7 +18,11 @@
 //                     entries) whenever one of my audit rows was created or
 //                     changed (ADR-0028), and `running` {} whenever my
 //                     Zeitfreigaben / Sperren / paused accesses changed
-//                     ("Läuft gerade", TC-181: the page re-reads /api/running)
+//                     ("Läuft gerade", TC-181: the page re-reads /api/running;
+//                     also when an upstream is paused or resumed, ADR-0033),
+//                     and `tools` {} whenever a sync changed one of my
+//                     upstreams' tool lists (ADR-0034, TC-206: an open Regeln
+//                     page re-reads its view)
 //   GET  /:id         one call: pending, or its outcome once resolved
 //   POST /:id         { decision: 'approve'|'deny', via: 'page'|'push',
 //                       snoozeMinutes? | snoozeUntilMidnight?,
@@ -45,6 +49,7 @@ import { faultList } from '../upstream/faults.js';
 import { auditIntentFields, include as auditInclude, serializeAuditRow } from './audit.js';
 import { auditEvents as defaultAuditEvents, type AuditEvents } from '../lib/auditEvents.js';
 import { pauseEvents as defaultPauseEvents, type PauseEvents } from '../lib/pauseEvents.js';
+import { toolEvents as defaultToolEvents, type ToolEvents } from '../lib/toolEvents.js';
 import { NO_INTENT } from '../intent/queue.js';
 import { upstreamStates as defaultStates, type UpstreamStateEvents } from '../upstream/stateEvents.js';
 import { pauseGate as defaultPauseGate } from '../pausecheck/index.js';
@@ -167,9 +172,17 @@ async function resolvedView(userId: number, id: string) {
 export function makeApprovalRoutes(
   hub: ApprovalHub = defaultHub,
   clock: Clock = systemClock,
-  opts: { maxStreamsPerUser?: number; states?: UpstreamStateEvents; auditEvents?: AuditEvents; pauseGate?: PauseGate; pauseEvents?: PauseEvents } = {},
+  opts: {
+    maxStreamsPerUser?: number;
+    states?: UpstreamStateEvents;
+    auditEvents?: AuditEvents;
+    pauseGate?: PauseGate;
+    pauseEvents?: PauseEvents;
+    toolEvents?: ToolEvents;
+  } = {},
 ) {
   const pauseBus = opts.pauseEvents ?? defaultPauseEvents;
+  const toolBus = opts.toolEvents ?? defaultToolEvents;
   const gate = opts.pauseGate ?? defaultPauseGate;
   const r = new Hono<AppEnv>();
   const states = opts.states ?? defaultStates;
@@ -262,6 +275,10 @@ export function makeApprovalRoutes(
       const offPauses = pauseBus.on((ev) => {
         if (ev.userId === userId) push('running', {});
       });
+      // ADR-0034 (TC-206): a sync changed a tool list of THIS user: payload-free.
+      const offTools = toolBus.on((ev) => {
+        if (ev.userId === userId) push('tools', {});
+      });
       const close = () => {
         open = false;
         wake?.();
@@ -301,6 +318,7 @@ export function makeApprovalRoutes(
         offStates();
         offAudit();
         offPauses();
+        offTools();
         offOutage();
         hub.off('checked', onChecked);
         hub.off('pending', onPending);

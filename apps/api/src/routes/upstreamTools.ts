@@ -7,7 +7,7 @@ import { systemClock } from '../lib/clock.js';
 import { evaluatePolicy, hidesUpstream, type Policy } from '../lib/policy.js';
 import { approvals } from '../approval/pending.js';
 import { toolHint } from '../lib/proxyText.js';
-import { UpstreamNeedsReconnect, UpstreamNotConnected } from '../upstream/connection.js';
+import { UpstreamNeedsReconnect, UpstreamNotConnected, UpstreamPaused } from '../upstream/connection.js';
 import { errorTag } from '../upstream/oauthClient.js';
 import { refreshToolsFromUpstream } from '../upstream/tools.js';
 import { clefConfig } from '../clef/index.js';
@@ -21,7 +21,13 @@ import type { KnownTool } from '../generated/prisma/client.js';
 // default for this upstream (ADR-0032, TC-185; DENY hides the upstream from
 // it and settles its held calls there).
 // `GET …/tools?client=<id>` adds that client's effective policy per tool
-// (`forClient`), from the same evaluatePolicy as the proxy (no pauses).
+// (`forClient`), from the same evaluatePolicy as the proxy (no pauses, and as
+// if the upstream were active: a paused upstream, ADR-0033, shows its rules
+// unchanged; the view's `upstream.pausedAt` says it is paused).
+// "Tools aktualisieren" on a paused upstream is refused (409) without
+// contacting it (ADR-0033).
+// Every sync answers with the stored rows; a sync that changed something
+// also pings open Regeln pages (`tools` on the approval stream, ADR-0034).
 // Mounted under /api (identity). Every handler first resolves the upstream
 // among the CALLER's upstreams (404 otherwise, no oracle), and every tool is
 // addressed through that upstream, so a tool id of someone else's upstream is
@@ -30,6 +36,8 @@ export const upstreamTools = new Hono<AppEnv>();
 
 const clock = systemClock;
 const NOT_FOUND = { error: 'Nicht gefunden.' };
+/** ADR-0033: an action that would contact a paused upstream. */
+const PAUSED_UPSTREAM = { error: 'Der Upstream ist pausiert. Setze ihn erst fort.', code: 'upstream_paused' };
 
 function noStore(c: { header: (name: string, value: string) => void }) {
   c.header('Cache-Control', 'no-store');
@@ -53,7 +61,7 @@ const reachesUpstream = (upstreamId: number) => [
 
 async function ownUpstream(id: number | null, userId: number) {
   if (id === null) return null;
-  return prisma.upstream.findFirst({ where: { id, userId }, select: { id: true, name: true, defaultPolicy: true, status: true, auth: true, autoRule: true } });
+  return prisma.upstream.findFirst({ where: { id, userId }, select: { id: true, name: true, defaultPolicy: true, status: true, auth: true, autoRule: true, pausedAt: true, toolsSyncedAt: true } });
 }
 
 async function ownTool(upstreamId: number, toolId: number | null) {
@@ -125,7 +133,18 @@ async function toolsView(upstreamId: number, userId: number, forClientId: number
   ]);
   const defaultOf = new Map(defaults.map((d) => [d.mcpClientId, d.policy as Policy]));
   return {
-    upstream: { id: upstream.id, name: upstream.name, defaultPolicy: upstream.defaultPolicy, status: upstream.status, auth: upstream.auth, autoRule: upstream.autoRule },
+    upstream: {
+      id: upstream.id,
+      name: upstream.name,
+      defaultPolicy: upstream.defaultPolicy,
+      status: upstream.status,
+      auth: upstream.auth,
+      autoRule: upstream.autoRule,
+      /** ADR-0033: ISO while paused, else null. */
+      pausedAt: upstream.pausedAt?.toISOString() ?? null,
+      /** ADR-0034: the last successful tool sync, ISO, null = never. */
+      toolsSyncedAt: upstream.toolsSyncedAt?.toISOString() ?? null,
+    },
     clients: clients.map((c) => ({ id: c.id, name: c.name, paused: c.pausedAt !== null })),
     // ADR-0032: no entry = "Voreinst." (the upstream default).
     clientDefaults: defaults.map((d) => ({ mcpClientId: d.mcpClientId, policy: d.policy })),
@@ -138,6 +157,8 @@ async function toolsView(upstreamId: number, userId: number, forClientId: number
         tool: toolState,
         clientOverride: null,
         clientUpstream: null,
+        // The rules as they apply once active (ADR-0033 pause shown apart).
+        upstreamPaused: false,
       });
       // ADR-0032 client view: the same evaluation as the proxy, without pauses.
       const ownRule = forClientId === null ? null : ((t.clientPolicies.find((cp) => cp.mcpClientId === forClientId)?.policy as Policy | undefined) ?? null);
@@ -150,6 +171,7 @@ async function toolsView(upstreamId: number, userId: number, forClientId: number
                 tool: toolState,
                 clientOverride: ownRule,
                 clientUpstream: defaultOf.get(forClientId) ?? null,
+                upstreamPaused: false,
               });
               // A stored client rule that the hidden upstream overrides.
               return { policy: d.policy, path: d.path, masked: ownRule !== null && d.path === 'client-hidden' };
@@ -208,9 +230,12 @@ upstreamTools.post('/:id/tools/refresh', async (c) => {
   const userId = c.get('user').id;
   const upstream = await ownUpstream(parseId(c.req.param('id')), userId);
   if (!upstream) return c.json(NOT_FOUND, 404);
+  // ADR-0033: never contacted while paused (withUpstream refuses it too).
+  if (upstream.pausedAt !== null) return c.json(PAUSED_UPSTREAM, 409);
   try {
     await refreshToolsFromUpstream(upstream.id, userId, clock);
   } catch (e) {
+    if (e instanceof UpstreamPaused) return c.json(PAUSED_UPSTREAM, 409);
     if (e instanceof UpstreamNotConnected) return c.json({ error: 'Der Upstream ist noch nicht verbunden.' }, 409);
     if (e instanceof UpstreamNeedsReconnect) return c.json({ error: 'Der Upstream muss neu verbunden werden.' }, 409);
     console.warn(`upstream ${upstream.id}: tools refresh failed: ${errorTag(e)}`);

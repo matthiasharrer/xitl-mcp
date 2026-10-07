@@ -2,9 +2,16 @@
 // (through the proxy or the UI's "Tools aktualisieren") is recorded, so the
 // policy engine can tell a tool that was listed from one an agent is guessing,
 // and a tool that is new from one the user has looked at.
+//
+// ADR-0034: every successful sync stamps `Upstream.toolsSyncedAt` (the same
+// time as the listed tools' `lastSeenAt`, so a row seen before it vanished,
+// upstream/freshness.ts) and, when it changed something the Regeln page shows,
+// emits a payload-free `tools` event (lib/toolEvents.ts). ADR-0033: a paused
+// upstream is never synced (withUpstream refuses to contact it first).
 import type { Tool } from '@modelcontextprotocol/client';
 import { prisma } from '../db.js';
 import { pauseEvents } from '../lib/pauseEvents.js';
+import { toolEvents } from '../lib/toolEvents.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { withUpstream, CONNECT_TIMEOUT_MS } from './connection.js';
 import { MAX_KNOWN_TOOLS_PER_UPSTREAM, MAX_UPSTREAM_TOOLS } from '../lib/limits.js';
@@ -94,12 +101,15 @@ export async function syncKnownTools(
   });
   const byName = new Map(existingRows.map((r) => [r.name, r]));
   const acknowledgedAt = existingRows.length === 0 && ACKNOWLEDGE_INITIAL_TOOLS ? now : null;
+  // ADR-0034 (TC-206): did this sync change anything the Regeln page shows?
+  let changedAny = false;
   for (const t of current) {
     const description = typeof t.description === 'string' ? t.description.slice(0, MAX_DESCRIPTION) : null;
     const annotations = t.annotations ? JSON.stringify(t.annotations) : null;
     const inputSchema = schemaText((t as { inputSchema?: unknown }).inputSchema);
     const prev = byName.get(t.name);
     if (!prev) {
+      changedAny = true;
       await prisma.knownTool.upsert({
         where: { upstreamId_name: { upstreamId, name: t.name } },
         create: { upstreamId, name: t.name, description, annotations, inputSchema, firstSeenAt: now, lastSeenAt: now, acknowledgedAt },
@@ -120,6 +130,7 @@ export async function syncKnownTools(
       await prisma.knownTool.update({ where: { id: prev.id }, data: { description, annotations, inputSchema, lastSeenAt: now } });
       continue;
     }
+    changedAny = true;
     if (!annChanged && !schemaChanged && isCosmetic(prev.description, description)) {
       const acknowledged = prev.acknowledgedAt !== null && prev.changedAt === null;
       await prisma.knownTool.updateMany({
@@ -159,7 +170,24 @@ export async function syncKnownTools(
     }
     console.warn(`tools: upstream ${upstreamId}: tool definition changed, re-flagged for review`);
   }
-  await pruneStaleTools(upstreamId, new Set(current.map((t) => t.name)), now, maxRows);
+  if (await pruneStaleTools(upstreamId, new Set(current.map((t) => t.name)), now, maxRows)) changedAny = true;
+  // Every listed tool counts as seen now, also where a conditional write above
+  // found the row already handled by a concurrent sync (the vanished rule
+  // compares lastSeenAt with toolsSyncedAt).
+  await prisma.knownTool.updateMany({
+    where: { upstreamId, name: { in: current.map((t) => t.name) }, lastSeenAt: { lt: now } },
+    data: { lastSeenAt: now },
+  });
+  // ADR-0034: the list is fresh as of `now`. Only forwards: a slower sync that
+  // started earlier must not make the stamp older (its `now` is older).
+  await prisma.upstream.updateMany({
+    where: { id: upstreamId, OR: [{ toolsSyncedAt: null }, { toolsSyncedAt: { lt: now } }] },
+    data: { toolsSyncedAt: now },
+  });
+  if (changedAny) {
+    const owner = await prisma.upstream.findUnique({ where: { id: upstreamId }, select: { userId: true } });
+    if (owner) toolEvents.emit({ userId: owner.userId });
+  }
   for (const l of [...syncListeners]) {
     try {
       l(upstreamId);
@@ -193,11 +221,11 @@ export function staleToolsToPrune(
  * bound. A deleted row takes its per-client rules with it (cascade) and its
  * TOOL pauses; if the tool comes back it is "Neu" (never acknowledged), and
  * until then a call to it is "unknown-tool" DENY. */
-async function pruneStaleTools(upstreamId: number, currentNames: ReadonlySet<string>, now: Date, maxRows: number): Promise<void> {
-  if ((await prisma.knownTool.count({ where: { upstreamId } })) <= maxRows) return;
+async function pruneStaleTools(upstreamId: number, currentNames: ReadonlySet<string>, now: Date, maxRows: number): Promise<boolean> {
+  if ((await prisma.knownTool.count({ where: { upstreamId } })) <= maxRows) return false;
   const rows = await prisma.knownTool.findMany({ where: { upstreamId }, select: { id: true, name: true, lastSeenAt: true } });
   const ids = staleToolsToPrune(rows, currentNames, maxRows);
-  if (ids.length === 0) return;
+  if (ids.length === 0) return false;
   const idSet = new Set(ids);
   const doomed = rows.filter((r) => idSet.has(r.id)).map((r) => r.name);
   // `lastSeenAt < now`: a concurrent sync that has just seen one of these
@@ -209,6 +237,7 @@ async function pruneStaleTools(upstreamId: number, currentNames: ReadonlySet<str
     if (owner) pauseEvents.emit({ userId: owner.userId });
   }
   console.warn(`tools: upstream ${upstreamId}: ${res.count} stale tool row(s) removed (cap ${maxRows})`);
+  return res.count > 0;
 }
 
 /** Annotations compared as data (key order doesn't count as a change). */
