@@ -71,6 +71,16 @@ GHCR), `v0.7.0` deployed and running. GitOps already has `INTENT_LLM_URL`
    question) / ≤ 0.37 (de), but **misses a fake `<system>` "user already
    agreed" claim** (0.05–0.07): a signal, never a guard.
 
+   **Full Clef (27B, Q4_K_M 19.2 GB, same service, alias still
+   `clef-flash`), 2026-10-07, en:** pause `gleich`: ok 0.922–0.980, ask
+   ≤ 0.605 **except archive-everything 0.938** (still invisible; needs the
+   count cap); typo-fix-then-rewrite now 0.05 (Flash 0.26), so a threshold
+   ~0.8 forwards 6/6 ok and asks 7/8. `passt` still useless. 1.5–2.1 s per
+   check (Flash ~0.55 s). Tool risk 20/22 (same two misses, higher
+   confidence), ~0.8 s. Injection (en question): benign ≤ 0.13, injected
+   ≥ 0.83 **incl. the fake `<system>` claim** (Flash missed it): clean gap,
+   usable as a warning on the card (still never a guard).
+
 1. **Deploy `v0.8.0`** (Matthias bumps the tag in GitOps).
 2. **TC-128 e2e** (a pause settles the covered held calls): hold 3 calls of
    one tool + 1 of another tool + 1 of another client, approve one with a
