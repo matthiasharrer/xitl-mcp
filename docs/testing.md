@@ -470,6 +470,34 @@ token S scoped to the upstream.
 | TC-192 | ⚡ UI Regeln at 390×844. "Gilt für" switch (Alle Clients + every reachable client, paused ones marked). Alle Clients: as today; a masked client tool rule shows "wirkungslos: Upstream für <client> verborgen" in "Pro Client". One client: default control Voreinst./Erlauben/Fragen/KI/Verbieten at the top (KI only where AUTO is offered); the precedence line; every tool shows effective policy + source ("Erlauben · Tool-Regel", "Fragen · Client-Voreinst.", "Fragen · neu", "Verbieten · Client-Regel"); the tool's control edits that client's tool rule ("Wie für alle (<Wert>)" = none). On Verbieten: "Für <client> unsichtbar: keine Tools, kein Abschnitt in den Anweisungen", every tool "Verborgen · Client-Voreinst.", stored client rules marked masked, controls still usable. No dialog. Selection survives reload (URL or localStorage with try/catch). No horizontal scroll, touch targets ≥ 44 px. | e2e (+ screenshots) |
 | TC-193 | ⚡ Client page line. Einstellungen/Zugänge: each client shows "Sieht: <Upstreams> · Verborgen: <Upstreams>" (only the upstreams it can reach; "Verborgen" part absent when none); updates after a change. Only the caller's data. | e2e |
 
+### Pause an upstream (ADR-0033): `e2e/tests/upstream-pause.spec.ts`, `apps/api/src/lib/policy.test.ts`
+
+Cases written by the lead before implementation.
+
+| ID    | Case | How |
+| ----- | ---- | --- |
+| TC-194 | Policy (unit). `upstreamPaused: true` → DENY `upstream-paused` against: everything ALLOW (default, tool rule, client rule, client default), live allow pause, new/changed tool; before `client-hidden` and `snooze-deny`; unknown tool → still `unknown-tool`. Any value other than exactly `false` → paused (fail closed). Required input (type level). | unit |
+| TC-195 | API. `PATCH /api/upstreams/:id {paused:true|false}` sets/clears `pausedAt` (first pause kept on repeat), combined with other fields; 400 German for a non-boolean; another user's upstream → 404, unchanged; without Remote-User 401. The upstream list carries `pausedAt`. | e2e |
+| TC-196 | **Hidden and never contacted, fail closed.** Paused: `/mcp` tools/list of every client (OAuth, all-upstreams token) has no `<slug>_…`; `/mcp/<slug>` (incl. a token of only this upstream) empty; initialize: no section/state line on `/mcp`, only xitl's line on `/mcp/<slug>`; the fake upstream sees **zero requests** during all of it (also no failure push when the fake is broken). | e2e |
+| TC-197 | **Calls.** A call on both endpoints → immediate error byte-identical to `MSG.unknownTool(<name as called>)`, audit DENIED `upstream-paused`, no hold, no push, fake count 0; also with tool rule ALLOW and a live Zeitfreigabe. | e2e |
+| TC-198 | **Held calls** of two clients on the upstream are refused when it's paused (`+denied:upstream-paused`, unknown text, cards gone); a held call on another upstream stays. | e2e |
+| TC-199 | **Resume** restores everything: tools listed again, rules, client defaults and pauses as before, calls behave as before pausing. | e2e |
+| TC-200 | ⚡ UI 390×844. Einstellungen: "Pausieren"/"Fortsetzen" per upstream, chip "pausiert"; Regeln header shows it too. "Läuft gerade": "Upstream pausiert · <Name> · seit HH:MM" with "Fortsetzen"; "Alle beenden" leaves it paused; live update (`running` event). No horizontal scroll, buttons ≥ 44 px. Another user's paused upstream never appears. | e2e (+ screenshots) |
+
+### Tool freshness on call (ADR-0034): `e2e/tests/tool-freshness.spec.ts`
+
+Cases written by the lead before implementation. Tests use a short
+`TOOLS_FRESH_MS` or the Clock seam, never real 5-minute waits.
+
+| ID    | Case | How |
+| ----- | ---- | --- |
+| TC-201 | **Changed between lists.** Tool `add_item` ALLOW, synced. The fake upstream changes its description (no list by anyone). A call within the window → forwarded (accepted limit). After the window → xitl lists first, the call is held ASK `changed-tool`, Regeln shows "Geändert", `toolsSyncedAt` updated. | e2e |
+| TC-202 | New tool / vanished tool after the window: calling a tool the upstream added (without a list) → held `new-tool`; calling one it removed → DENY `unknown-tool`. | e2e |
+| TC-203 | **Fail closed.** After the window the fake upstream's tools/list fails (500 / timeout): the call is refused with a generic text, audit DENIED `stale-tools`, never forwarded (fake call count 0). | e2e |
+| TC-204 | Single-flight: 5 parallel calls after the window → exactly one tools/list at the fake upstream. A proxied tools/list, "Tools aktualisieren" and a re-check each set `toolsSyncedAt`; within the window no extra list. | e2e |
+| TC-205 | Paused (ADR-0033) or hidden (ADR-0032) upstream: no re-list at all (fake count 0) and the refusal text as before. | e2e |
+| TC-206 | ⚡ Regeln re-reads after a proxied sync that changed a tool (no manual refresh): the open page shows "Geändert" within seconds. | e2e |
+
 ## Manual gates
 
 Things no script can prove. Run on the deployed instance before calling
