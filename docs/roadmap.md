@@ -85,6 +85,16 @@ GHCR), `v0.7.0` deployed and running. GitOps already has `INTENT_LLM_URL`
    ≥ 0.83 **incl. the fake `<system>` claim** (Flash missed it): clean gap,
    usable as a warning on the card (still never a guard).
 
+0b. **Review hint for new and changed tools** (Matthias, 2026-10-07: "one
+   just accepts all new tools anyway, at least a hint if something needs more
+   attention"). Build after ADR-0029 (reuses its Clef client). Advisory only,
+   never decides (rug pull: the description is attacker text, see ideas.md).
+   Per new/changed tool in Regeln: label "Unauffällig" vs. "Genauer ansehen"
+   with reasons: deterministic first (annotations readOnly→not, new
+   destructiveHint, description diff only whitespace/punctuation/case →
+   auto-ack), then Clef: risk class (lesen/ändern/zerstören) and the
+   injection noul on the description. Include `inputSchema` change
+   detection (store it; today undetected, debt below). Small ADR first.
 1. **Deploy `v0.8.0`** (Matthias bumps the tag in GitOps).
 2. **TC-128 e2e** (a pause settles the covered held calls): hold 3 calls of
    one tool + 1 of another tool + 1 of another client, approve one with a

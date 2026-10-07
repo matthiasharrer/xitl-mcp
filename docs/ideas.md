@@ -130,7 +130,7 @@
   are asked (safe direction). ~1.1 s per call. German question slightly
   better than English here. Lead's cases only; needs real calls before an ADR.
 
-- **Changed tool: let Clef judge whether the change needs a human?**
+- **Changed tool: let Clef judge whether the change needs a human?** → scheduled as roadmap 0b (review hint).
   (Matthias, 2026-10-07). Lead's position: not as a decider. The changed-tool
   ASK (TC-36) exists for a hostile upstream (rug pull), and then the new
   description is attacker-written text that Clef would judge, so an injection
