@@ -66,11 +66,26 @@ Matthias's decisions (2026-10-07):
    "KI-Prüfung: weicht ab (Richtungswechsel) – Zeitfreigabe beendet"
    (option label from the winning choice). Approving it can grant a new pause
    with this call as its anchor.
-5. **Model down, timeout (default 10 s), garbage:** this call is **held** (fail
-   closed), path `snooze-ki-error`, card "KI-Prüfung nicht verfügbar"; the pause
-   **stays** (an outage must not silently cost the human every pause, and each
-   call is still asked). *Open for Matthias:* alternatively fall back to the
-   blind pause while the model is down (not fail-closed; not recommended).
+5. **Optional by design; Clef may come and go (Matthias, 2026-10-07: "the
+   proxy should not stop working").**
+   - **Off unless configured:** without `PAUSE_CHECK_URL` there is no check
+     and no dependency; pauses are blind as before.
+   - **Switch in the app:** Einstellungen → "KI-Prüfung für Zeitfreigaben"
+     on/off (per user, `User.pauseCheck`, default on), shown only when the URL
+     is configured. Off = blind pauses. Turning it off is a deliberate human
+     act in the UI (Authelia), never reachable by an agent (ADR-0005 spirit).
+   - **Model down, timeout (default 10 s), garbage, HTTP error:** this call is
+     **held** (fail closed: a forced timeout must never mean "skip the check"),
+     path `snooze-ki-error`, card "KI-Prüfung nicht erreichbar"; the pause
+     **stays**. Nothing else is affected: calls outside a pause never touch
+     Clef.
+   - **Visible outage:** after a failed check, a fault notice like ADR-0022's
+     upstream faults (Freigaben card + one push, cooldown): "KI-Prüfung nicht
+     erreichbar – Zeitfreigaben fragen wieder nach", with a button that turns
+     the check off. Cleared by the next successful check. No background
+     probing.
+   So Clef can never stop the proxy; at worst pauses ask again until the human
+   turns the check off.
 6. **Held calls a pause settles** (TC-128, `+approved:pause`) go through the
    same check; a mismatch leaves that call held and ends the pause.
 7. **Stored for tuning:** `AuditEntry.pauseCheckScore` (p(gleich)) and
@@ -91,6 +106,8 @@ Matthias's decisions (2026-10-07):
 - **Known gap:** "more of the same" (archive everything, one by one) passes the
   check. Optional later (not decided): a silent "Pause: n× tool in m min"
   notice with "Zeitfreigabe beenden", which holds nothing.
+- Removing Clef from the cluster: flip the switch off (or unset the env);
+  until then, paused calls are asked and the outage notice says why.
 - Two chats on one connector share the access: one chat's swerve ends the pause
   for the other too (more questions, never more access).
 - Call arguments go to a second in-cluster service (as with ADR-0025).
