@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { prisma } from '../db.js';
+import { pauseEvents } from '../lib/pauseEvents.js';
 import type { AppEnv } from '../identity.js';
 import { RESERVED_SLUGS, SLUG_PATTERN } from '../lib/slugs.js';
 import type { Upstream } from '../generated/prisma/client.js';
@@ -382,6 +383,7 @@ upstreams.patch('/:id', async (c) => {
     if (!found) return c.json({ error: 'Nicht gefunden.' }, 404);
     // A held call was approved for the old server / login: never forward it
     // to the new one.
+    if (urlChanged) pauseEvents.emit({ userId });
     if (urlChanged || authChanged) approvals.cancelWhere((call) => call.userId === userId && call.upstreamId === id);
     // The fault list may have changed (name, or a reset state): Freigaben
     // recomputes it. Not a transition: nothing is pushed.
@@ -400,6 +402,7 @@ upstreams.delete('/:id', async (c) => {
   if (id === null) return c.json({ error: 'Nicht gefunden.' }, 404);
   const userId = c.get('user').id;
   const res = await prisma.upstream.deleteMany({ where: { id, userId } });
+  if (res.count > 0) pauseEvents.emit({ userId });
   if (res.count === 0) return c.json({ error: 'Nicht gefunden.' }, 404);
   // Its held calls end denied right away ("+revoked", TC-41).
   approvals.cancelWhere((call) => call.userId === userId && call.upstreamId === id);

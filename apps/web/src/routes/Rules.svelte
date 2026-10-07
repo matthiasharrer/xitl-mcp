@@ -21,6 +21,7 @@
     type ToolsView,
   } from '../lib/api';
   import { showToast } from '../lib/store.svelte';
+  import { scopeText, untilText } from '../lib/pauses';
 
   let { upstreamId }: { upstreamId: number } = $props();
 
@@ -121,13 +122,6 @@
   }
   load();
 
-  const timeOnly = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' });
-  const dayTime = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-  const untilText = (iso: string) => {
-    const d = new Date(iso);
-    return `bis ${d.toDateString() === new Date().toDateString() ? timeOnly.format(d) : dayTime.format(d)} Uhr`;
-  };
-  const scopeText = (p: Pause) => (p.scope === 'UPSTREAM' ? 'alle Tools' : p.scope === 'READONLY' ? 'alle Lesetools' : null);
 
   async function lift(p: Pause) {
     busy = true;
@@ -306,7 +300,7 @@
                 <span class="chip pause-{p.effect.toLowerCase()}">{p.effect === 'ALLOW' ? 'Erlaubt' : 'Gesperrt'}</span>
               </div>
               <p class="hint pause-meta">{p.clientName} · {untilText(p.until)}</p>
-              {#if p.purpose}<p class="pause-purpose" data-testid="pause-purpose">Wofür: {p.purpose}</p>{/if}
+              {#if p.purpose}<p class="pause-purpose" data-testid="pause-purpose">Wofür: {p.purpose}{#if p.purposeSource === 'suggested'}{' '}<span data-testid="pause-purpose-suggested">(Vorschlag)</span>{/if}</p>{/if}
               <button type="button" class="btn" disabled={busy} onclick={() => lift(p)} aria-label={`${p.effect === 'ALLOW' ? 'Zeitfreigabe beenden' : 'Sperre aufheben'}: ${p.toolName ?? scopeText(p)}, ${p.clientName}`}>
                 Aufheben
               </button>

@@ -26,7 +26,17 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
                          POST /:id/tokens (access token, ADR-0015)
     /api/upstreams/:id/tools…  routes/upstreamTools.ts: policy UI API;
                          also GET/DELETE /:id/snoozes[/:snoozeId] (active
-                         pauses, ADR-0026)
+                         pauses, ADR-0026; each row has `purposeSource`)
+    /api/running         routes/running.ts: "Läuft gerade" (TC-178…183):
+                         GET my live Snooze rows (all upstreams/accesses,
+                         soonest end first) + paused accesses; DELETE
+                         /pauses = "Alle beenden" (every Snooze of the
+                         caller; paused accesses stay). Changes are announced
+                         by lib/pauseEvents.ts (emitted in createSnooze, the
+                         snooze DELETE, the ADR-0029 mismatch deletion,
+                         access pause/resume/delete, upstream URL change /
+                         delete, tool change / prune) as the payload-free
+                         `running` event on the approval stream
     /api/mcp/config      { configured } (is MCP_TOKEN set)
     /api/mcp/tokens      routes/mcpTokens.ts: create an all-upstreams token
     /api/mcp/clients     routes/mcpClients.ts: list/rename/revoke own clients (OAUTH and TOKEN kind)
@@ -36,7 +46,8 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
                          per create/change of my audit rows, fed by
                          lib/auditEvents.ts (emitted in mcp/server.ts and
                          intent/store.ts); the row is re-read per stream with
-                         the user in the query
+                         the user in the query; and `running` {} ("Läuft
+                         gerade" changed: re-read /api/running)
     /api/audit           routes/audit.ts: my call history (Verlauf)
     /api/sessions        routes/sessions.ts: my MCP sessions + diagnostics
     /api/push            routes/push.ts: VAPID key, subscriptions, test push
@@ -379,9 +390,23 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
     the `richtung` instructions are prefixed "Does the new call serve exactly
     the purpose the human stated, in the same way as the anchor call? "
     (bench `clef_pause_intent.py`); without one the request is byte-identical
-    to before. The checked call's audit row copies it (`pausePurpose`);
+    to before. The checked call's audit row copies it (`pausePurpose`, and
+    `pausePurposeSource`);
     `settleCovered` uses the new pause's purpose. Shown in Regeln (active
     Zeitfreigaben) and the Verlauf detail.
+  - **Purpose suggestions (TC-172…177, Matthias 2026-10-07):** the intent
+    model's `zweck_eng` / `zweck_art` (`AuditEntry.intentPurposeNarrow` /
+    `intentPurposeKind`) are shown on the card as chips "Nur dies: …" /
+    "Diese Art: …" ("KI-Vorschlag", only when a Zeitfreigabe is possible).
+    A tap fills the field; approving with a Zeitfreigabe then sends
+    `purposeSource: "suggested"` (`Snooze.purposeSource` 'typed' |
+    'suggested', null without purpose; copied as
+    `AuditEntry.pausePurposeSource`). Display only ("(Vorschlag)" in Verlauf
+    and Regeln): the check treats both alike. A Sperre never takes a
+    suggestion: the card sends no purpose for untouched chip text
+    (`lib/purpose.ts`), the route answers 400 to deny + `suggested`, and
+    `createSnooze` stores 'typed' for any non-ALLOW row. A source without a
+    purpose → 400.
 - **Sperre with a purpose (ADR-0026 amendment, `pausecheck/sperre.ts`,
   TC-167…171).** A deny Snooze now stores `anchorAuditId` (the refused call)
   and may carry `purpose` (same decide field). `livePauses` also returns the
@@ -671,7 +696,10 @@ Any model/DB failure ends as `FAILED` (or nothing) for that call only.
   `intentRisk` (shown), `intentModelRisk`, `intentLowered`, `intentModel`,
   `intentAt`, `intentPrompt` + `intentAnswer` (the exact user turn and raw
   answer, replayed byte-identically; never exposed), `intentContextId` (audit
-  id of the context's first call, indexed).
+  id of the context's first call, indexed), `intentPurposeNarrow` /
+  `intentPurposeKind` (TC-172: the two suggested Zeitfreigabe purposes, ≤ 120,
+  DONE only; exposed on pending calls, the approval detail and the SSE
+  `intent` event, NOT on Verlauf rows or pushes).
 - **Flow:** `callTool` writes the row with `intentStatus` = `PENDING` (or
   `OFF`) and calls `intents.enqueue()` (synchronous, never throws): non-ASK
   calls at once, ASK calls right after `hub.hold()` (job `held` = the call is
@@ -714,13 +742,17 @@ Any model/DB failure ends as `FAILED` (or nothing) for that call only.
   upstream's text, i.e. a second injection source: accepted for an advisory
   summary (the risk floor still holds).
 - **Answer** (`parse.ts`): one JSON object `{title?, intent, risk:
-  read|write|destructive, concerns?}` (title missing/empty -> null, still
-  DONE); prose/fence around exactly one object
+  read|write|destructive, concerns?, zweck_eng?, zweck_art?}` (title
+  missing/empty -> null, still DONE; `zweck_*` (TC-172/175: prompt fields
+  verbatim from `scripts/bench/qwen_purpose_suggest.py`) are cleaned by
+  `cleanPurpose`: control chars out, one line, cut before `<`, quotes and
+  trailing punctuation off, ≤ 120, else null, never a failure; older stored
+  answers without them replay unchanged and read as null); prose/fence around exactly one object
   is accepted; anything else (or an answer over 4000 chars) = `FAILED`.
   **Risk shown** (`risk.ts`) = max(`toolHint` of the stored annotations, model)
   on read < write < destructive; model lower than the hint -> `intentLowered`.
 - **Model** (`model.ts requestBody`): `POST …/chat/completions {model,
-  messages, max_tokens = INTENT_ANSWER_MAX_TOKENS (300) + budget, temperature
+  messages, max_tokens = INTENT_ANSWER_MAX_TOKENS (400 since the purpose suggestions) + budget, temperature
   0.2, chat_template_kwargs.enable_thinking (budget > 0),
   thinking_budget_tokens (only when > 0; llama.cpp's per-request field,
   `reasoning_budget` is ignored by it), response_format json_object}`. Only

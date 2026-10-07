@@ -8,7 +8,7 @@
 //                     `upstreams` (my upstream faults, ADR-0022), then
 //                     `pending` / `resolved` events for my calls only,
 //                     `intent` {id, intentTitle, intentSummary, intentRisk, intentLowered,
-//                     intentStatus} when a held call's advisory summary
+//                     intentStatus, intentPurposeNarrow, intentPurposeKind} when a held call's advisory summary
 //                     changed (ADR-0025), `pausecheck` {failing, since} (my AI
 //                     check outage, ADR-0029: once after the first `upstreams`,
 //                     then on every change), `checked` {id, pauseCheck} (a held
@@ -16,12 +16,16 @@
 //                     fault list may have changed, and `history` (one
 //                     Verlauf list row, the same shape as GET /api/audit's
 //                     entries) whenever one of my audit rows was created or
-//                     changed (ADR-0028)
+//                     changed (ADR-0028), and `running` {} whenever my
+//                     Zeitfreigaben / Sperren / paused accesses changed
+//                     ("Läuft gerade", TC-181: the page re-reads /api/running)
 //   GET  /:id         one call: pending, or its outcome once resolved
 //   POST /:id         { decision: 'approve'|'deny', via: 'page'|'push',
 //                       snoozeMinutes? | snoozeUntilMidnight?,
 //                       snoozeScope?: tool | readonly | upstream,
-//                       purpose? (≤ 200, approve + snooze only) }
+//                       purpose? (≤ 200, with a duration only),
+//                       purposeSource?: typed | suggested (TC-173: only
+//                       with a purpose; suggested only on approve) }
 //                     approve + snooze: allow pause (ADR-0004/0019), with
 //                     the human's optional purpose (ADR-0029 amendment);
 //                     deny + snooze: deny pause, scope tool | upstream only
@@ -40,6 +44,7 @@ import { MAX_APPROVAL_STREAMS_PER_USER, MAX_PAUSE_PURPOSE_CHARS } from '../lib/l
 import { faultList } from '../upstream/faults.js';
 import { auditIntentFields, include as auditInclude, serializeAuditRow } from './audit.js';
 import { auditEvents as defaultAuditEvents, type AuditEvents } from '../lib/auditEvents.js';
+import { pauseEvents as defaultPauseEvents, type PauseEvents } from '../lib/pauseEvents.js';
 import { NO_INTENT } from '../intent/queue.js';
 import { upstreamStates as defaultStates, type UpstreamStateEvents } from '../upstream/stateEvents.js';
 import { pauseGate as defaultPauseGate } from '../pausecheck/index.js';
@@ -66,6 +71,9 @@ const decisionSchema = z
       // eslint-disable-next-line no-control-regex
       .refine((v) => !/[\u0000-\u001f\u007f]/.test(v))
       .optional(),
+    /** TC-173: the purpose was typed, or is an AI suggestion the human
+     * tapped (display only; never on a Sperre, never without a purpose). */
+    purposeSource: z.enum(['typed', 'suggested']).optional(),
   })
   .strict();
 
@@ -104,7 +112,17 @@ export function serializePending(call: PendingCall, now: Date) {
  * the prompt or the raw answer. */
 export function intentFields(call: Pick<PendingCall, 'intent'>) {
   const i = call.intent ?? NO_INTENT('OFF');
-  return { intentStatus: i.status, intentTitle: i.title ?? null, intentSummary: i.summary, intentRisk: i.risk, intentLowered: i.lowered };
+  const done = i.status === 'DONE';
+  return {
+    intentStatus: i.status,
+    intentTitle: i.title ?? null,
+    intentSummary: i.summary,
+    intentRisk: i.risk,
+    intentLowered: i.lowered,
+    // TC-172: purpose suggestions for the "Wofür?" chips (DONE only).
+    intentPurposeNarrow: done ? (i.purposeNarrow ?? null) : null,
+    intentPurposeKind: done ? (i.purposeKind ?? null) : null,
+  };
 }
 
 function parseArgs(raw: string): unknown {
@@ -140,14 +158,18 @@ async function resolvedView(userId: number, id: string) {
     decidedAt: a.decidedAt?.toISOString() ?? null,
     session: a.session ? { id: a.session.id, createdAt: a.session.createdAt.toISOString() } : null,
     ...auditIntentFields(a),
+    // TC-172: the suggestions the card offered (DONE only).
+    intentPurposeNarrow: a.intentStatus === 'DONE' ? a.intentPurposeNarrow : null,
+    intentPurposeKind: a.intentStatus === 'DONE' ? a.intentPurposeKind : null,
   };
 }
 
 export function makeApprovalRoutes(
   hub: ApprovalHub = defaultHub,
   clock: Clock = systemClock,
-  opts: { maxStreamsPerUser?: number; states?: UpstreamStateEvents; auditEvents?: AuditEvents; pauseGate?: PauseGate } = {},
+  opts: { maxStreamsPerUser?: number; states?: UpstreamStateEvents; auditEvents?: AuditEvents; pauseGate?: PauseGate; pauseEvents?: PauseEvents } = {},
 ) {
+  const pauseBus = opts.pauseEvents ?? defaultPauseEvents;
   const gate = opts.pauseGate ?? defaultPauseGate;
   const r = new Hono<AppEnv>();
   const states = opts.states ?? defaultStates;
@@ -236,6 +258,10 @@ export function makeApprovalRoutes(
           })
           .catch((e) => console.warn(`approval stream: history row failed: ${e instanceof Error ? e.name : 'unknown'}`));
       });
+      // "Läuft gerade" (TC-181): a payload-free ping for THIS user only.
+      const offPauses = pauseBus.on((ev) => {
+        if (ev.userId === userId) push('running', {});
+      });
       const close = () => {
         open = false;
         wake?.();
@@ -274,6 +300,7 @@ export function makeApprovalRoutes(
       } finally {
         offStates();
         offAudit();
+        offPauses();
         offOutage();
         hub.off('checked', onChecked);
         hub.off('pending', onPending);
@@ -325,6 +352,12 @@ export function makeApprovalRoutes(
     if (body.snoozeScope !== undefined && !wantsSnooze) return c.json({ error: 'Ein Umfang braucht eine Dauer.' }, 400);
     const purpose = body.purpose?.trim() || null;
     if (purpose && !wantsSnooze) return c.json({ error: '„Wofür?“ gibt es nur mit einer Zeitfreigabe oder Sperre.' }, 400);
+    // TC-173/TC-174: a source only with a purpose; an AI suggestion is never a
+    // Sperre's purpose (Matthias: only Zeitfreigaben). Fail closed: 400.
+    if (body.purposeSource !== undefined && !purpose) return c.json({ error: 'Die Herkunft gibt es nur mit einem „Wofür?“.' }, 400);
+    if (body.purposeSource === 'suggested' && body.decision !== 'approve') {
+      return c.json({ error: 'Ein KI-Vorschlag ist kein Zweck für eine Sperre.' }, 400);
+    }
     if (body.snoozeScope === 'readonly' && !pending.readOnly) {
       return c.json({ error: '„Alle Lesetools“ geht nur bei einem Lesetool.' }, 400);
     }
@@ -339,7 +372,7 @@ export function makeApprovalRoutes(
     const checkedByProxy = body.decision === 'approve' && until !== null && (await gate.active(userId));
     const result =
       body.decision === 'approve'
-        ? hub.decide(userId, id, { kind: 'approve', via: body.via, snoozeUntil: until, snoozeScope, purpose })
+        ? hub.decide(userId, id, { kind: 'approve', via: body.via, snoozeUntil: until, snoozeScope, purpose, purposeSource: purpose ? (body.purposeSource ?? 'typed') : null })
         : hub.decide(userId, id, { kind: 'deny', via: body.via, pauseUntil: until, pauseScope: snoozeScope === 'UPSTREAM' ? 'UPSTREAM' : 'TOOL', purpose });
     // Lost the race against the deadline / another device between get and decide.
     if (result !== 'ok') return c.json(GONE, 409);

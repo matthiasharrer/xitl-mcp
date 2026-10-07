@@ -176,7 +176,7 @@ describe('ApprovalHub', () => {
     const resolved: unknown[] = [];
     hub.on('intent', (p) => seen.push(p));
     hub.on('resolved', (e) => resolved.push(e));
-    const view = { status: 'DONE' as const, title: 'Eier anlegen', summary: 'Legt Eier an.', risk: 'write' as const, lowered: false };
+    const view = { status: 'DONE' as const, title: 'Eier anlegen', summary: 'Legt Eier an.', risk: 'write' as const, lowered: false, purposeNarrow: 'Nur dies', purposeKind: 'Diese Art' };
     expect(hub.setIntent(2, c.id, view)).toBe(false);
     expect(hub.setIntent(1, c.id, view)).toBe(true);
     expect(seen).toHaveLength(1);

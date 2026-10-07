@@ -135,6 +135,8 @@ audit.get('/:id', async (c) => {
     pauseCheckChoice: a.pauseCheckChoice,
     // ADR-0029 amendment: the Zeitfreigabe's "Wofür?" it was checked against.
     pausePurpose: a.pausePurpose,
+    // TC-173: "suggested" = an AI suggestion the human tapped ("(Vorschlag)").
+    pausePurposeSource: a.pausePurpose ? (a.pausePurposeSource ?? 'typed') : null,
     // ADR-0026 amendment: p(outside) of a Sperre's purpose check.
     sperreScore: a.sperreScore,
     // ADR-0030: p(erlaubt) of the AUTO check.

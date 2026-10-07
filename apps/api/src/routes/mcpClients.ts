@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { prisma } from '../db.js';
+import { pauseEvents } from '../lib/pauseEvents.js';
 import type { AppEnv } from '../identity.js';
 import { approvals } from '../approval/pending.js';
 import crypto from 'node:crypto';
@@ -170,8 +171,10 @@ mcpClients.patch('/:id', async (c) => {
     // Held calls end denied at once ("+paused"); mcp/server.ts re-checks the
     // pause after an approval for a call that was not yet held right now.
     approvals.cancelWhere((call) => call.userId === userId && call.mcpClientId === id, 'paused');
+    pauseEvents.emit({ userId });
   } else if (paused === false) {
     await prisma.mcpClient.updateMany({ where: { id, userId }, data: { pausedAt: null } });
+    pauseEvents.emit({ userId });
   }
   const row = await prisma.mcpClient.findFirst({ where: { id, userId }, select: listSelect });
   return row ? c.json(serialize(row)) : c.json({ error: 'not found' }, 404);
@@ -190,5 +193,7 @@ mcpClients.delete('/:id', async (c) => {
   const res = await prisma.mcpClient.deleteMany({ where: { id, userId } });
   if (res.count === 0) return c.json({ error: 'not found' }, 404);
   approvals.cancelWhere((call) => call.userId === userId && call.mcpClientId === id);
+  // Its pauses went with it (cascade): "Läuft gerade" refreshes.
+  pauseEvents.emit({ userId });
   return c.body(null, 204);
 });

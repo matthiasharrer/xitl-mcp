@@ -12,6 +12,7 @@ import { approvalRoutes } from './routes/approvals.js';
 import { audit } from './routes/audit.js';
 import { sessions } from './routes/sessions.js';
 import { push } from './routes/push.js';
+import { running } from './routes/running.js';
 import { approvals } from './approval/pending.js';
 import { wireApprovalPush } from './approval/notify.js';
 import { wireUpstreamPush } from './upstream/notify.js';
@@ -76,6 +77,7 @@ app.route('/api/approvals', approvalRoutes);
 app.route('/api/audit', audit);
 app.route('/api/sessions', sessions);
 app.route('/api/push', push);
+app.route('/api/running', running);
 
 // Every new held call is pushed to its user's devices (ADR-0009).
 wireApprovalPush(approvals);

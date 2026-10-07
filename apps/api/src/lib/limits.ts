@@ -95,8 +95,13 @@ export const MAX_INTENT_PUSH_CHARS = 200;
 export const MAX_INTENT_ANSWER_CHARS = 4000;
 
 /** Tokens of the model's answer itself (the JSON). max_tokens of a request is
- * this plus the thinking budget. */
-export const INTENT_ANSWER_MAX_TOKENS = 300;
+ * this plus the thinking budget. 400 since the purpose suggestions (TC-175;
+ * as benched in scripts/bench/qwen_purpose_suggest.py): two more short lines
+ * must not cut the JSON (a cut answer fails the whole summary). */
+export const INTENT_ANSWER_MAX_TOKENS = 400;
+
+/** TC-172: characters of each purpose suggestion ("zweck_eng"/"zweck_art"). */
+export const MAX_INTENT_PURPOSE_CHARS = 120;
 
 /** INTENT_LLM_THINK_BUDGET: default thinking tokens (ADR-0025 amendment,
  * measured 2026-10-06: 128 gives the quality at ≤ 5 s) and the cap; 0 = off. */

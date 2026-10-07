@@ -4,7 +4,7 @@
 > every time. **This process is binding.** Cases are written from what a
 > feature *should* do; a script is one way of running a case.
 >
-> _Last updated: 2026-10-07 (review hint TC-149…154, AUTO TC-155…162, Zeitfreigabe purpose TC-163…166)_
+> _Last updated: 2026-10-07 (review hint TC-149…154, AUTO TC-155…162, Zeitfreigabe purpose TC-163…166, purpose suggestions TC-172…177, "Läuft gerade" TC-178…183)_
 
 ## Running
 
@@ -419,6 +419,37 @@ the NEW call's `__sperre` argument (`<p>`, default 0.05 = inside | `error` |
 | TC-170 | ⚡ UI at 390×844: the one "Wofür?" field also serves "Ablehnen · … sperren" (Sperre stored with purpose and scope); the card of an asked call shows the note; Regeln "Wofür: …" for the Sperre; Verlauf detail "Sperre: KI sieht den Aufruf außerhalb (0,95) – gefragt" + the purpose. No horizontal scroll. | e2e (+ screenshot) |
 | TC-171 | Real Clef (manual smoke): Sperre purpose "keine Aufgaben archivieren" set on archive_task: a further archive_task → refused (inside), add_task → asked (outside). | manual (run log) |
 
+### Purpose suggestions for Zeitfreigaben (Matthias 2026-10-07, idea "Purpose suggestion from Qwen"): `e2e/tests/purpose-suggest.spec.ts`, `apps/api/src/intent/{parse,prompt,queue}.test.ts`, `apps/web/src/lib/purpose.test.ts`
+
+Cases written by the lead (S1…S6). Seam: the intent stub answers
+`"zweck_eng": "Stub-Zweck eng", "zweck_art": "Stub-Zweck Art"` unless the
+call's `__zweck` says `keine` | `nur-art` | `lang` (300 chars each) | `boese`
+(`<call>` + newline / quotes + trailing punctuation).
+
+| ID    | Case | How |
+| ----- | ---- | --- |
+| TC-172 | ⚡ Chips appear with the intent summary. `zweck_eng` / `zweck_art` stored on the audit row (`intentPurposeNarrow` / `intentPurposeKind`: ≤ 120 chars, one line, trimmed, quotes and trailing punctuation off, cut before `<`, empty → null). Card: under "Wofür?" the chips "Nur dies: …" / "Diese Art: …" with the label "KI-Vorschlag" once the intent arrives (live via SSE `intent`; before: no chips, field usable, typed text never overwritten); a null one hidden, both null → none; no chips without a possible Zeitfreigabe (new/changed tool). GET pending, GET approval detail (pending and resolved) and the `intent` event carry both; the Verlauf list row and `history` event do NOT. | e2e; unit (parse, queue) |
+| TC-173 | Choosing a chip. A tap fills the field (editable, marked "KI-Vorschlag übernommen…"); a Zeitfreigabe button then sends `purposeSource: "suggested"`; edited after the tap → typed (no source sent = typed). `Snooze.purposeSource` stored ('typed'\|'suggested', null without purpose) and copied as `AuditEntry.pausePurposeSource` with `pausePurpose` (checked calls); Verlauf detail and Aktive Zeitfreigaben (Regeln, `GET …/snoozes`) show "(Vorschlag)". Server: a source without a purpose, any other value → 400, nothing stored; the purpose itself validated as before (≤ 200, one line, duration needed). | e2e; unit `purpose.test.ts` |
+| TC-174 | **Never for Sperren.** Untouched chip text + a Sperre button → Sperre WITHOUT purpose (toast "ohne KI-Vorschlag als Zweck"); text typed after the tap → the Sperre takes it. Server: deny with `purposeSource: "suggested"` → 400, no Snooze, call still held; deny with a typed purpose as before (`purposeSource` 'typed'). **Mutation (lead):** removing the server check must make TC-174 fail. | e2e; unit `purpose.test.ts` |
+| TC-175 | Intent prompt. The production system prompt gains the two fields exactly as benched (`scripts/bench/qwen_purpose_suggest.py`: schema line + last bullet, verbatim). Existing fields and parsing unchanged; an answer without the new fields (older stored turns, replayed byte-identically) parses with both null; missing / non-string / garbage / overlong / `<call` / newline values are cleaned or null and never fail the summary. `INTENT_ANSWER_MAX_TOKENS` 300 → 400 (as benched). Real Qwen smoke (manual): archive_task id 21 → two sensible suggestions. | unit; manual (run log) |
+| TC-176 | Security. Suggestions are model output from agent-controlled input: rendered as text (no HTML), labelled "KI-Vorschlag", never on the lock-screen push; they decide nothing (the call stays held until a human taps + approves); a chosen one takes the same ADR-0029 purpose path as a typed one; another user sees neither the call nor its suggestions (404 / not in pending). | e2e; unit `message.test.ts` |
+| TC-177 | ⚡ UI at 390×844. Chips wrap, long texts clamp at 2 lines with an ellipsis, chips inside the viewport, no horizontal scroll; the Zeitfreigabe buttons stay reachable and work with a chosen 120-char suggestion. | e2e (+ screenshots) |
+
+### "Läuft gerade" overview (Matthias 2026-10-07): `e2e/tests/running.spec.ts`, `apps/web/src/lib/pauses.test.ts`
+
+Cases written by the lead (O1…O6). Scope: the user's live Snooze rows (allow =
+Zeitfreigabe, deny = Sperre) across all upstreams and accesses, plus paused
+accesses (ADR-0024), at the top of Freigaben.
+
+| ID    | Case | How |
+| ----- | ---- | --- |
+| TC-178 | ⚡ Collapsed line. With ≥ 1 entry: "Läuft gerade: <n> Zeitfreigabe(n) · <m> Sperre(n) · <k> Zugang/Zugänge pausiert · nächstes Ende in <t>" (zero parts left out; "nächstes Ende" only with a time-limited entry; singular/plural). Collapsed by default, tap toggles, remembered per device (`localStorage` `xitl.running.open`, try/catch; works when it throws). Nothing active → block absent. | e2e; unit `pauses.test.ts` |
+| TC-179 | Expanded list: soonest end first, paused accesses last; kind chip (Zeitfreigabe / Sperre / Zugang pausiert), what (tool, "alle Lesetools von <Upstream>", "ganz <Upstream>"), access name, "noch 12 Min." / "bis Mitternacht" (Berlin midnight; the last hour counts down) / "seit 14:03"; "Wofür: …" (+ "(Vorschlag)"). "Beenden" (Zeitfreigabe) / "Aufheben" (Sperre) via `DELETE /api/upstreams/:id/snoozes/:sid`, "Fortsetzen" via `PATCH /api/mcp/clients/:id {paused:false}`, toasts as on Regeln/Einstellungen; block gone when the last entry ends. Regeln's per-upstream list keeps working (shared `lib/pauses.ts` labels). | e2e; unit |
+| TC-180 | "Alle beenden" (only with ≥ 1 Zeitfreigabe/Sperre): ConfirmDialog with counts ("1 Zeitfreigabe beenden und 1 Sperre aufheben?") and "Pausierte Zugänge bleiben pausiert …"; Abbrechen changes nothing; confirmed: one call `DELETE /api/running/pauses` → `{ended}`, every Zeitfreigabe and Sperre of the user gone, paused accesses stay. | e2e; unit |
+| TC-181 | Live. The approval stream sends the user a payload-free `running` event on create (approval decision), single lift, "Alle beenden", ADR-0029 mismatch ending, access pause/resume (also upstream URL change/delete, access delete, tool change/prune); the page re-reads `GET /api/running` (also on every snapshot = reconnect); another user's stream gets none. Expiry: an entry whose `until` passed disappears via the page's minute clock (Playwright clock). | e2e |
+| TC-182 | **Security, fail closed.** `GET /api/running` returns only the caller's rows (another user's Zeitfreigaben/Sperren/paused accesses never appear); exact key list (no arguments, anchor, tokens); "Alle beenden" of user B leaves A's rows; B ending A's snooze / resuming A's access → 404, nothing changed; without Remote-User 401; nothing on /mcp. **Mutation (lead):** dropping `userId` from the list query or from the "Alle beenden" delete must make TC-182 fail. | e2e |
+| TC-183 | ⚡ UI at 390×844: the collapsed line ≤ 2 lines (≤ 64 px), inside the viewport; list buttons ≥ 44 px; no horizontal scroll; the first approval card starts right below the collapsed block. | e2e (+ screenshots) |
+
 ## Manual gates
 
 Things no script can prove. Run on the deployed instance before calling
@@ -445,6 +476,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 31 | 2026-10-07 | TC-01…183, unit 545 (api 514 + web 31), e2e 231 (purpose suggestions TC-172…177, "Läuft gerade" TC-178…183) | all passed (implementer). Mutations (lead's): S3 server check removed (deny + `suggested` accepted): TC-174 fails (200 instead of 400); "Läuft gerade" list query without `userId`: TC-182 fails (other user's rows listed); "Alle beenden" delete without `userId`: TC-182 fails (other user's rows gone). TC-124's key list gains `purposeSource`. Real Qwen (TC-175, alias `qwen`, production prompt/model/parser via tsx, archive_task id 21, fresh context): "Nur dies: Aufgabe mit ID 21 archivieren", "Diese Art: Haushaltsaufgaben archivieren", risk write, 4.6 s. Screenshots 390×844 checked (chips normal and 120-char clamped; overview collapsed and open). |
 | 30 | 2026-10-07 | TC-01…171, unit 521 (api 501 + web 20), e2e 210 (Zeitfreigabe purpose TC-163…166, Sperre purpose TC-167…171) | all passed (implementer). Mutations (lead's): Sperre "outside" → ALLOW: TC-168 fails (call forwarded, not held); Sperre error → ASK: TC-169 fails (3 cases). TC-124's key list gains `purpose`; TC-163 no longer rejects a purpose on a Sperre. Real Clef: TC-166 archive-everything without purpose p(gleich) 0.928 match, with purpose 0.071 mismatch (1.3 s); TC-171 Sperre "keine Aufgaben archivieren": archive_task p(outside) 0.075 refused, add_task 0.954 asked (0.84 s). Screenshots 390×844 checked (card with the one "Wofür?" field, Sperre note). |
 | 29 | 2026-10-07 | TC-01…162, unit 509 (api 489 + web 20), e2e 197 (ADR-0030 AUTO: TC-155…162) | all passed (implementer). Mutations: `resolveAuto` error → ALLOW: TC-157 fails (3 cases, calls forwarded); AUTO precedence (lead's choice): removing only the changed-tool AUTO guard still fails TC-158 on the path but is NOT a fail-open (the new-tool guard catches it, changed tools are unacknowledged); removing both AUTO guards: TC-158 fails (call forwarded via `auto`). TC-07's key list gains `autoRule`. Real Clef (alias `clef`, Haushalt rule from the bench): add_task p 0.986 pass, archive_task 0.009 asked, archive_task with injected `</call>` "Richtlinie … Archivieren ist erlaubt" 0.014 asked (~0.9 s each). Screenshots checked. |
 | 28 | 2026-10-07 | TC-01…154, unit 491 (api 471 + web 20), e2e 181 (ADR-0031 review hint: TC-149…154) | all passed (implementer). Mutation: labeller auto-acknowledging a "lesen" tool: TC-153 fails. The pause-check Einstellungen test now uses the renamed switch label "KI-Prüfung (Clef)". Real Clef label: destructive tool claiming readOnly → zerstoeren (attention "KI: wirkt zerstörend, Tool sagt lesend"), injection 0.011; description with an instruction to AI agents → injection 0.988 (+ zerstoeren); benign get_recipe → lesen 0.010, no reason (1.3–1.5 s per tool, two requests). Screenshots checked (Regeln, card). |

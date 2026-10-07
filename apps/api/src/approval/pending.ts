@@ -35,8 +35,12 @@ import type { PauseCheckView } from '../pausecheck/text.js';
  * routes/approvals.ts `heldCoveredBy`). 'pause' never comes from a request. */
 export type Via = 'page' | 'push' | 'pause';
 
+/** TC-173: a Zeitfreigabe purpose the human typed, or an AI suggestion the
+ * human tapped. A Sperre's purpose has no source field: always typed. */
+export type PurposeSource = 'typed' | 'suggested';
+
 export type Decision =
-  | { kind: 'approve'; via: Via; at: Date; snoozeUntil: Date | null; snoozeScope?: SnoozeScope; purpose?: string | null }
+  | { kind: 'approve'; via: Via; at: Date; snoozeUntil: Date | null; snoozeScope?: SnoozeScope; purpose?: string | null; purposeSource?: PurposeSource | null }
   /** `pauseUntil`/`pauseScope`: also refuse this tool/upstream for this
    * client until then (deny pause, ADR-0026). */
   | { kind: 'deny'; via: Via; at: Date; pauseUntil?: Date | null; pauseScope?: Exclude<SnoozeScope, 'READONLY'>; purpose?: string | null }
@@ -173,7 +177,9 @@ export class ApprovalHub extends EventEmitter {
   decide(
     userId: number,
     id: string,
-    d: { kind: 'approve'; via: Via; snoozeUntil: Date | null; snoozeScope?: SnoozeScope; purpose?: string | null } | { kind: 'deny'; via: Via; pauseUntil?: Date | null; pauseScope?: Exclude<SnoozeScope, 'READONLY'>; purpose?: string | null },
+    d:
+      | { kind: 'approve'; via: Via; snoozeUntil: Date | null; snoozeScope?: SnoozeScope; purpose?: string | null; purposeSource?: PurposeSource | null }
+      | { kind: 'deny'; via: Via; pauseUntil?: Date | null; pauseScope?: Exclude<SnoozeScope, 'READONLY'>; purpose?: string | null },
   ): DecideResult {
     const entry = this.entries.get(id);
     if (!entry || entry.call.userId !== userId) return 'not-found';
@@ -181,7 +187,16 @@ export class ApprovalHub extends EventEmitter {
     this.settle(
       id,
       d.kind === 'approve'
-        ? { kind: 'approve', via: d.via, snoozeUntil: d.snoozeUntil, snoozeScope: d.snoozeScope, purpose: d.purpose ?? null, at }
+        ? {
+            kind: 'approve',
+            via: d.via,
+            snoozeUntil: d.snoozeUntil,
+            snoozeScope: d.snoozeScope,
+            purpose: d.purpose ?? null,
+            // No purpose, no source.
+            purposeSource: d.purpose ? (d.purposeSource === 'suggested' ? 'suggested' : 'typed') : null,
+            at,
+          }
         : d.pauseUntil
           ? { kind: 'deny', via: d.via, at, pauseUntil: d.pauseUntil, pauseScope: d.pauseScope === 'UPSTREAM' ? 'UPSTREAM' : 'TOOL', purpose: d.purpose ?? null }
           : { kind: 'deny', via: d.via, at },

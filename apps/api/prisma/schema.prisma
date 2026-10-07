@@ -221,6 +221,11 @@ model Snooze {
   /// (written via /api with Remote-User only, never from /mcp); goes into the
   /// AI check's state above the anchor. NULL = none: the check as before.
   purpose       String?
+  /// TC-173: where `purpose` came from: "typed" (the human wrote it) or
+  /// "suggested" (the human tapped an AI suggestion chip, then approved; ALLOW
+  /// only, never a Sperre). NULL without a purpose. Display only ("(Vorschlag)"),
+  /// the check treats both alike.
+  purposeSource String?
 
   @@index([userId, upstreamId, toolName, mcpClientId])
 }
@@ -355,6 +360,11 @@ model AuditEntry {
   /// The context (append-only conversation) this call belongs to: the audit
   /// id of the context's first call.
   intentContextId Int?
+  /// TC-172: the model's two suggested Zeitfreigabe purposes ("zweck_eng" ->
+  /// "Nur dies", "zweck_art" -> "Diese Art"): one line, ≤ 120 chars, DONE
+  /// only, null if absent. Advisory model output, shown as tappable chips.
+  intentPurposeNarrow String?
+  intentPurposeKind   String?
 
   /// ADR-0029 (stored for tuning, shown in Verlauf): p(gleich) of the AI check
   /// of an allow pause and the verdict label (gleich | richtungswechsel |
@@ -368,6 +378,9 @@ model AuditEntry {
   /// The purpose of the Zeitfreigabe this call was checked against (copied:
   /// the pause row may be gone after a mismatch). Shown in Verlauf.
   pausePurpose     String?
+  /// TC-173: Snooze.purposeSource copied with pausePurpose ("typed" |
+  /// "suggested"; null without a purpose).
+  pausePurposeSource String?
   /// ADR-0026 amendment: p(outside) of a Sperre's purpose check (the call
   /// was refused below the threshold, or asked as `snooze-deny-ki-ask`).
   sperreScore      Float?

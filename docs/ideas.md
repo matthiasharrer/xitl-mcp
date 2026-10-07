@@ -211,3 +211,5 @@
   ~4.6 s (with the intent summary, before the human taps). Occasionally an
   empty/truncated field → chip hidden. **Build decided (Matthias): only for
   Zeitfreigaben, not Sperren.**
+  **Built 2026-10-07** (TC-172…177, not yet committed/released at the time of
+  writing): chips "Nur dies" / "Diese Art", `purposeSource` typed|suggested.

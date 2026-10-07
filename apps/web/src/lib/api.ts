@@ -254,6 +254,11 @@ export interface IntentFields {
   intentRisk: IntentRisk | null;
   /** The model rated lower than the tool's hint. */
   intentLowered: boolean | null;
+  /** TC-172: AI purpose suggestions for the "Wofür?" chips (pending call /
+   * approval detail / SSE `intent` only; not on Verlauf rows). Model output:
+   * text only. */
+  intentPurposeNarrow?: string | null;
+  intentPurposeKind?: string | null;
 }
 
 /** Audit rows also say when and by which model. */
@@ -312,7 +317,15 @@ export type ApprovalDecision =
   /** ADR-0026: deny and pause (this tool or the whole upstream). */
   | { decision: 'deny'; snoozeMinutes?: number; snoozeUntilMidnight?: boolean; snoozeScope: 'tool' | 'upstream'; purpose?: string }
   /** `purpose`: the optional "Wofür?" of the Zeitfreigabe (ADR-0029 amendment). */
-  | { decision: 'approve'; snoozeMinutes?: number; snoozeUntilMidnight?: boolean; snoozeScope?: SnoozeScope; purpose?: string };
+  | {
+      decision: 'approve';
+      snoozeMinutes?: number;
+      snoozeUntilMidnight?: boolean;
+      snoozeScope?: SnoozeScope;
+      purpose?: string;
+      /** TC-173: "suggested" = a tapped AI chip (Zeitfreigabe only). */
+      purposeSource?: 'typed' | 'suggested';
+    };
 
 /** An active pause on an upstream (ADR-0026, TC-124): allow or deny. */
 export interface Pause {
@@ -326,6 +339,27 @@ export interface Pause {
   createdAt: string;
   /** ADR-0029 amendment: the "Wofür?" of an allow pause, or null. */
   purpose?: string | null;
+  /** TC-173: "suggested" = a tapped AI suggestion ("(Vorschlag)"). */
+  purposeSource?: 'typed' | 'suggested' | null;
+}
+
+/** "Läuft gerade" (TC-178…183): the user's live Zeitfreigaben/Sperren across
+ * all upstreams and accesses, and the paused accesses. */
+export interface RunningPause {
+  id: number;
+  effect: 'ALLOW' | 'DENY';
+  scope: 'TOOL' | 'READONLY' | 'UPSTREAM';
+  toolName: string | null;
+  upstream: { id: number; name: string };
+  client: { id: number; name: string };
+  until: string;
+  createdAt: string;
+  purpose: string | null;
+  purposeSource: 'typed' | 'suggested' | null;
+}
+export interface Running {
+  pauses: RunningPause[];
+  paused: { id: number; name: string; pausedAt: string }[];
 }
 
 /** What a snooze covers (TC-76). */
@@ -357,6 +391,8 @@ export interface AuditDetail extends AuditRow {
   pauseCheckChoice: string | null;
   /** ADR-0029 amendment: the Zeitfreigabe's "Wofür?" it was checked against. */
   pausePurpose?: string | null;
+  /** TC-173: "suggested" = a tapped AI suggestion ("(Vorschlag)"). */
+  pausePurposeSource?: 'typed' | 'suggested' | null;
   /** ADR-0026 amendment: p(outside) of a Sperre's purpose check, or null. */
   sperreScore?: number | null;
   /** ADR-0030: p(erlaubt) of the AUTO check, or null. */
@@ -466,6 +502,8 @@ export const api = {
     request<ToolsView>('DELETE', `/api/upstreams/${id}/tools/${toolId}/clients/${clientId}`),
   listPauses: (id: number) => request<Pause[]>('GET', `/api/upstreams/${id}/snoozes`),
   liftPause: (id: number, pauseId: number) => request<Pause[]>('DELETE', `/api/upstreams/${id}/snoozes/${pauseId}`),
+  getRunning: () => request<Running>('GET', '/api/running'),
+  endAllPauses: () => request<{ ended: number }>('DELETE', '/api/running/pauses'),
   listApprovals: () => request<PendingApproval[]>('GET', '/api/approvals'),
   listUpstreamFaults: () => request<UpstreamFault[]>('GET', '/api/upstreams/faults'),
   getApproval: (id: string) => request<PendingApproval | ResolvedApproval>('GET', `/api/approvals/${encodeURIComponent(id)}`),

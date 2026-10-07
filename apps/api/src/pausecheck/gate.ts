@@ -21,6 +21,7 @@
 // `serial` runs one access's checks strictly in order (ADR-0029 §8), so the
 // "calls since" a check sees include every call checked before it.
 import { prisma } from '../db.js';
+import { pauseEvents } from '../lib/pauseEvents.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { PAUSE_CHECK_MAX_SINCE } from '../lib/limits.js';
 import type { DecisionPath, PolicyDecision } from '../lib/policy.js';
@@ -178,6 +179,7 @@ export class PauseGate {
         await prisma.snooze.deleteMany({
           where: { userId: input.userId, mcpClientId: input.mcpClientId, upstreamId: input.upstreamId, effect: 'ALLOW' },
         });
+        pauseEvents.emit({ userId: input.userId });
       } catch (e) {
         // The call is held all the same; the next call is checked again.
         console.warn(`pause check: pause not ended: ${e instanceof Error ? e.name : 'unknown'}`);

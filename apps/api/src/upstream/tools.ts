@@ -4,6 +4,7 @@
 // and a tool that is new from one the user has looked at.
 import type { Tool } from '@modelcontextprotocol/client';
 import { prisma } from '../db.js';
+import { pauseEvents } from '../lib/pauseEvents.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { withUpstream, CONNECT_TIMEOUT_MS } from './connection.js';
 import { MAX_KNOWN_TOOLS_PER_UPSTREAM, MAX_UPSTREAM_TOOLS } from '../lib/limits.js';
@@ -152,7 +153,10 @@ export async function syncKnownTools(
       },
     });
     const owner = await prisma.upstream.findUnique({ where: { id: upstreamId }, select: { userId: true } });
-    if (owner) await prisma.snooze.deleteMany({ where: { userId: owner.userId, upstreamId, toolName: t.name } });
+    if (owner) {
+      const gone = await prisma.snooze.deleteMany({ where: { userId: owner.userId, upstreamId, toolName: t.name } });
+      if (gone.count > 0) pauseEvents.emit({ userId: owner.userId });
+    }
     console.warn(`tools: upstream ${upstreamId}: tool definition changed, re-flagged for review`);
   }
   await pruneStaleTools(upstreamId, new Set(current.map((t) => t.name)), now, maxRows);
@@ -199,7 +203,11 @@ async function pruneStaleTools(upstreamId: number, currentNames: ReadonlySet<str
   // `lastSeenAt < now`: a concurrent sync that has just seen one of these
   // tools again keeps it.
   const res = await prisma.knownTool.deleteMany({ where: { upstreamId, id: { in: ids }, lastSeenAt: { lt: now } } });
-  await prisma.snooze.deleteMany({ where: { upstreamId, scope: 'TOOL', toolName: { in: doomed } } });
+  const gone = await prisma.snooze.deleteMany({ where: { upstreamId, scope: 'TOOL', toolName: { in: doomed } } });
+  if (gone.count > 0) {
+    const owner = await prisma.upstream.findUnique({ where: { id: upstreamId }, select: { userId: true } });
+    if (owner) pauseEvents.emit({ userId: owner.userId });
+  }
   console.warn(`tools: upstream ${upstreamId}: ${res.count} stale tool row(s) removed (cap ${maxRows})`);
 }
 

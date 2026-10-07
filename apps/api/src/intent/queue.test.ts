@@ -325,9 +325,9 @@ describe('IntentQueue (TC-109)', () => {
     }
     expect([r1.intentStatus, r2.intentStatus, r3.intentStatus]).toEqual(['FAILED', 'FAILED', 'DONE']);
     expect(events.map((e) => e.view)).toEqual([
-      { status: 'FAILED', title: null, summary: null, risk: null, lowered: null },
-      { status: 'FAILED', title: null, summary: null, risk: null, lowered: null },
-      { status: 'DONE', title: 'Stub-Titel add_item', summary: 'Stub: add_item', risk: 'write', lowered: false },
+      { status: 'FAILED', title: null, summary: null, risk: null, lowered: null, purposeNarrow: null, purposeKind: null },
+      { status: 'FAILED', title: null, summary: null, risk: null, lowered: null, purposeNarrow: null, purposeKind: null },
+      { status: 'DONE', title: 'Stub-Titel add_item', summary: 'Stub: add_item', risk: 'write', lowered: false, purposeNarrow: 'Stub-Zweck eng', purposeKind: 'Stub-Zweck Art' },
     ]);
     // Failed turns are not replayed (no answer), the context id carries on.
     expect(rec.requests[2]).toHaveLength(2);
@@ -340,7 +340,7 @@ describe('IntentQueue (TC-109)', () => {
     const { q, events } = setup([r]);
     q.enqueue(job(r, true, 'x'));
     await q.idle();
-    expect(events[0]!.view).toEqual({ status: 'DONE', title: 'Stub-Titel delete_all', summary: 'Stub: delete_all', risk: 'destructive', lowered: true });
+    expect(events[0]!.view).toEqual({ status: 'DONE', title: 'Stub-Titel delete_all', summary: 'Stub: delete_all', risk: 'destructive', lowered: true, purposeNarrow: 'Stub-Zweck eng', purposeKind: 'Stub-Zweck Art' });
   });
 
   test('hang -> aborted at the request timeout -> FAILED (TC-111/115)', async () => {
@@ -419,6 +419,54 @@ describe('results in context (TC-118, queue)', () => {
       const prefix = [...rec.requests[n]!, { role: 'assistant', content: [r1, r2, r3, r4, r5][n]!.intentAnswer! }];
       expect(JSON.stringify(rec.requests[n + 1]!.slice(0, prefix.length))).toBe(JSON.stringify(prefix));
     }
+  });
+});
+
+// TC-172/175: suggestions stored and emitted; older stored answers (without
+// the fields) are replayed byte-identically and the next call still parses.
+describe('purpose suggestions (TC-172, TC-175)', () => {
+  test('DONE carries both; stored on the row; a missing field is null', async () => {
+    const r1 = row({ sessionId: 'zw' });
+    const r2 = row({ sessionId: 'zw', receivedAt: at(MIN), arguments: JSON.stringify({ __zweck: 'nur-art' }) });
+    const saved: IntentResult[] = [];
+    const { q, mem, events } = setup([r1, r2]);
+    const save = mem.store.save;
+    mem.store.save = async (id, res) => (saved.push(res), save(id, res));
+    for (const r of [r1, r2]) {
+      q.enqueue(job(r, true, `a${r.id}`));
+      await q.idle();
+    }
+    expect(saved.map((s) => (s.status === 'DONE' ? [s.purposeNarrow, s.purposeKind] : null))).toEqual([
+      ['Stub-Zweck eng', 'Stub-Zweck Art'],
+      [null, 'Stub-Zweck Art'],
+    ]);
+    expect(events.map((e) => [e.view.purposeNarrow, e.view.purposeKind])).toEqual([
+      ['Stub-Zweck eng', 'Stub-Zweck Art'],
+      [null, 'Stub-Zweck Art'],
+    ]);
+  });
+
+  test('an old stored answer without the fields is replayed unchanged; the new call parses', async () => {
+    const old = '{"title":"Alt","intent":"Legt Milch an.","risk":"write"}';
+    const r1 = row({ sessionId: 'old', intentStatus: 'DONE', intentPrompt: 'Aufruf 1\n<call>\n{"upstream":"Haushalt","tool":"add_item"}\n</call>', intentAnswer: old });
+    r1.intentContextId = r1.id;
+    const r2 = row({ sessionId: 'old', receivedAt: at(MIN) });
+    const { q, rec, events } = setup([r1, r2]);
+    q.enqueue(job(r2, true, 'b'));
+    await q.idle();
+    const msgs = rec.requests[0]!;
+    expect(msgs[0]).toEqual({ role: 'system', content: SYSTEM_PROMPT });
+    expect(msgs[2]).toEqual({ role: 'assistant', content: old });
+    expect(r2.intentStatus).toBe('DONE');
+    expect(events[0]!.view).toMatchObject({ status: 'DONE', purposeNarrow: 'Stub-Zweck eng', purposeKind: 'Stub-Zweck Art' });
+  });
+
+  test('garbage suggestions (`<call>`, newline, quotes) never fail the summary', async () => {
+    const r = row({ arguments: JSON.stringify({ __zweck: 'boese' }) });
+    const { q, events } = setup([r]);
+    q.enqueue(job(r, true, 'c'));
+    await q.idle();
+    expect(events[0]!.view).toMatchObject({ status: 'DONE', summary: 'Stub: add_item', purposeNarrow: 'Aufgabe 21 archivieren', purposeKind: 'Aufgaben archivieren' });
   });
 });
 

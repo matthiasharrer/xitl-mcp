@@ -258,7 +258,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           pause,
           call: { upstream: other.upstreamName, tool: other.toolName, args: other.args },
         });
-        const scored = r.kind === 'match' || r.kind === 'mismatch' ? { pauseCheckScore: r.score, pauseCheckChoice: r.choice, pausePurpose: pause.purpose ?? null } : {};
+        const scored = r.kind === 'match' || r.kind === 'mismatch' ? { pauseCheckScore: r.score, pauseCheckChoice: r.choice, pausePurpose: pause.purpose ?? null, pausePurposeSource: pause.purpose ? (pause.purposeSource ?? 'typed') : null } : {};
         if (r.kind === 'blind' || r.kind === 'match') {
           await prisma.auditEntry.updateMany({ where: { id: other.auditId, userId }, data: { pauseSnoozeId: pause.id, ...scored } });
           auditEvents.emit({ userId, auditId: other.auditId });
@@ -464,11 +464,11 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           sessionId: call.session?.id ?? null,
           intentStatus: intents.initialStatus,
           ...(check?.kind === 'match' || check?.kind === 'mismatch'
-            ? { pauseCheckScore: check.score, pauseCheckChoice: check.choice, pausePurpose: ev.pauses.allow?.purpose ?? null }
+            ? { pauseCheckScore: check.score, pauseCheckChoice: check.choice, pausePurpose: ev.pauses.allow?.purpose ?? null, pausePurposeSource: ev.pauses.allow?.purpose ? (ev.pauses.allow.purposeSource ?? 'typed') : null }
             : {}),
           pauseSnoozeId: underPause,
           ...(autoResult?.kind === 'pass' || autoResult?.kind === 'below' ? { autoScore: autoResult.score } : {}),
-          ...(sperreResult?.kind === 'inside' || sperreResult?.kind === 'outside' ? { sperreScore: sperreResult.score, pausePurpose: sperreResult.purpose } : {}),
+          ...(sperreResult?.kind === 'inside' || sperreResult?.kind === 'outside' ? { sperreScore: sperreResult.score, pausePurpose: sperreResult.purpose, pausePurposeSource: 'typed' } : {}),
           ...auditDiagnostics(call.diagnostics),
         },
       });
@@ -651,7 +651,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
             const scope = d.snoozeScope === 'UPSTREAM' || (d.snoozeScope === 'READONLY' && readOnly) ? d.snoozeScope : 'TOOL';
             // ADR-0029: this call is the pause's anchor for the AI check.
             // ADR-0029 amendment: with the human's "Wofür?", if given.
-            const pause = await createSnooze(snoozeOwner, scope, name, d.snoozeUntil, d.at, 'ALLOW', audit.id, d.purpose ?? null);
+            const pause = await createSnooze(snoozeOwner, scope, name, d.snoozeUntil, d.at, 'ALLOW', audit.id, d.purpose ?? null, d.purposeSource ?? null);
             // Fire and forget: this call is forwarded meanwhile.
             if (gate.enabled) void settleCovered(held.call, scope, pause);
           } catch (e) {

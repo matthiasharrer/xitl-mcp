@@ -36,9 +36,20 @@ export interface IntentView {
   summary: string | null;
   risk: Risk | null;
   lowered: boolean | null;
+  /** TC-172: suggested Zeitfreigabe purposes (DONE only, else null). */
+  purposeNarrow: string | null;
+  purposeKind: string | null;
 }
 
-export const NO_INTENT = (status: IntentStatus): IntentView => ({ status, title: null, summary: null, risk: null, lowered: null });
+export const NO_INTENT = (status: IntentStatus): IntentView => ({
+  status,
+  title: null,
+  summary: null,
+  risk: null,
+  lowered: null,
+  purposeNarrow: null,
+  purposeKind: null,
+});
 
 export interface IntentJob {
   auditId: number;
@@ -101,6 +112,9 @@ export type IntentResult =
       risk: Risk;
       modelRisk: Risk;
       lowered: boolean;
+      /** TC-172: the parsed purpose suggestions (null when absent). */
+      purposeNarrow: string | null;
+      purposeKind: string | null;
       model: string;
       at: Date;
       prompt: string;
@@ -343,6 +357,8 @@ export class IntentQueue extends EventEmitter {
           risk: floored.risk,
           modelRisk: parsed.risk,
           lowered: floored.lowered,
+          purposeNarrow: parsed.purposeNarrow,
+          purposeKind: parsed.purposeKind,
           model: answeredBy,
           at: this.clock.now(),
           prompt,
@@ -358,7 +374,15 @@ export class IntentQueue extends EventEmitter {
     this.emitIntent(
       job,
       result.status === 'DONE'
-        ? { status: 'DONE', title: result.title, summary: result.summary, risk: result.risk, lowered: result.lowered }
+        ? {
+            status: 'DONE',
+            title: result.title,
+            summary: result.summary,
+            risk: result.risk,
+            lowered: result.lowered,
+            purposeNarrow: result.purposeNarrow,
+            purposeKind: result.purposeKind,
+          }
         : NO_INTENT('FAILED'),
     );
   }

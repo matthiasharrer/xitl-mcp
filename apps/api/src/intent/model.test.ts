@@ -113,7 +113,7 @@ describe('llamaModel (TC-115)', () => {
     expect(seen[0]!.body).toEqual({
       model: 'qwen',
       messages,
-      max_tokens: 300 + 128,
+      max_tokens: 400 + 128,
       temperature: 0.2,
       chat_template_kwargs: { enable_thinking: true },
       thinking_budget_tokens: 128,
@@ -190,8 +190,12 @@ describe('model selection', () => {
         [...contextMessages([]), { role: 'user', content: callTurn({ position: 1, call: { upstream: 'H', tool: 'del', description: null, annotations: null, args }, describe: false }) }],
         new AbortController().signal,
       );
-    expect(JSON.parse((await ask({})).text)).toEqual({ title: 'Stub-Titel del', intent: 'Stub: del', risk: 'write' });
-    expect(JSON.parse((await ask({ __stub: 'harmlos' })).text)).toEqual({ title: 'Stub-Titel del', intent: 'Stub: del', risk: 'read' });
+    const zw = { zweck_eng: 'Stub-Zweck eng', zweck_art: 'Stub-Zweck Art' };
+    expect(JSON.parse((await ask({})).text)).toEqual({ title: 'Stub-Titel del', intent: 'Stub: del', risk: 'write', ...zw });
+    expect(JSON.parse((await ask({ __stub: 'harmlos' })).text)).toEqual({ title: 'Stub-Titel del', intent: 'Stub: del', risk: 'read', ...zw });
+    // TC-172 markers.
+    expect(JSON.parse((await ask({ __zweck: 'keine' })).text)).toEqual({ title: 'Stub-Titel del', intent: 'Stub: del', risk: 'write' });
+    expect(JSON.parse((await ask({ __zweck: 'nur-art' })).text)).not.toHaveProperty('zweck_eng');
     expect((await ask({ __stub: 'garbage' })).text).toBe('Das ist kein JSON.');
     await expect(ask({ __stub: 'fail' })).rejects.toThrow();
   });

@@ -78,7 +78,7 @@
           <dt>KI</dt><dd data-testid="pause-check">{pauseCheckLine(e)}</dd>
         {/if}
         {#if e.pausePurpose}
-          <dt>Wofür</dt><dd data-testid="pause-purpose">{e.pausePurpose}</dd>
+          <dt>Wofür</dt><dd data-testid="pause-purpose">{e.pausePurpose}{#if e.pausePurposeSource === 'suggested'}{' '}<span class="hint" data-testid="pause-purpose-suggested">(Vorschlag)</span>{/if}</dd>
         {/if}
         {#if sperreLine(e)}
           <dt>Sperre</dt><dd data-testid="sperre-score">{sperreLine(e)}</dd>

@@ -101,6 +101,8 @@ export const prismaIntentStore: IntentStore = {
               intentRisk: r.risk,
               intentModelRisk: r.modelRisk,
               intentLowered: r.lowered,
+              intentPurposeNarrow: r.purposeNarrow,
+              intentPurposeKind: r.purposeKind,
               intentModel: r.model,
               intentAt: r.at,
               intentPrompt: r.prompt,

@@ -3,6 +3,26 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-07 — Purpose suggestion chips + "Läuft gerade" overview (implementer)
+
+- Chips (TC-172…177): the intent prompt gains `zweck_eng` / `zweck_art`
+  verbatim from the bench (checked by a script against
+  `qwen_purpose_suggest.py`); `parse.ts cleanPurpose` never fails a summary;
+  `INTENT_ANSWER_MAX_TOKENS` 300 → 400 (the bench used 400; two more lines
+  could otherwise cut the JSON and lose the whole summary). Card chips only
+  where a Zeitfreigabe is possible; `lib/purpose.ts` decides what is sent
+  (untouched chip text never goes to a Sperre); route 400 for deny +
+  suggested; `Snooze.purposeSource` / `AuditEntry.pausePurposeSource`.
+  Migration `20261006080000_purpose_suggestion` (hand-written ADD COLUMNs,
+  applied to the dev DB with `migrate deploy`).
+- "Läuft gerade" (TC-178…183): `routes/running.ts` (GET + DELETE /pauses),
+  `lib/pauseEvents.ts` → SSE `running` ping, `lib/RunningOverview.svelte`
+  on Freigaben, labels shared with Regeln in `lib/pauses.ts`.
+- Gotchas: Svelte drops the space in `{#if …} <span>` → use `{' '}`; the e2e
+  browser is not in Berlin, so "bis Mitternacht" is detected in
+  Europe/Berlin explicitly; a stray `curl` to the dev API upserts a User row
+  (cleaned up again).
+
 ## 2026-10-07 — Lead: Clef session, `v0.10.0` released
 
 - Clef-Flash, then Clef 27B benchmarked with Matthias (server needed

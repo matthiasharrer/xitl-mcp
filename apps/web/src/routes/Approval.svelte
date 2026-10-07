@@ -32,8 +32,8 @@
   const close = openApprovalStream({
     resolved: (ev) => ev.id === id && load(),
     // ADR-0025: the summary of this held call arrived.
-    intent: ({ id: evId, intentStatus, intentTitle, intentSummary, intentRisk, intentLowered }) => {
-      if (evId === id && item?.state === 'pending') item = { ...item, intentStatus, intentTitle, intentSummary, intentRisk, intentLowered };
+    intent: ({ id: evId, intentStatus, intentTitle, intentSummary, intentRisk, intentLowered, intentPurposeNarrow, intentPurposeKind }) => {
+      if (evId === id && item?.state === 'pending') item = { ...item, intentStatus, intentTitle, intentSummary, intentRisk, intentLowered, intentPurposeNarrow, intentPurposeKind };
     },
   });
   onDestroy(close);

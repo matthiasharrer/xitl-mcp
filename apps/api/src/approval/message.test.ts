@@ -54,17 +54,19 @@ describe('approval push payload (TC-32)', () => {
 describe('replacement push with the intent (TC-112)', () => {
   const base = { id: 'abcdefghijklmnopqrstuv', upstreamName: 'Haushalt', toolName: 'delete_all', args: {}, deadline: new Date('2026-10-04T12:05:00Z') };
   test('same id, update:true, intent <= 200 chars, shown risk', () => {
-    const msg = approvalUpdateMessage({ ...base, intent: { status: 'DONE', title: 'T'.repeat(100), summary: 'L'.repeat(1000), risk: 'destructive', lowered: true } })!;
+    const msg = approvalUpdateMessage({ ...base, intent: { status: 'DONE', title: 'T'.repeat(100), summary: 'L'.repeat(1000), risk: 'destructive', lowered: true, purposeNarrow: 'Nur dies X', purposeKind: 'Diese Art Y' } })!;
     expect(msg).toMatchObject({ type: 'approval', id: base.id, update: true, risk: 'destructive' });
     expect(msg.intent!.length).toBe(200);
     // TC-126: the title rides along, capped.
     expect(msg.intentTitle!.length).toBe(60);
+    // TC-176: purpose suggestions never go to the lock screen.
+    expect(JSON.stringify(msg)).not.toMatch(/Nur dies X|Diese Art Y|purpose/i);
     expect(payloadBytes(msg)).toBeLessThan(2048);
   });
   test('nothing without a summary', () => {
-    expect(approvalUpdateMessage({ ...base, intent: { status: 'FAILED', title: null, summary: null, risk: null, lowered: null } })).toBeNull();
+    expect(approvalUpdateMessage({ ...base, intent: { status: 'FAILED', title: null, summary: null, risk: null, lowered: null, purposeNarrow: null, purposeKind: null } })).toBeNull();
     // A summary without a title: no intentTitle field.
-    expect(approvalUpdateMessage({ ...base, intent: { status: 'DONE', title: null, summary: 'x', risk: 'write', lowered: false } })).not.toHaveProperty('intentTitle');
+    expect(approvalUpdateMessage({ ...base, intent: { status: 'DONE', title: null, summary: 'x', risk: 'write', lowered: false, purposeNarrow: null, purposeKind: null } })).not.toHaveProperty('intentTitle');
     expect(approvalUpdateMessage(base)).toBeNull();
   });
 });

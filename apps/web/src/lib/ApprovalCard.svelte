@@ -9,6 +9,7 @@
   import SessionLine from './SessionLine.svelte';
   import IntentSummary from './IntentSummary.svelte';
   import CallWhat from './CallWhat.svelte';
+  import { purposeChips, purposeFields } from './purpose';
 
   let {
     approval,
@@ -43,9 +44,21 @@
    * Sperre (≤ 200). With a Sperre, Clef may ask (never allow) calls clearly
    * outside it. */
   let purpose = $state('');
+  /** TC-172…174: the AI suggestion chip last tapped (null: none). The field
+   * counts as suggested only while it holds exactly that text. Chips only
+   * where a Zeitfreigabe is possible, and only once the summary is there. */
+  let suggested = $state<string | null>(null);
+  const chips = $derived(
+    approval.snoozable && approval.intentStatus === 'DONE' ? purposeChips(approval.intentPurposeNarrow, approval.intentPurposeKind) : [],
+  );
+  const fromChip = $derived(suggested !== null && purpose.trim() !== '' && purpose.trim() === suggested.trim());
+  const pick = (text: string) => {
+    purpose = text;
+    suggested = text;
+  };
   const snooze = (d: { snoozeMinutes?: number; snoozeUntilMidnight?: boolean }, label: string) =>
     decide(
-      { decision: 'approve', ...d, snoozeScope: scope, ...(purpose.trim() ? { purpose: purpose.trim() } : {}) },
+      { decision: 'approve', ...d, snoozeScope: scope, ...purposeFields('allow', purpose, suggested) },
       `Erlaubt, ${label} ohne Nachfrage: ${scopeText}`,
     );
 
@@ -54,8 +67,9 @@
   const denyScopeText = $derived(denyScope === 'upstream' ? `alle Tools von ${approval.upstream.name}` : approval.tool);
   const denyPause = (d: { snoozeMinutes?: number; snoozeUntilMidnight?: boolean }, label: string) =>
     decide(
-      { decision: 'deny', ...d, snoozeScope: denyScope, ...(purpose.trim() ? { purpose: purpose.trim() } : {}) },
-      `Abgelehnt, ${label} gesperrt: ${denyScopeText}`,
+      // S3: an untouched suggestion is never a Sperre's purpose.
+      { decision: 'deny', ...d, snoozeScope: denyScope, ...purposeFields('deny', purpose, suggested) },
+      `Abgelehnt, ${label} gesperrt: ${denyScopeText}${fromChip ? ' (ohne KI-Vorschlag als Zweck)' : ''}`,
     );
 
   const argsText = $derived.by(() => {
@@ -176,8 +190,33 @@
       placeholder="z. B. nur Putzaufgaben anlegen"
       enterkeyhint="done"
       autocomplete="off"
+      data-source={fromChip ? 'suggested' : 'typed'}
     />
   </label>
+  {#if chips.length > 0}
+    <!-- TC-172: AI purpose suggestions (model output: text only), for the
+         Zeitfreigabe below. A tap only fills the field. -->
+    <div class="purpose-suggest" data-testid="purpose-suggest">
+      <span class="suggest-label">KI-Vorschlag · für die Zeitfreigabe</span>
+      <div class="suggest-chips">
+        {#each chips as c (c.key)}
+          <button
+            type="button"
+            class="suggest-chip"
+            data-testid={`purpose-chip-${c.key}`}
+            aria-pressed={fromChip && purpose.trim() === c.text}
+            disabled={busy || expired}
+            onclick={() => pick(c.text)}
+          >
+            <span class="suggest-text"><span class="suggest-kind">{c.label}:</span> {c.text}</span>
+          </button>
+        {/each}
+      </div>
+      {#if fromChip}
+        <p class="hint suggest-note" data-testid="purpose-suggested-note">KI-Vorschlag übernommen – gilt nur für eine Zeitfreigabe, nicht für eine Sperre.</p>
+      {/if}
+    </div>
+  {/if}
   {#if approval.snoozable}
     <p class="hint snooze-label">Erlauben und für diesen Client nicht mehr fragen bei …</p>
     <div class="scope-row" role="radiogroup" aria-label="Umfang der Zeitfreigabe">
@@ -251,6 +290,59 @@
 </article>
 
 <style>
+  .purpose-suggest {
+    margin: -0.25rem 0 0.5rem;
+    min-width: 0;
+  }
+  .suggest-label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-bottom: 0.25rem;
+  }
+  .suggest-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    min-width: 0;
+  }
+  .suggest-chip {
+    display: flex;
+    align-items: center;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 2.75rem;
+    padding: 0.25rem 0.75rem;
+    border: 1px solid var(--accent-soft);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--fg);
+    font: inherit;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    text-align: left;
+    cursor: pointer;
+  }
+  .suggest-chip[aria-pressed='true'] {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+  }
+  .suggest-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    min-width: 0;
+  }
+  .suggest-kind {
+    font-weight: 600;
+  }
+  .suggest-note {
+    margin: 0.25rem 0 0;
+    font-size: 0.75rem;
+  }
   .purpose-field {
     display: flex;
     flex-direction: column;

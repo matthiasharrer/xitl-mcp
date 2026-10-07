@@ -11,6 +11,7 @@
 // (KnownTool), and an annotation change marks the tool changed, so an upstream
 // cannot relabel a tool to slip under a READONLY snooze.
 import { prisma } from '../db.js';
+import { pauseEvents } from '../lib/pauseEvents.js';
 import { toolHint } from '../lib/proxyText.js';
 
 export type SnoozeScope = 'TOOL' | 'READONLY' | 'UPSTREAM';
@@ -49,6 +50,7 @@ interface EffectRow extends Row {
   id?: number;
   anchorAuditId?: number | null;
   purpose?: string | null;
+  purposeSource?: string | null;
 }
 
 /** The ALLOW pause that turned a call into ALLOW (ADR-0029): the AI check
@@ -60,6 +62,8 @@ export interface MatchedAllowPause {
   anchorAuditId: number | null;
   /** The human's "Wofür?" (ADR-0029 amendment); null/absent = none. */
   purpose?: string | null;
+  /** TC-173: "typed" | "suggested" (display only); null/absent = none. */
+  purposeSource?: string | null;
 }
 
 /** Fail closed: a row is an allow pause only if its effect is exactly 'ALLOW'. */
@@ -135,7 +139,9 @@ export function matchedAllow(live: EffectRow[], toolName: string, readOnly: bool
         id: best.id as number,
         until: best.until,
         anchorAuditId: typeof best.anchorAuditId === 'number' ? best.anchorAuditId : null,
-        ...(typeof best.purpose === 'string' && best.purpose.trim() ? { purpose: best.purpose } : {}),
+        ...(typeof best.purpose === 'string' && best.purpose.trim()
+          ? { purpose: best.purpose, purposeSource: best.purposeSource === 'suggested' ? 'suggested' : 'typed' }
+          : {}),
       }
     : null;
 }
@@ -153,7 +159,7 @@ export interface PauseState {
 async function liveRows(owner: SnoozeOwner, now: Date): Promise<EffectRow[]> {
   return prisma.snooze.findMany({
     where: { userId: owner.userId, upstreamId: owner.upstreamId, mcpClientId: owner.mcpClientId, until: { gt: now } },
-    select: { id: true, scope: true, toolName: true, until: true, effect: true, anchorAuditId: true, purpose: true },
+    select: { id: true, scope: true, toolName: true, until: true, effect: true, anchorAuditId: true, purpose: true, purposeSource: true },
   });
 }
 
@@ -211,10 +217,13 @@ export async function createSnooze(
   effect: SnoozeEffect = 'ALLOW',
   anchorAuditId: number | null = null,
   purpose: string | null = null,
+  /** TC-173: only an ALLOW pause can carry a suggested purpose. */
+  purposeSource: 'typed' | 'suggested' | null = null,
 ): Promise<MatchedAllowPause> {
+  const stored = purpose?.trim() || null;
   await prisma.snooze.deleteMany({ where: { userId: owner.userId, until: { lte: now } } });
-  return prisma.snooze.create({
-    select: { id: true, until: true, anchorAuditId: true, purpose: true },
+  const row = await prisma.snooze.create({
+    select: { id: true, until: true, anchorAuditId: true, purpose: true, purposeSource: true },
     data: {
       userId: owner.userId,
       upstreamId: owner.upstreamId,
@@ -225,7 +234,11 @@ export async function createSnooze(
       until,
       createdAt: now,
       anchorAuditId,
-      purpose: purpose?.trim() || null,
+      purpose: stored,
+      purposeSource: stored ? (purposeSource === 'suggested' && effect === 'ALLOW' ? 'suggested' : 'typed') : null,
     },
   });
+  // "Läuft gerade" (TC-181): the new entry appears live.
+  pauseEvents.emit({ userId: owner.userId });
+  return row;
 }

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { prisma } from '../db.js';
+import { pauseEvents } from '../lib/pauseEvents.js';
 import type { AppEnv } from '../identity.js';
 import { systemClock } from '../lib/clock.js';
 import { evaluatePolicy, type Policy } from '../lib/policy.js';
@@ -309,6 +310,8 @@ async function pausesView(upstreamId: number, userId: number) {
     createdAt: r.createdAt.toISOString(),
     // ADR-0029/0026 amendment: the human's "Wofür?".
     purpose: r.purpose,
+    // TC-173: "typed" | "suggested" (an AI suggestion the human tapped).
+    purposeSource: r.purpose ? (r.purposeSource === 'suggested' ? 'suggested' : 'typed') : null,
   }));
 }
 
@@ -328,5 +331,6 @@ upstreamTools.delete('/:id/snoozes/:snoozeId', async (c) => {
   if (!upstream || snoozeId === null) return c.json(NOT_FOUND, 404);
   const gone = await prisma.snooze.deleteMany({ where: { id: snoozeId, upstreamId: upstream.id, userId } });
   if (gone.count === 0) return c.json(NOT_FOUND, 404);
+  pauseEvents.emit({ userId });
   return c.json(await pausesView(upstream.id, userId));
 });

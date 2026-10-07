@@ -6,6 +6,8 @@
 // GET /api/audit's entries, ADR-0028). Verlauf refetches on every `snapshot`
 // (= every (re)connect) so events missed while disconnected are healed.
 // `intent` carries a held call's advisory summary once it is there (ADR-0025).
+// `running` (no payload) says the user's Zeitfreigaben/Sperren/paused
+// accesses changed ("Läuft gerade", TC-181).
 import type { AuditRow, IntentFields, PauseCheckOutage, PauseCheckView, PendingApproval, UpstreamFault } from './api';
 
 export interface StreamHandlers {
@@ -21,6 +23,8 @@ export interface StreamHandlers {
   checked?: (ev: { id: string; pauseCheck: PauseCheckView | null }) => void;
   /** ADR-0029: the user's AI check outage (on connect, then on change). */
   pausecheck?: (state: PauseCheckOutage) => void;
+  /** "Läuft gerade" changed (TC-181): re-read /api/running. */
+  running?: () => void;
   connected?: (ok: boolean) => void;
 }
 
@@ -66,6 +70,7 @@ export function openApprovalStream(h: StreamHandlers): () => void {
     const ev = parse(e as MessageEvent);
     if (ev && typeof ev.failing === 'boolean') h.pausecheck?.(ev);
   });
+  es.addEventListener('running', () => h.running?.());
   es.onopen = () => h.connected?.(true);
   es.onerror = () => h.connected?.(false);
   return () => es.close();

@@ -5,6 +5,7 @@
   import ApprovalCard from '../lib/ApprovalCard.svelte';
   import FaultCard from '../lib/FaultCard.svelte';
   import PauseCheckFaultCard from '../lib/PauseCheckFaultCard.svelte';
+  import RunningOverview from '../lib/RunningOverview.svelte';
   import { groupCalls } from '../lib/grouping';
   import Spinner from '../lib/Spinner.svelte';
   import { api, messageOf, type Me, type PendingApproval, type UpstreamFault } from '../lib/api';
@@ -19,6 +20,8 @@
   let faults = $state<UpstreamFault[]>([]);
   /** ADR-0029: the AI check of Zeitfreigaben is failing (stream event). */
   let checkFailing = $state(false);
+  /** "Läuft gerade" re-reads on every bump (stream ping, reconnect). */
+  let runningTick = $state(0);
 
   const loadFaults = () =>
     api.listUpstreamFaults().then(
@@ -41,6 +44,8 @@
 
   const close = openApprovalStream({
     snapshot: (l) => {
+      // (Re)connect: heal "Läuft gerade" too (events missed meanwhile).
+      runningTick++;
       list = l;
       loaded = true;
       loadError = null;
@@ -51,14 +56,15 @@
     resolved: ({ id }) => {
       list = list.filter((p) => p.id !== id);
     },
-    intent: ({ id, intentStatus, intentTitle, intentSummary, intentRisk, intentLowered }) => {
-      list = list.map((p) => (p.id === id ? { ...p, intentStatus, intentTitle, intentSummary, intentRisk, intentLowered } : p));
+    intent: ({ id, intentStatus, intentTitle, intentSummary, intentRisk, intentLowered, intentPurposeNarrow, intentPurposeKind }) => {
+      list = list.map((p) => (p.id === id ? { ...p, intentStatus, intentTitle, intentSummary, intentRisk, intentLowered, intentPurposeNarrow, intentPurposeKind } : p));
     },
     upstreams: (l) => (faults = l),
     pausecheck: (s) => (checkFailing = s.failing),
     checked: ({ id, pauseCheck }) => {
       list = list.map((p) => (p.id === id ? { ...p, pauseCheck } : p));
     },
+    running: () => runningTick++,
     connected: (ok) => (live = ok),
   });
   onDestroy(close);
@@ -71,6 +77,7 @@
 <div class="approvals">
   {#if me}<p class="greeting">Hallo, {me.displayName}</p>{/if}
   <h2 class="section-title">Freigaben</h2>
+  <RunningOverview refresh={runningTick} />
   {#if !live}
     <p class="hint" role="status">Verbindung unterbrochen, verbinde neu…</p>
   {/if}
