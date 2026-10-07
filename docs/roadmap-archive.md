@@ -3,6 +3,13 @@
 Shipped roadmap entries, newest first. The reasoning is in `decisions/`, the
 test evidence in `testing.md`'s run log.
 
+## 2026-10-07 (`v0.11.0`)
+
+- **"Wofür?" suggestion chips** from the intent model (ADR-0029 amendment),
+  only for Zeitfreigaben.
+- **"Läuft gerade"**: overview of all Zeitfreigaben, Sperren and paused
+  accesses on the Freigaben page.
+
 ## 2026-10-07 (`v0.10.0`)
 
 - **Clef experiments → three features.** Clef-Flash and Clef 27B benchmarked

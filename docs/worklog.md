@@ -36,7 +36,9 @@
   (was only the matched row; mutation-checked).
 - Gotcha: a llama.cpp update moved one pause score 0.61 → 0.82. Rerun the
   Clef benches after every update.
-- Released `v0.10.0` at Matthias's request (unit 521, e2e 210).
+- Released `v0.10.0` at Matthias's request (unit 521, e2e 210). Then benched
+  Qwen purpose suggestions (two chips work, one is too narrow), built them +
+  "Läuft gerade"; released `v0.11.0` (unit 545, e2e 231).
 
 ## 2026-10-07 — Review hint (ADR-0031), AUTO policy (ADR-0030), "Wofür?" for Zeitfreigabe and Sperre (released in `v0.10.0`)
 

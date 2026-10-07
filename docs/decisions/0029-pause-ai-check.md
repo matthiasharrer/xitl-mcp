@@ -148,3 +148,23 @@ Decided by Matthias the same day, built in `5b8b9f5`.
 - One Clef endpoint and one per-user switch, now labelled "KI-Prüfung
   (Clef)", cover this check, Sperren with purpose (ADR-0026 amendment), AUTO
   (ADR-0030) and tool labels (ADR-0031). One shared outage notice.
+
+## Amendment 2026-10-07 (later): purpose suggestions, overview
+
+Decided by Matthias after the bench (`scripts/bench/qwen_purpose_suggest.py`).
+
+- The intent model (ADR-0025) also answers `zweck_eng` / `zweck_art` (≤ 120
+  chars, cleaned; missing → null; `INTENT_ANSWER_MAX_TOKENS` 300 → 400).
+  Shown as tappable chips "Nur dies" / "Diese Art" (label "KI-Vorschlag · für
+  die Zeitfreigabe"), **never prefilled**, only where a Zeitfreigabe is
+  possible. A chosen chip takes the same purpose path as typed text, with no
+  special trust; `Snooze.purposeSource` / `AuditEntry.pausePurposeSource`
+  (typed | suggested) are for display only.
+- **A suggestion is never a Sperre's purpose** (Matthias): the client sends
+  none, the server answers 400.
+- Bench: one narrow suggestion alone was too narrow (ok 3/6); the two chips
+  behave as labelled ("Nur dies" closes archive-everything at 0.12, "Diese
+  Art" passes 6/6 normal continuations); planted purposes never adopted.
+- "Läuft gerade" (Freigaben page) lists every Zeitfreigabe, Sperre and paused
+  access of the user across upstreams; "Alle beenden" ends Zeitfreigaben and
+  Sperren only, never resumes a paused access.
