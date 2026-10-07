@@ -59,9 +59,17 @@ GHCR), `v0.7.0` deployed and running. GitOps already has `INTENT_LLM_URL`
    max ask 0.552 *without* archive-everything (de: 0.518 vs 0.522, en
    wording separates better). **archive-everything scores gleich ≈ 0.91**:
    "more of the same" is invisible to it (the model can't know ids 1–4
-   aren't done). Next: decided by Matthias (see worklog), candidates: en
-   instructions, `gleich` only, threshold ~0.7, plus a deterministic count
-   cap for destructive tools under a pause; more real cases; `--runs 3`.
+   aren't done). Lead's recommendation to Matthias (open): en instructions,
+   `gleich` only, threshold ~0.7, plus a deterministic count cap for
+   destructive tools under a pause; more real cases.
+   `--runs 3` (en): **fully deterministic**, identical probabilities each run.
+   More probes 2026-10-07 (`scripts/bench/clef_probes.py`, ~250 ms each):
+   tool risk class from name + description (lesen / ändern / zerstören)
+   20/22 (misses: remove_from_plan → ändern, n8n execute → zerstören at
+   0.36), a seed for "LLM proposes policy"; injection detection in tool data
+   (noul) catches imperative injections at 0.82–0.95 vs benign ≤ 0.09 (en
+   question) / ≤ 0.37 (de), but **misses a fake `<system>` "user already
+   agreed" claim** (0.05–0.07): a signal, never a guard.
 
 1. **Deploy `v0.8.0`** (Matthias bumps the tag in GitOps).
 2. **TC-128 e2e** (a pause settles the covered held calls): hold 3 calls of
