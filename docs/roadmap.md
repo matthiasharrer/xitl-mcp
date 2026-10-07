@@ -59,9 +59,13 @@ GHCR), `v0.7.0` deployed and running. GitOps already has `INTENT_LLM_URL`
    max ask 0.552 *without* archive-everything (de: 0.518 vs 0.522, en
    wording separates better). **archive-everything scores gleich ≈ 0.91**:
    "more of the same" is invisible to it (the model can't know ids 1–4
-   aren't done). Lead's recommendation to Matthias (open): en instructions,
-   `gleich` only, threshold ~0.7, plus a deterministic count cap for
-   destructive tools under a pause; more real cases.
+   aren't done). **Matthias, 2026-10-07: no count cap** (repeated destructive
+   calls under a pause are often intended; a cap would be annoying and would
+   need bulk approval). Plan: full Clef, en, `gleich` only, threshold ~0.8,
+   below/timeout/error → ASK; "more of the same" (archive-everything) stays a
+   documented gap, no worse than today's blind pause. Optional later: a silent
+   "Pause: n× tool in m Min." notice with "Pause beenden" (holds nothing).
+   Next: ADR, then build.
    `--runs 3` (en): **fully deterministic**, identical probabilities each run.
    More probes 2026-10-07 (`scripts/bench/clef_probes.py`, ~250 ms each):
    tool risk class from name + description (lesen / ändern / zerstören)
