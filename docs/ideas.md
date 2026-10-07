@@ -188,3 +188,15 @@
   0.61 → 0.82). Rerun `scripts/bench/clef_bench.py`, `clef_prose_policy2.py`
   and `clef_probes.py` after every llama.cpp/Clef update before trusting the
   thresholds; candidate: a tiny canary set run at boot that logs drift.
+
+- **Purpose suggestion from Qwen for "Wofür?"** (Matthias, 2026-10-07):
+  add a field `zweck` (one short German line) to the existing intent request
+  (ADR-0025, same call, same append-only session context, no extra model
+  call), told to describe only what the calls so far actually do, as narrowly
+  as possible. Shown under "Wofür?" as a **tappable chip, not prefilled**
+  (prefilled text gets accepted blindly). Caveat: it is derived from
+  agent-controlled calls, so a chosen suggestion is weaker than a typed
+  purpose; worst case (a manipulated broad suggestion) ≈ no purpose, since the
+  check still compares with the anchor. Bench before building: suggestions on
+  the clef_pause_intent cases → does the suggested purpose keep max ask low?
+  Mark a chosen suggestion as such in the audit (typed vs. suggested).
