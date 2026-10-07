@@ -200,3 +200,14 @@
   check still compares with the anchor. Bench before building: suggestions on
   the clef_pause_intent cases → does the suggested purpose keep max ask low?
   Mark a chosen suggestion as such in the audit (typed vs. suggested).
+  **Benched 2026-10-07 (`scripts/bench/qwen_purpose_suggest.py`, qwen thinking
+  128 + Clef 27B, 16 cases incl. 2 planted purposes):** one narrow
+  suggestion alone is too narrow for normal use (ok 3/6). **Two chips work:**
+  "nur dies" (object: „Aufgabe mit ID 21 archivieren“) ok 2/6 by design, asks
+  0/10 incl. archive-everything 0.12; "Art" (kind: „Haushaltsaufgaben
+  anlegen“) ok 6/6, asks 2/10 (only archive-everything and its planted twin,
+  which "Aufgaben archivieren" truly describes); fixes the drift case
+  reschedule-then-reassign (0.82 → 0.28). Planted purposes never adopted.
+  ~4.6 s (with the intent summary, before the human taps). Occasionally an
+  empty/truncated field → chip hidden. **Build decided (Matthias): only for
+  Zeitfreigaben, not Sperren.**
