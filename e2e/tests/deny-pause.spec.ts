@@ -305,3 +305,89 @@ test.describe('TC-125 UI bei 390×844', () => {
     await expectAsks(request, ctx, ctx.A.token, 'add_item');
   });
 });
+
+// TC-128: a pause also settles the held calls it covers (same user + client +
+// upstream, scope as `covers`). Unit side: snooze.test.ts `heldCoveredBy`.
+test.describe('TC-128 Wartende Aufrufe beim Pausieren', () => {
+  /** Starts a call and waits until it is held (one more pending call of `ctx`). */
+  async function hold(request: APIRequestContext, ctx: Ctx, token: string, tool: string, item: string) {
+    const before = new Set((await pendingList(request, ctx.user)).map((p) => p.id));
+    const result = startCall(request, ctx.up.slug, token, tool, { item });
+    let id = '';
+    await expect
+      .poll(async () => {
+        id = (await pendingList(request, ctx.user)).find((p) => !before.has(p.id) && p.upstream.id === ctx.up.id)?.id ?? '';
+        return id;
+      }, { timeout: 4000, intervals: [50, 100, 200] })
+      .not.toBe('');
+    return { id, result };
+  }
+  const auditOf = (approvalId: string) => dbAll('select * from AuditEntry where approvalId = ?', approvalId)[0];
+  const stillHeld = async (request: APIRequestContext, ctx: Ctx) => (await pendingList(request, ctx.user)).map((p) => p.id).sort();
+
+  /** 3× add_item (A) + 1× list_items (A) + 1× add_item (B); the first is decided.
+   * KI-Prüfung off: this is the blind path, settled in the route and counted in
+   * `alsoDecided`. With it on, the proxy settles them through Clef (TC-145). */
+  async function fiveHeld(request: APIRequestContext, ctx: Ctx) {
+    expect((await request.patch('/api/me', { headers: ctx.user, data: { pauseCheck: false } })).status()).toBe(200);
+    const origin = await hold(request, ctx, ctx.A.token, 'add_item', 'o');
+    const same1 = await hold(request, ctx, ctx.A.token, 'add_item', 's1');
+    const same2 = await hold(request, ctx, ctx.A.token, 'add_item', 's2');
+    const otherTool = await hold(request, ctx, ctx.A.token, 'list_items', 't');
+    const otherClient = await hold(request, ctx, ctx.B.token, 'add_item', 'c');
+    return { origin, same1, same2, otherTool, otherClient };
+  }
+
+  test('Zeitfreigabe 15 Min. (TOOL): die 2 gleichen Aufrufe werden weitergeleitet, anderes Tool und anderer Client bleiben gehalten', async ({ request }) => {
+    const ctx = await setup(request, 'tc128a');
+    const h = await fiveHeld(request, ctx);
+    const res = await decide(request, h.origin.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: 'tool' }, ctx.user);
+    expect(res.status(), await res.text()).toBe(200);
+    expect((await res.json()).alsoDecided).toBe(2);
+    for (const c of [h.origin, h.same1, h.same2]) expect((await c.result).isError).toBeFalsy();
+    for (const c of [h.same1, h.same2]) {
+      expect(auditOf(c.id)).toMatchObject({ outcome: 'FORWARDED', decisionPath: 'policy:upstream-default+approved:pause' });
+    }
+    expect((await fakeState(request, ctx.up.tenant)).calls.add_item).toBe(3);
+    expect(await stillHeld(request, ctx)).toEqual([h.otherTool.id, h.otherClient.id].sort());
+    expect(auditOf(h.otherTool.id).outcome).toBe('PENDING');
+    expect(auditOf(h.otherClient.id).outcome).toBe('PENDING');
+    for (const c of [h.otherTool, h.otherClient]) {
+      expect((await decide(request, c.id, { decision: 'deny' }, ctx.user)).status()).toBe(200);
+      expect((await c.result).isError).toBe(true);
+    }
+  });
+
+  test('Sperre 15 Min. (TOOL): die 2 gleichen Aufrufe werden abgelehnt, anderes Tool und anderer Client bleiben gehalten', async ({ request }) => {
+    const ctx = await setup(request, 'tc128d');
+    const h = await fiveHeld(request, ctx);
+    const res = await decide(request, h.origin.id, { decision: 'deny', snoozeMinutes: 15, snoozeScope: 'tool' }, ctx.user);
+    expect(res.status(), await res.text()).toBe(200);
+    expect((await res.json()).alsoDecided).toBe(2);
+    for (const c of [h.origin, h.same1, h.same2]) expect((await c.result).isError).toBe(true);
+    for (const c of [h.same1, h.same2]) {
+      expect(auditOf(c.id)).toMatchObject({ outcome: 'DENIED', decisionPath: 'policy:upstream-default+denied:pause' });
+    }
+    expect((await fakeState(request, ctx.up.tenant)).calls.add_item ?? 0).toBe(0);
+    expect(await stillHeld(request, ctx)).toEqual([h.otherTool.id, h.otherClient.id].sort());
+    for (const c of [h.otherTool, h.otherClient]) {
+      expect((await decide(request, c.id, { decision: 'deny' }, ctx.user)).status()).toBe(200);
+      await c.result;
+    }
+  });
+
+  test('UI: Toast nennt die Zahl („dazu 2 wartende Freigaben erlaubt“)', async ({ request, page }) => {
+    const ctx = await setup(request, 'tc128u');
+    const h = await fiveHeld(request, ctx);
+    await page.setExtraHTTPHeaders(ctx.user);
+    await page.goto('/');
+    await page.locator(`[data-approval="${h.origin.id}"]`).getByRole('button', { name: 'Erlauben · 15 Min. nicht mehr fragen' }).click();
+    await expect(page.getByText(/dazu 2 wartende Freigaben erlaubt/)).toBeVisible();
+    for (const c of [h.origin, h.same1, h.same2]) expect((await c.result).isError).toBeFalsy();
+    await expect(page.locator('[data-approval]')).toHaveCount(2);
+    for (const c of [h.otherTool, h.otherClient]) {
+      expect((await decide(request, c.id, { decision: 'deny' }, ctx.user)).status()).toBe(200);
+      await c.result;
+    }
+  });
+});

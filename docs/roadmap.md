@@ -23,11 +23,12 @@ chips, "Läuft gerade" overview). Deployed: whatever Matthias last bumped
    Then the manual gates MG-09…11: Zeitfreigabe AI check on the phone (incl.
    "Wofür?"), Sperre with purpose, AUTO with a real rule + "Mit Verlauf
    testen" (the real-data check of ADR-0030's threshold).
-2. **TC-128 e2e** (a pause settles the covered held calls): hold 3 calls of
-   one tool + 1 of another tool + 1 of another client, approve one with a
-   15-min TOOL pause → the 2 same-tool calls are forwarded (`+approved:pause`),
-   the others stay held; same for a deny pause; toast count. Only unit-tested
-   so far.
+2. **Toast count with KI-Prüfung on** (found by TC-128 e2e, 2026-10-07):
+   a Zeitfreigabe settles the covered held calls in the proxy through Clef
+   (ADR-0029), after the response, so `alsoDecided` is 0 and the toast never
+   says "dazu N wartende Freigaben erlaubt". Small: the cards disappear live
+   anyway. Options: count the covered calls handed to the proxy ("N wartende
+   werden geprüft"), or leave it. Ask Matthias when convenient.
 3. **MG-08 on the phone** (ADR-0025): summary within seconds, replacement
    push silent. **Watch Android:** pushes that show nothing (dropped intent
    update, and since `v0.8.0` every "resolved" push, which now only closes
