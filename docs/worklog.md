@@ -16,6 +16,7 @@
 - Known edge (fails closed): two overlapping syncs of one upstream can make a
   still-listed tool look vanished until the next sync (≤ 5 min, false DENY).
 - Pausing in Claude.ai shows in the next new chat (tools/list is cached).
+- Released as `v0.12.0` (Matthias, 2026-10-07): ADR-0032/0033/0034.
 
 ## 2026-10-07 — ADR-0032 client default per upstream, TC-128 e2e (lead)
 
