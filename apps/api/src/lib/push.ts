@@ -31,6 +31,10 @@ export type PushMessage =
       /** TC-126: the model's short title (≤ 60 chars), first body line. */
       intentTitle?: string;
       risk?: 'read' | 'write' | 'destructive';
+      /** ADR-0029: why a paused call is asked after all (fixed German text:
+       * "KI-Prüfung: weicht ab (…) – Zeitfreigabe beendet" / "KI-Prüfung
+       * nicht erreichbar"). Never agent data. */
+      note?: string;
     }
   | {
       /** The call was decided elsewhere (page), timed out, or ended because its
@@ -46,6 +50,12 @@ export type PushMessage =
       upstreamId: number;
       name: string;
       state: 'unreachable' | 'reconnect';
+    }
+  | {
+      /** ADR-0029: the AI check of allow pauses failed (tag pausecheck);
+       * Zeitfreigaben ask again until it works or is switched off. */
+      type: 'pausecheck';
+      state: 'unreachable';
     }
   | { type: 'test'; title: string; body: string };
 

@@ -9,7 +9,10 @@
 //                     `pending` / `resolved` events for my calls only,
 //                     `intent` {id, intentTitle, intentSummary, intentRisk, intentLowered,
 //                     intentStatus} when a held call's advisory summary
-//                     changed (ADR-0025), and `upstreams` again whenever my
+//                     changed (ADR-0025), `pausecheck` {failing, since} (my AI
+//                     check outage, ADR-0029: once after the first `upstreams`,
+//                     then on every change), `checked` {id, pauseCheck} (a held
+//                     call the AI check sent back), and `upstreams` again whenever my
 //                     fault list may have changed, and `history` (one
 //                     Verlauf list row, the same shape as GET /api/audit's
 //                     entries) whenever one of my audit rows was created or
@@ -37,6 +40,8 @@ import { auditIntentFields, include as auditInclude, serializeAuditRow } from '.
 import { auditEvents as defaultAuditEvents, type AuditEvents } from '../lib/auditEvents.js';
 import { NO_INTENT } from '../intent/queue.js';
 import { upstreamStates as defaultStates, type UpstreamStateEvents } from '../upstream/stateEvents.js';
+import { pauseGate as defaultPauseGate } from '../pausecheck/index.js';
+import type { PauseGate } from '../pausecheck/gate.js';
 
 const NOT_FOUND = { error: 'Nicht gefunden.' };
 const GONE = { error: 'Diese Freigabe ist nicht mehr offen.' };
@@ -73,6 +78,8 @@ export function serializePending(call: PendingCall, now: Date) {
     snoozable: call.snoozable,
     readOnly: call.readOnly,
     session: call.session ? { id: call.session.id, createdAt: call.session.createdAt.toISOString() } : null,
+    /** ADR-0029: the AI check sent this paused call back (or null). */
+    pauseCheck: call.pauseCheck ?? null,
     ...intentFields(call),
   };
 }
@@ -123,8 +130,9 @@ async function resolvedView(userId: number, id: string) {
 export function makeApprovalRoutes(
   hub: ApprovalHub = defaultHub,
   clock: Clock = systemClock,
-  opts: { maxStreamsPerUser?: number; states?: UpstreamStateEvents; auditEvents?: AuditEvents } = {},
+  opts: { maxStreamsPerUser?: number; states?: UpstreamStateEvents; auditEvents?: AuditEvents; pauseGate?: PauseGate } = {},
 ) {
+  const gate = opts.pauseGate ?? defaultPauseGate;
   const r = new Hono<AppEnv>();
   const states = opts.states ?? defaultStates;
   const auditBus = opts.auditEvents ?? defaultAuditEvents;
@@ -173,6 +181,18 @@ export function makeApprovalRoutes(
       const onIntent = (call: PendingCall) => {
         if (call.userId === userId) push('intent', { id: call.id, ...intentFields(call) });
       };
+      // ADR-0029: a held call the AI check sent back on the settle path.
+      const onChecked = (call: PendingCall) => {
+        if (call.userId === userId) push('checked', { id: call.id, pauseCheck: call.pauseCheck ?? null });
+      };
+      // ADR-0029: the user's AI check outage card (on connect and on change).
+      const sendOutage = () => {
+        const since = gate.outage.since(userId);
+        push('pausecheck', { failing: since !== null, since: since?.toISOString() ?? null });
+      };
+      const offOutage = gate.outage.on((ev) => {
+        if (ev.userId === userId) sendOutage();
+      });
       // Fault list (ADR-0022): recomputed from the DB on every event of this
       // user's upstreams; chained so the lists arrive in order.
       let faults: Promise<void> = Promise.resolve();
@@ -207,6 +227,7 @@ export function makeApprovalRoutes(
       hub.on('pending', onPending);
       hub.on('resolved', onResolved);
       hub.on('intent', onIntent);
+      hub.on('checked', onChecked);
       hub.on('shutdown', close);
       stream.onAbort(close);
       c.req.raw.signal?.addEventListener('abort', close, { once: true });
@@ -214,6 +235,10 @@ export function makeApprovalRoutes(
         const now = clock.now();
         await stream.writeSSE({ event: 'snapshot', data: JSON.stringify(hub.list(userId).map((p) => serializePending(p, now))) });
         sendFaults();
+        // After the first fault list: snapshot, upstreams, then pausecheck.
+        faults = faults.then(() => {
+          if (open) sendOutage();
+        });
         while (open) {
           while (queue.length > 0 && open) {
             const next = queue.shift()!;
@@ -233,6 +258,8 @@ export function makeApprovalRoutes(
       } finally {
         offStates();
         offAudit();
+        offOutage();
+        hub.off('checked', onChecked);
         hub.off('pending', onPending);
         hub.off('resolved', onResolved);
         hub.off('intent', onIntent);
@@ -286,6 +313,12 @@ export function makeApprovalRoutes(
     const until = snoozeUntil(clock.now(), body);
     const snoozeScope = body.snoozeScope === 'upstream' ? 'UPSTREAM' : body.snoozeScope === 'readonly' ? 'READONLY' : 'TOOL';
 
+    // ADR-0029: with the AI check active for this user, a new ALLOW pause
+    // settles the covered calls in the proxy, after the pause row (with its
+    // anchor) exists and through the check (mcp/server.ts settleCovered). A
+    // DENY pause only tightens: settled here as before.
+    // Read BEFORE deciding, so the proxy and this route agree on who settles.
+    const checkedByProxy = body.decision === 'approve' && until !== null && (await gate.active(userId));
     const result =
       body.decision === 'approve'
         ? hub.decide(userId, id, { kind: 'approve', via: body.via, snoozeUntil: until, snoozeScope })
@@ -297,7 +330,7 @@ export function makeApprovalRoutes(
     // arrived now. Each is settled on its own; one that ended meanwhile is
     // skipped. Decided "via pause": no snooze of their own, audit path shows it.
     let alsoDecided = 0;
-    if (until) {
+    if (until && !checkedByProxy) {
       const covered = heldCoveredBy(pending, hub.list(userId), snoozeScope, body.decision === 'approve' ? 'ALLOW' : 'DENY');
       for (const other of covered) {
         const r =

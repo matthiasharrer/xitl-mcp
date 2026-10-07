@@ -55,3 +55,11 @@ export const APPROVAL_TIMEOUT_MS = 5000;
 // stub request is aborted after INTENT_LLM_TIMEOUT_MS instead of 60 s.
 export const INTENT_STUB_LOG = path.join(E2E_DIR, 'intent-stub.jsonl');
 export const INTENT_TIMEOUT_MS = 3000;
+
+// AI check of allow pauses (ADR-0029): the e2e server's PAUSE_CHECK_URL points
+// at a fake Clef (e2e/support/fakeClef.ts) on its own port. Deliberately NOT
+// on OUTBOUND_ALLOW_PRIVATE: the real client must allow its own host itself.
+export const FAKE_CLEF_PORT = 3212;
+export const FAKE_CLEF = `http://127.0.0.1:${FAKE_CLEF_PORT}`;
+/** A Clef request older than this is aborted ("hang" waits longer). */
+export const PAUSE_CHECK_TIMEOUT_MS = 1500;

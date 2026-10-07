@@ -27,6 +27,7 @@ import { systemClock, type Clock } from '../lib/clock.js';
 import { MAX_HELD_CALLS_PER_USER } from '../lib/limits.js';
 import type { SnoozeScope } from './snooze.js';
 import type { IntentView } from '../intent/queue.js';
+import type { PauseCheckView } from '../pausecheck/text.js';
 
 /** How a decision was made: in the app, from the notification, or by a
  * pause set on another held call (it also settles the held calls it covers,
@@ -73,6 +74,9 @@ export interface PendingCall {
   session: { id: string; createdAt: Date } | null;
   /** The advisory intent summary (ADR-0025); absent = feature off. */
   intent?: IntentView;
+  /** ADR-0029: the AI check sent this call back (mismatch: the pause ended;
+   * error: Clef unreachable). Display only; absent = not checked. */
+  pauseCheck?: PauseCheckView;
   /** The JSON-RPC request this call came in as, for the client's
    * `notifications/cancelled` (`cancelByRequest`). Never shown to a channel. */
   request?: { endpoint: string; rpcId: string | number };
@@ -105,7 +109,8 @@ interface Entry {
 }
 
 /** Event names: 'pending' (PendingCall), 'resolved' (ResolvedEvent),
- * 'intent' (PendingCall, its summary changed), 'shutdown'. */
+ * 'intent' (PendingCall, its summary changed), 'checked' (PendingCall, the
+ * AI check sent it back, ADR-0029), 'shutdown'. */
 export class ApprovalHub extends EventEmitter {
   private readonly entries = new Map<string, Entry>();
   private closed = false;
@@ -182,6 +187,16 @@ export class ApprovalHub extends EventEmitter {
     if (!entry || entry.call.userId !== userId) return false;
     entry.call.intent = { ...intent };
     this.safeEmit('intent', entry.call);
+    return true;
+  }
+
+  /** ADR-0029: a held call the AI check sent back on the settle path (a new
+   * pause did not take it). Display only, like setIntent: emits 'checked'. */
+  setPauseCheck(userId: number, id: string, view: PauseCheckView): boolean {
+    const entry = this.entries.get(id);
+    if (!entry || entry.call.userId !== userId) return false;
+    entry.call.pauseCheck = { ...view };
+    this.safeEmit('checked', entry.call);
     return true;
   }
 

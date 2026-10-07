@@ -20,6 +20,10 @@
 //                (ADR-0022): one notification per upstream (tag
 //                upstream-<id>, a newer one replaces it); tapping opens
 //                Freigaben, where its "Störung" card is.
+//   pausecheck -> ADR-0029: the AI check of Zeitfreigaben failed (tag
+//                pausecheck): tapping opens Freigaben with its "Störung" card.
+//   An `approval` may carry `note` (ADR-0029, fixed text: why a call under a
+//   Zeitfreigabe is asked after all); it is the body's first line.
 //   test      -> the "Test-Push" from Einstellungen.
 //
 // An action makes the SAME request the app does (TC-33):
@@ -88,7 +92,8 @@ self.addEventListener('push', (event) => {
         const until = timeOf(data.expiresAt);
         // TC-126: the AI title (plain text, capped) as the body's first line.
         const title = String(data.intentTitle || '').slice(0, 60);
-        const body = [title, `${risk ? `${risk}: ` : ''}${intent}`, label, until ? `Offen bis ${until} Uhr` : ''].filter(Boolean).join('\n');
+        const note = String(data.note || '').slice(0, 100);
+        const body = [note, title, `${risk ? `${risk}: ` : ''}${intent}`, label, until ? `Offen bis ${until} Uhr` : ''].filter(Boolean).join('\n');
         return show('Freigabe nötig', {
           body,
           tag: tagOf(data.id),
@@ -108,9 +113,10 @@ self.addEventListener('push', (event) => {
   if (data.type === 'approval' && typeof data.id === 'string') {
     const label = `${data.upstream || ''} · ${data.summary || data.tool || ''}`;
     const until = timeOf(data.expiresAt);
+    const note = String(data.note || '').slice(0, 100);
     event.waitUntil(
       show('Freigabe nötig', {
-        body: until ? `${label}\nOffen bis ${until} Uhr` : label,
+        body: [note, label, until ? `Offen bis ${until} Uhr` : ''].filter(Boolean).join('\n'),
         tag: tagOf(data.id),
         renotify: true,
         requireInteraction: true,
@@ -141,6 +147,17 @@ self.addEventListener('push', (event) => {
       show(title, {
         body: 'Claude sieht dessen Tools gerade nicht. Tippen für Details.',
         tag: `upstream-${data.upstreamId}`,
+        renotify: true,
+        data: { url: '/#/' },
+      }),
+    );
+    return;
+  }
+  if (data.type === 'pausecheck') {
+    event.waitUntil(
+      show('KI-Prüfung nicht erreichbar', {
+        body: 'Zeitfreigaben fragen wieder nach. Tippen für Details.',
+        tag: 'pausecheck',
         renotify: true,
         data: { url: '/#/' },
       }),

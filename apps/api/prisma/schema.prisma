@@ -33,6 +33,10 @@ model User {
   auditEntries      AuditEntry[]
   pushSubscriptions PushSubscription[]
   mcpSessions       McpSession[]
+  /// ADR-0029: "KI-Prüfung für Zeitfreigaben" (Einstellungen). Only read when
+  /// PAUSE_CHECK_URL is set; off = allow pauses stay blind. Settable only via
+  /// /api/me (Remote-User), never through /mcp.
+  pauseCheck        Boolean            @default(true)
 }
 
 enum Policy {
@@ -169,6 +173,11 @@ model Snooze {
   mcpClient   McpClient @relation(fields: [mcpClientId], references: [id], onDelete: Cascade)
   until       DateTime
   createdAt   DateTime  @default(now())
+  /// ADR-0029: the held call (AuditEntry.id) this ALLOW pause was granted on;
+  /// the AI check compares later calls with it. Null = granted before the
+  /// check existed (or a DENY pause): stays blind. No relation on purpose
+  /// (plain column, no cascade rebuild).
+  anchorAuditId Int?
 
   @@index([userId, upstreamId, toolName, mcpClientId])
 }
@@ -304,9 +313,20 @@ model AuditEntry {
   /// id of the context's first call.
   intentContextId Int?
 
+  /// ADR-0029 (stored for tuning, shown in Verlauf): p(gleich) of the AI check
+  /// of an allow pause and the verdict label (gleich | richtungswechsel |
+  /// ausweitung; on a mismatch the stronger of the two deviations). Null when
+  /// unchecked or the check failed (decisionPath `snooze-ki-error`).
+  pauseCheckScore  Float?
+  pauseCheckChoice String?
+  /// The ALLOW pause (Snooze.id) this call was let through under: the AI
+  /// check's "calls since" for that pause. Diagnostics, never authority.
+  pauseSnoozeId    Int?
+
   @@index([userId, receivedAt])
   @@index([sessionId])
   @@index([intentContextId])
+  @@index([pauseSnoozeId])
 }
 
 /// One MCP session on /mcp/<slug> (ADR-0016): created on a 2025-era

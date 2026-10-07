@@ -4,7 +4,7 @@
   import UpstreamSheet from '../lib/UpstreamSheet.svelte';
   import TokenSheet from '../lib/TokenSheet.svelte';
   import OriginsSheet from '../lib/OriginsSheet.svelte';
-  import { api, ApiError, messageOf, STATUS_LABEL, type McpClient, type Upstream, type UpstreamInput } from '../lib/api';
+  import { api, ApiError, messageOf, STATUS_LABEL, type McpClient, type Me, type Upstream, type UpstreamInput } from '../lib/api';
   import { showToast } from '../lib/store.svelte';
   import {
     currentSubscription,
@@ -44,6 +44,22 @@
   /** The running build (APP_VERSION from CI: `0.3.1`, `main`, or `dev`). */
   let version = $state<string | null>(null);
   api.getHealth().then((h) => (version = h.version), () => undefined);
+  /** ADR-0029: the user's "KI-Prüfung für Zeitfreigaben" (shown only when
+   * the server has the check configured). */
+  let me = $state<Me | null>(null);
+  let checkBusy = $state(false);
+  api.me().then((m) => (me = m), () => undefined);
+  async function togglePauseCheck(on: boolean) {
+    checkBusy = true;
+    try {
+      me = await api.setPauseCheck(on);
+      showToast(on ? 'KI-Prüfung für Zeitfreigaben eingeschaltet' : 'KI-Prüfung für Zeitfreigaben ausgeschaltet');
+    } catch (e) {
+      showToast(messageOf(e), { error: true });
+    } finally {
+      checkBusy = false;
+    }
+  }
   const versionLabel = $derived(version && /^\d/.test(version) ? `v${version}` : version);
 
   async function load() {
@@ -292,6 +308,28 @@
       {/if}
     </div>
   </section>
+
+  {#if me?.pauseCheckAvailable}
+    <section aria-labelledby="pausecheck-title">
+      <h2 id="pausecheck-title">Zeitfreigaben</h2>
+      <div class="card">
+        <label class="switch-row">
+          <input
+            type="checkbox"
+            checked={me.pauseCheck}
+            disabled={checkBusy}
+            onchange={(e) => togglePauseCheck(e.currentTarget.checked)}
+          />
+          <span>KI-Prüfung für Zeitfreigaben</span>
+        </label>
+        <p class="hint">
+          Während einer Zeitfreigabe prüft eine KI jeden Aufruf: Passt er zu dem, was du freigegeben
+          hast? Weicht er ab, endet die Zeitfreigabe und der Aufruf wird dir vorgelegt. Ausgeschaltet
+          gelten Zeitfreigaben ohne Prüfung.
+        </p>
+      </div>
+    </section>
+  {/if}
 
   <section aria-labelledby="upstreams-title">
     <h2 id="upstreams-title">Upstreams</h2>

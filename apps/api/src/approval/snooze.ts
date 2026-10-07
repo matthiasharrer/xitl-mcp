@@ -44,6 +44,19 @@ interface Row {
 interface EffectRow extends Row {
   /** Raw DB text: read through `isAllow`, never compared to 'DENY'. */
   effect: string;
+  /** Row id and the held call it was granted on (ADR-0029); optional so the
+   * pure helpers can be fed plain test rows. */
+  id?: number;
+  anchorAuditId?: number | null;
+}
+
+/** The ALLOW pause that turned a call into ALLOW (ADR-0029): the AI check
+ * compares with its anchor and ends exactly this row on a mismatch. */
+export interface MatchedAllowPause {
+  id: number;
+  until: Date;
+  /** null: granted before ADR-0029 shipped -> blind until it expires. */
+  anchorAuditId: number | null;
 }
 
 /** Fail closed: a row is an allow pause only if its effect is exactly 'ALLOW'. */
@@ -97,14 +110,31 @@ export function pauseState(rows: EffectRow[], toolName: string, readOnly: boolea
   for (const r of live) if (!isAllow(r) && covers(r, toolName, readOnly) && (!deny || r.until > deny.until)) deny = r;
   return {
     allowUntil: latestCovering(live.filter(isAllow), toolName, readOnly),
+    allow: matchedAllow(live, toolName, readOnly),
     denyUntil: deny?.until ?? null,
     denyScope: deny?.scope ?? null,
   };
 }
 
+/** ADR-0029: WHICH allow pause covers the call, when several do: the one
+ * with the latest `until` (the one `allowUntil` reports), ties broken by the
+ * highest id (the newest grant). Deterministic, so the check always compares
+ * with the same anchor and a mismatch ends that row. Rows without an id
+ * (unit-test rows) are never matched. */
+export function matchedAllow(live: EffectRow[], toolName: string, readOnly: boolean): MatchedAllowPause | null {
+  let best: EffectRow | null = null;
+  for (const r of live) {
+    if (!isAllow(r) || !covers(r, toolName, readOnly) || typeof r.id !== 'number') continue;
+    if (!best || r.until > best.until || (r.until.getTime() === best.until.getTime() && r.id > (best.id as number))) best = r;
+  }
+  return best ? { id: best.id as number, until: best.until, anchorAuditId: typeof best.anchorAuditId === 'number' ? best.anchorAuditId : null } : null;
+}
+
 export interface PauseState {
   /** Latest live ALLOW pause covering the tool (ASK -> ALLOW). */
   allowUntil: Date | null;
+  /** That pause's row (ADR-0029: anchor for the AI check), or null. */
+  allow: MatchedAllowPause | null;
   /** Latest live DENY pause covering the tool, and its scope (for the text). */
   denyUntil: Date | null;
   denyScope: SnoozeScope | null;
@@ -113,7 +143,7 @@ export interface PauseState {
 async function liveRows(owner: SnoozeOwner, now: Date): Promise<EffectRow[]> {
   return prisma.snooze.findMany({
     where: { userId: owner.userId, upstreamId: owner.upstreamId, mcpClientId: owner.mcpClientId, until: { gt: now } },
-    select: { scope: true, toolName: true, until: true, effect: true },
+    select: { id: true, scope: true, toolName: true, until: true, effect: true, anchorAuditId: true },
   });
 }
 
@@ -135,6 +165,8 @@ export async function liveSnoozesFor(owner: SnoozeOwner, now: Date): Promise<(to
   return (toolName, readOnly) => pauseState(rows, toolName, readOnly, now).allowUntil;
 }
 
+/** `anchorAuditId` (ADR-0029): the held call an ALLOW pause is granted on;
+ * ignored (null) for a DENY pause. Returns the new row's id. */
 export async function createSnooze(
   owner: SnoozeOwner,
   scope: SnoozeScope,
@@ -142,9 +174,11 @@ export async function createSnooze(
   until: Date,
   now: Date,
   effect: SnoozeEffect = 'ALLOW',
-): Promise<void> {
+  anchorAuditId: number | null = null,
+): Promise<{ id: number; until: Date; anchorAuditId: number | null }> {
   await prisma.snooze.deleteMany({ where: { userId: owner.userId, until: { lte: now } } });
-  await prisma.snooze.create({
+  return prisma.snooze.create({
+    select: { id: true, until: true, anchorAuditId: true },
     data: {
       userId: owner.userId,
       upstreamId: owner.upstreamId,
@@ -154,6 +188,7 @@ export async function createSnooze(
       toolName: scope === 'TOOL' ? toolName : null,
       until,
       createdAt: now,
+      anchorAuditId: effect === 'DENY' ? null : anchorAuditId,
     },
   });
 }

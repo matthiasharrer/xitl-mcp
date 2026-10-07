@@ -16,6 +16,7 @@ import { wireApprovalPush } from './approval/notify.js';
 import { wireUpstreamPush } from './upstream/notify.js';
 import { upstreamStates } from './upstream/stateEvents.js';
 import { wireIntents } from './intent/index.js';
+import { wirePauseCheckPush } from './pausecheck/index.js';
 import { mountMcp } from './mcp/mount.js';
 import { INSTANCE_HEADER, isOwnRequest } from './lib/selfLoop.js';
 import { mountStatic } from './static.js';
@@ -79,6 +80,8 @@ wireApprovalPush(approvals);
 wireUpstreamPush(upstreamStates);
 // Advisory intent summaries reach held calls (SSE `intent`, replacement push; ADR-0025).
 wireIntents();
+// The AI check of allow pauses failed: one push per outage (ADR-0029).
+wirePauseCheckPush();
 
 app.onError((err, c) => {
   console.error(err);

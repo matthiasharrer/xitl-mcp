@@ -153,7 +153,7 @@ type Ctx = Awaited<ReturnType<typeof setup>>;
 async function expectSnoozed(request: APIRequestContext, up: { id: number; slug: string }, token: string, tool: string) {
   const r = await callTool(request, up.slug, token, tool, { item: 'q' });
   expect(r.isError, `${tool} should be forwarded`).toBeFalsy();
-  expect(lastAudit(up.id)).toMatchObject({ toolName: tool, outcome: 'FORWARDED', decisionPath: 'snooze' });
+  expect(lastAudit(up.id)).toMatchObject({ toolName: tool, outcome: 'FORWARDED', decisionPath: 'snooze+ki' });
 }
 /** The call is held (a pending approval appears); denied to end it. */
 async function expectHeld(request: APIRequestContext, user: Identity, up: { id: number; slug: string }, token: string, tool: string) {

@@ -180,7 +180,7 @@ test('TC-30 Erlauben mit Zeitfreigabe: gleicher Client + Tool ohne Nachfrage (sn
   // same client + tool: forwarded at once, path "snooze"; the stamp is gone for it
   const again = await callTool(request, up.slug, token, 'add_item', { item: 'Brot' });
   expect(again).toEqual({ content: [{ type: 'text', text: 'hinzugefügt: Brot' }] });
-  expect(lastAudit(up.id)).toMatchObject({ outcome: 'FORWARDED', policy: 'ALLOW', decisionPath: 'snooze' });
+  expect(lastAudit(up.id)).toMatchObject({ outcome: 'FORWARDED', policy: 'ALLOW', decisionPath: 'snooze+ki' });
   expect((await listTools(request, up.slug, token)).find((t) => t.name === 'add_item')!.description).not.toContain(STAMP);
   expect((await listTools(request, up.slug, other.accessToken)).find((t) => t.name === 'add_item')!.description).toContain(STAMP);
 
@@ -305,7 +305,7 @@ test('TC-36 bestätigtes Tool mit geänderter Beschreibung/Annotations fragt wie
   await decide(request, p2.id, { decision: 'approve', snoozeMinutes: 60 });
   await h2;
   expect((await callTool(request, up.slug, token, 'delete_all')).isError).toBeFalsy();
-  expect(lastAudit(up.id).decisionPath).toBe('snooze');
+  expect(lastAudit(up.id).decisionPath).toBe('snooze+ki');
   await fakeControl(request, up.tenant, 'tools', { name: 'delete_all', description: 'Deletes every item, and the backups.', annotations: { destructiveHint: true, readOnlyHint: false } });
   await listTools(request, up.slug, token);
   expect(dbAll('select count(*) n from Snooze where upstreamId = ? and toolName = ?', up.id, 'delete_all')[0].n).toBe(0);

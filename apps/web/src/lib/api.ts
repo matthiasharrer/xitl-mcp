@@ -1,4 +1,49 @@
-export type Me = { id: number; username: string; displayName: string };
+export type Me = {
+  id: number;
+  username: string;
+  displayName: string;
+  /** ADR-0029: "KI-Prüfung für Zeitfreigaben" (per user, default on). */
+  pauseCheck: boolean;
+  /** The server has the check configured (PAUSE_CHECK_URL); else no switch. */
+  pauseCheckAvailable: boolean;
+};
+
+/** ADR-0029: why the AI check sent a paused call back to the human. */
+export interface PauseCheckView {
+  result: 'mismatch' | 'error';
+  choice: 'richtungswechsel' | 'ausweitung' | null;
+  score: number | null;
+}
+
+/** ADR-0029: the user's AI check outage ("KI-Prüfung nicht erreichbar"). */
+export interface PauseCheckOutage {
+  failing: boolean;
+  since: string | null;
+}
+
+const DEVIATION_LABEL: Record<string, string> = { richtungswechsel: 'Richtungswechsel', ausweitung: 'Ausweitung' };
+
+/** Card / push text for a call the check sent back (same as the API's push note). */
+export function pauseCheckNote(v: PauseCheckView): string {
+  if (v.result === 'mismatch') {
+    const label = v.choice ? DEVIATION_LABEL[v.choice] : null;
+    return `KI-Prüfung: weicht ab${label ? ` (${label})` : ''} – Zeitfreigabe beendet`;
+  }
+  return 'KI-Prüfung nicht erreichbar';
+}
+
+const score2 = (n: number) => n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Verlauf detail line: "KI-Prüfung: passt (0,95)", "KI-Prüfung: weicht ab
+ * (Richtungswechsel, 0,10) – Zeitfreigabe beendet", "KI-Prüfung nicht
+ * erreichbar", or null when the call was not checked. */
+export function pauseCheckLine(e: { decisionPath: string; pauseCheckScore: number | null; pauseCheckChoice: string | null }): string | null {
+  if (e.decisionPath.split('+').includes('snooze-ki-error')) return 'KI-Prüfung nicht erreichbar';
+  if (e.pauseCheckScore === null || e.pauseCheckChoice === null) return null;
+  if (e.pauseCheckChoice === 'gleich') return `KI-Prüfung: passt (${score2(e.pauseCheckScore)})`;
+  const label = DEVIATION_LABEL[e.pauseCheckChoice] ?? 'abweichend';
+  return `KI-Prüfung: weicht ab (${label}, ${score2(e.pauseCheckScore)}) – Zeitfreigabe beendet`;
+}
 
 export type Policy = 'ALLOW' | 'ASK' | 'DENY';
 export type UpstreamAuth = 'OAUTH' | 'HEADER' | 'NONE';
@@ -158,6 +203,8 @@ export interface PendingApproval extends IntentFields {
   /** Read-only by its stored annotations: offers "alle Lesetools". */
   readOnly: boolean;
   session: SessionRef;
+  /** ADR-0029: the AI check sent this paused call back; null otherwise. */
+  pauseCheck?: PauseCheckView | null;
 }
 
 export type Outcome = 'PENDING' | 'FORWARDED' | 'DENIED' | 'TIMED_OUT' | 'UPSTREAM_ERROR';
@@ -219,6 +266,9 @@ export interface AuditDetail extends AuditRow {
   resultText: string | null;
   decidedAt: string | null;
   finishedAt: string | null;
+  /** ADR-0029: p(gleich) and the verdict label of the AI check, if any. */
+  pauseCheckScore: number | null;
+  pauseCheckChoice: string | null;
   /** What this request said about its client (names only; ADR-0016). */
   diagnostics: {
     protocolVersion: string | null;
@@ -277,6 +327,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   me: () => request<Me>('GET', '/api/me'),
+  /** ADR-0029: the user's "KI-Prüfung für Zeitfreigaben" switch. */
+  setPauseCheck: (on: boolean) => request<Me>('PATCH', '/api/me', { pauseCheck: on }),
   listUpstreams: () => request<Upstream[]>('GET', '/api/upstreams'),
   createUpstream: (input: UpstreamInput) => request<Upstream>('POST', '/api/upstreams', input),
   updateUpstream: (id: number, patch: Partial<UpstreamInput>) =>
@@ -364,6 +416,9 @@ const PATH_PART: Record<string, string> = {
   'unknown-tool': 'unbekanntes Tool',
   snooze: 'Zeitfreigabe, ohne Nachfrage',
   'snooze-deny': 'gesperrt (Ablehnen und nicht mehr fragen)',
+  ki: 'KI-Prüfung: passt',
+  'snooze-ki-mismatch': 'Zeitfreigabe, KI-Prüfung: weicht ab – Zeitfreigabe beendet',
+  'snooze-ki-error': 'Zeitfreigabe, KI-Prüfung nicht erreichbar',
   'approved:page': 'erlaubt in der App',
   'approved:push': 'erlaubt per Benachrichtigung',
   'denied:page': 'abgelehnt in der App',

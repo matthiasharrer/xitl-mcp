@@ -11,10 +11,12 @@ import {
   BASE_URL,
   FAKE_UPSTREAM,
   DATABASE_URL,
+  FAKE_CLEF,
   INTENT_STUB_LOG,
   INTENT_TIMEOUT_MS,
   MCP_TOKEN,
   OUTBOUND_ALLOW_PRIVATE,
+  PAUSE_CHECK_TIMEOUT_MS,
   PORT,
   PUSH_OUTBOX,
   REPORT_DIR,
@@ -64,12 +66,22 @@ export default defineConfig({
         INTENT_LLM_STUB: '1',
         INTENT_LLM_STUB_LOG: INTENT_STUB_LOG,
         INTENT_LLM_TIMEOUT_MS: String(INTENT_TIMEOUT_MS),
+        // ADR-0029: the AI check against the fake Clef (real client).
+        PAUSE_CHECK_URL: FAKE_CLEF,
+        PAUSE_CHECK_TIMEOUT_MS: String(PAUSE_CHECK_TIMEOUT_MS),
       },
     },
     {
       // OAuth AS + MCP server standing in for real upstreams (docs/testing.md).
       command: 'npx tsx e2e/support/fakeUpstream.ts',
       url: `${FAKE_UPSTREAM}/health`,
+      reuseExistingServer: false,
+      timeout: 30_000,
+    },
+    {
+      // Fake Clef for the AI check of allow pauses (ADR-0029).
+      command: 'npx tsx e2e/support/fakeClef.ts',
+      url: `${FAKE_CLEF}/health`,
       reuseExistingServer: false,
       timeout: 30_000,
     },

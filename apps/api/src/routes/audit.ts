@@ -130,6 +130,9 @@ audit.get('/:id', async (c) => {
     finishedAt: a.finishedAt?.toISOString() ?? null,
     session: sessionRef(a.session),
     ...auditIntentFields(a),
+    // ADR-0029: the AI check of an allow pause (p(gleich), verdict label).
+    pauseCheckScore: a.pauseCheckScore,
+    pauseCheckChoice: a.pauseCheckChoice,
     // Per-call diagnostics (names only; ADR-0016 measurement).
     diagnostics: {
       protocolVersion: a.protocolVersion,

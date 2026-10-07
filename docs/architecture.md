@@ -83,6 +83,13 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
                          risk.ts / group.ts (pure), model.ts (llama.cpp via
                          outboundFetch + e2e stub), store.ts (DB side, boot
                          sweep), index.ts (env, wiring to the hub)
+  pausecheck/            AI check of allow pauses (ADR-0029): prompt.ts
+                         (state + /v1/systemone body, pure), check.ts
+                         (PauseCheck seam, Clef client via outboundFetch,
+                         strict parseAnswer, verdict, env), gate.ts (narrow
+                         (pure) + PauseGate: evaluate, per-access serial
+                         lock), outage.ts (in-memory outage per user),
+                         text.ts (German notes), index.ts (instance + push)
   lib/push.ts            Web Push sender, VAPID (AppSetting "vapid"),
                          PUSH_OUTBOX transport (copied from Haushalt)
   lib/clock.ts           injectable Clock (ADR-0003)
@@ -307,6 +314,47 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   `isError` + `resultText` (≤ 2000 chars), failure -> `UPSTREAM_ERROR`,
   generic message; ASK: held (next section). `forward()` in server.ts is the
   only place a call leaves xitl.
+- **AI check of allow pauses (ADR-0029, `pausecheck/`).** Sits between
+  `evaluatePolicy` (still pure, unchanged) and the audit write, and runs only
+  when the decision is ALLOW with path `snooze` and `PAUSE_CHECK_URL` is set.
+  Then, under a per-access (user + McpClient) promise chain
+  (`PauseGate.serial`), the pauses are read and the policy evaluated again,
+  and `PauseGate.evaluate` decides:
+  - blind: the matched pause has no `anchorAuditId` (granted before the
+    check) or `User.pauseCheck` is off;
+  - otherwise one Clef `/v1/systemone` request (timeout
+    `PAUSE_CHECK_TIMEOUT_MS`) with state = the anchor call (its audit row:
+    tool, arguments, intent summary if DONE) + the calls forwarded under
+    THIS pause since (`AuditEntry.pauseSnoozeId` = the pause's id, same user,
+    client and upstream, outcome FORWARDED / UPSTREAM_ERROR / PENDING, newest
+    `PAUSE_CHECK_MAX_SINCE` = 8, oldest first) + the new call.
+  `narrow()` (pure) maps the result: match → ALLOW `snooze+ki`; mismatch →
+  the Snooze row is deleted (no event, like "Aufheben") and ASK
+  `snooze-ki-mismatch`; error/timeout/garbage/anchor row gone → ASK
+  `snooze-ki-error`, pause kept; blind → unchanged `snooze`. It never turns
+  anything else into ALLOW. The audit row then gets `pauseCheckScore`
+  (p(gleich)), `pauseCheckChoice` (`gleich` or the stronger deviation) and,
+  for an ALLOW via a pause, `pauseSnoozeId`. A held mismatch/error call
+  carries `PendingCall.pauseCheck` (card note, push `note`).
+  - **Which pause "matched":** `pauseState().allow` (snooze.ts
+    `matchedAllow`): of the live ALLOW rows covering the call, the one with
+    the latest `until`, ties → highest id. A mismatch ends that row only;
+    another blind/covering row can still let the next call through.
+  - **Settle path (TC-128 + ADR-0029 §6):** when the user's check is active
+    at decision time, the approvals route does NOT settle covered held calls;
+    server.ts does, right after `createSnooze` (anchor = the approved call),
+    in `settleCovered`, in hub order under the same serial lock: match/blind
+    → `pauseSnoozeId` (+ score) on the row, then `decide(approve, via
+    'pause')`; mismatch → score on the row, pause deleted, `setPauseCheck`
+    (SSE `checked`), stop; error → `setPauseCheck`, stop. The response's
+    `alsoDecided` is then 0.
+  - **Outage** (`outage.ts`, in memory): a model failure marks the user
+    failing (SSE `pausecheck` {failing, since}, Freigaben card with "KI-
+    Prüfung ausschalten"), one push `{type:'pausecheck'}` per start, at most
+    one per user per hour; cleared by the next successful check or by
+    `PATCH /api/me {pauseCheck:false}`. No probing. A restart forgets it.
+  - The switch: `GET/PATCH /api/me` (`pauseCheck`, `pauseCheckAvailable` =
+    URL configured). No /mcp path touches it.
 - No `notifications/tools/list_changed` on policy changes: sessions are DB
   rows only (no open server-to-client stream; GET is 405); the next
   `tools/list` sees the change.

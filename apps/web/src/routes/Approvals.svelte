@@ -4,6 +4,7 @@
   import { onDestroy } from 'svelte';
   import ApprovalCard from '../lib/ApprovalCard.svelte';
   import FaultCard from '../lib/FaultCard.svelte';
+  import PauseCheckFaultCard from '../lib/PauseCheckFaultCard.svelte';
   import { groupCalls } from '../lib/grouping';
   import Spinner from '../lib/Spinner.svelte';
   import { api, messageOf, type Me, type PendingApproval, type UpstreamFault } from '../lib/api';
@@ -16,6 +17,8 @@
   let loadError = $state<string | null>(null);
   let live = $state(true);
   let faults = $state<UpstreamFault[]>([]);
+  /** ADR-0029: the AI check of Zeitfreigaben is failing (stream event). */
+  let checkFailing = $state(false);
 
   const loadFaults = () =>
     api.listUpstreamFaults().then(
@@ -52,6 +55,10 @@
       list = list.map((p) => (p.id === id ? { ...p, intentStatus, intentTitle, intentSummary, intentRisk, intentLowered } : p));
     },
     upstreams: (l) => (faults = l),
+    pausecheck: (s) => (checkFailing = s.failing),
+    checked: ({ id, pauseCheck }) => {
+      list = list.map((p) => (p.id === id ? { ...p, pauseCheck } : p));
+    },
     connected: (ok) => (live = ok),
   });
   onDestroy(close);
@@ -68,6 +75,9 @@
     <p class="hint" role="status">Verbindung unterbrochen, verbinde neu…</p>
   {/if}
   <!-- ADR-0022: faults first; they are not approvals (no decision, no deadline). -->
+  {#if checkFailing}
+    <PauseCheckFaultCard onoff={() => (checkFailing = false)} />
+  {/if}
   {#each faults as fault (fault.id)}
     <FaultCard {fault} onchange={loadFaults} />
   {/each}
@@ -77,7 +87,7 @@
     <p class="error" role="alert">{loadError}</p>
   {:else if list.length === 0}
     <!-- "Nothing open" would be wrong while a fault card asks for something. -->
-    {#if faults.length === 0}<p class="empty">Keine offenen Freigaben.</p>{/if}
+    {#if faults.length === 0 && !checkFailing}<p class="empty">Keine offenen Freigaben.</p>{/if}
   {:else}
     {#each groups as g (g.key)}
       {#if groups.length > 1}

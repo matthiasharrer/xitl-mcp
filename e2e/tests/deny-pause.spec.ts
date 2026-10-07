@@ -163,7 +163,7 @@ test.describe('TC-123 Wirkung', () => {
     const allowed = await decideHeld(request, ctx, ctx.A.token, 'add_item', { decision: 'approve', snoozeMinutes: 60, snoozeScope: 'upstream' });
     expect(allowed.result.isError).toBeFalsy();
     expect((await callTool(request, ctx.up.slug, ctx.A.token, 'add_item', { item: 'x' })).isError).toBeFalsy();
-    expect(lastAudit(ctx.up.id)).toMatchObject({ decisionPath: 'snooze', outcome: 'FORWARDED' });
+    expect(lastAudit(ctx.up.id)).toMatchObject({ decisionPath: 'snooze+ki', outcome: 'FORWARDED' });
     // With the upstream-wide allow pause live, A's calls never reach a card,
     // so the deny pause is written the way the app writes it (createSnooze).
     const userId = dbAll('select id from User where username = ?', ctx.user['Remote-User'])[0].id;
@@ -180,7 +180,7 @@ test.describe('TC-123 Wirkung', () => {
     await expectBlocked(request, ctx, ctx.A.token, 'add_item');
     // Other tools of the upstream still go through the allow pause.
     expect((await callTool(request, ctx.up.slug, ctx.A.token, 'list_items')).isError).toBeFalsy();
-    expect(lastAudit(ctx.up.id)).toMatchObject({ decisionPath: 'snooze' });
+    expect(lastAudit(ctx.up.id)).toMatchObject({ decisionPath: 'snooze+ki' });
   });
 
   test('Eine Zeile mit unbekanntem effect sperrt (fail closed) und erscheint als Gesperrt', async ({ request }) => {

@@ -84,6 +84,11 @@ GHCR), `v0.7.0` deployed and running. GitOps already has `INTENT_LLM_URL`
    confidence), ~0.8 s. Injection (en question): benign ≤ 0.13, injected
    ≥ 0.83 **incl. the fake `<system>` claim** (Flash missed it): clean gap,
    usable as a warning on the card (still never a guard).
+   **Built 2026-10-07, unreleased:** ADR-0029 (Zeitfreigabe with AI check)
+   is implemented (`apps/api/src/pausecheck/`, migration
+   `20261006030000_pause_check`, TC-137…148 green). Deploy needs
+   `PAUSE_CHECK_URL` in GitOps (optional `PAUSE_CHECK_THRESHOLD`,
+   `PAUSE_CHECK_TIMEOUT_MS`, `PAUSE_CHECK_MODEL`); unset = blind pauses.
 
 0b. **Review hint for new and changed tools** (Matthias, 2026-10-07: "one
    just accepts all new tools anyway, at least a hint if something needs more

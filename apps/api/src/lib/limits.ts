@@ -108,3 +108,34 @@ export const INTENT_REQUEST_TIMEOUT_MS = 60_000;
 
 /** Bytes of one LLM HTTP response. */
 export const MAX_INTENT_RESPONSE_BYTES = 256 * 1024;
+
+// ---- AI check of allow pauses (ADR-0029) --------------------------------------
+// The state sent to Clef holds agent-controlled arguments: capped per call and
+// in total. The total also keeps one request inside one llama.cpp ubatch
+// (the server runs --ubatch-size 4096 tokens; a bigger request is HTTP 500,
+// which would hold the call as `snooze-ki-error`).
+
+/** Calls forwarded under the pause since its anchor, newest N, oldest first. */
+export const PAUSE_CHECK_MAX_SINCE = 8;
+
+/** Characters of one call's JSON-encoded arguments in the state; longer ones
+ * go in as a truncated string (`argumentsTruncated`, as in the intent prompt).
+ * Smaller than MAX_INTENT_ARGS_CHARS: ten calls must fit one ubatch. */
+export const MAX_PAUSE_CHECK_ARGS_CHARS = 1200;
+
+/** Characters of the whole state; over it, the OLDEST "calls since" are left
+ * out until it fits (anchor and new call always stay). ~3k tokens. */
+export const MAX_PAUSE_CHECK_STATE_CHARS = 9000;
+
+/** Characters of the anchor's intent summary in the state. */
+export const MAX_PAUSE_CHECK_SUMMARY_CHARS = 600;
+
+/** PAUSE_CHECK_TIMEOUT_MS: default and the accepted range. */
+export const PAUSE_CHECK_TIMEOUT_DEFAULT_MS = 10_000;
+export const PAUSE_CHECK_TIMEOUT_MAX_MS = 60_000;
+
+/** PAUSE_CHECK_THRESHOLD default: p(gleich) at or above it forwards. */
+export const PAUSE_CHECK_THRESHOLD_DEFAULT = 0.8;
+
+/** Bytes of one Clef response. */
+export const MAX_PAUSE_CHECK_RESPONSE_BYTES = 64 * 1024;

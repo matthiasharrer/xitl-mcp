@@ -3,6 +3,24 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-07 — Zeitfreigabe with AI check built (ADR-0029), unreleased
+
+- `apps/api/src/pausecheck/` (prompt, check, gate, outage, text, index);
+  server.ts runs the gate only after `evaluatePolicy` said ALLOW `snooze`,
+  under a per-access serial lock, re-evaluating there. Migration
+  `20261006030000_pause_check` (hand-written ADD COLUMNs): `User.pauseCheck`,
+  `Snooze.anchorAuditId`, `AuditEntry.pauseCheckScore/Choice` and an extra
+  `AuditEntry.pauseSnoozeId` (needed to scope "calls since" to one pause).
+- Settle path: with the check active the route no longer settles covered
+  held calls; server.ts does after `createSnooze` (anchor known).
+- e2e uses a fake Clef HTTP server (real client exercised) instead of an
+  in-process stub. TC-137…148, unit 453, e2e 166, three mutations fail as
+  required. Real Clef smoke: 0.96 vs 0.12 / 0.21.
+- State caps are tighter than the intent prompt's (args 1200 chars, state
+  9000) so ten calls fit Clef's 4096-token ubatch.
+- **Gotcha:** SSE consumers (TC-95) rely on `snapshot` then `upstreams`;
+  new per-connect events must be chained after the fault list.
+
 ## 2026-10-07 — Live Verlauf (ADR-0028)
 
 - Matthias: push updates on Verlauf too. New `history` event on the existing

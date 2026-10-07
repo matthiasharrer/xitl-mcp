@@ -5,7 +5,7 @@
   import Spinner from '../lib/Spinner.svelte';
   import SessionLine from '../lib/SessionLine.svelte';
   import IntentSummary from '../lib/IntentSummary.svelte';
-  import { api, ApiError, decisionPathText, messageOf, OUTCOME_LABEL, POLICY_LABEL, type AuditDetail } from '../lib/api';
+  import { api, ApiError, decisionPathText, messageOf, OUTCOME_LABEL, pauseCheckLine, POLICY_LABEL, type AuditDetail } from '../lib/api';
 
   let { id }: { id: number } = $props();
 
@@ -73,6 +73,10 @@
         <dt>Client</dt><dd>{e.clientName ?? '–'}</dd>
         <dt>Entscheidung</dt><dd>{decisionPathText(e.decisionPath)}</dd>
         <dt>Regel</dt><dd>{POLICY_LABEL[e.policy]}</dd>
+        {#if pauseCheckLine(e)}
+          <!-- ADR-0029: the AI check of the Zeitfreigabe (p(gleich)). -->
+          <dt>KI</dt><dd data-testid="pause-check">{pauseCheckLine(e)}</dd>
+        {/if}
         <dt>Eingegangen</dt><dd>{fmt(e.receivedAt)}</dd>
         <dt>Entschieden</dt><dd>{fmt(e.decidedAt)}</dd>
         <dt>Fertig</dt><dd>{fmt(e.finishedAt)}</dd>

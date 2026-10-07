@@ -1,6 +1,6 @@
 // Snooze scopes (TC-76 unit part): which rows cover which tool.
 import { describe, expect, it } from 'vitest';
-import { covers, isAllow, isReadOnly, latestCovering, pauseState } from './snooze.js';
+import { covers, isAllow, isReadOnly, latestCovering, matchedAllow, pauseState } from './snooze.js';
 import { heldCoveredBy } from './snooze.js';
 
 const d = (m: number) => new Date(Date.UTC(2026, 9, 5, 12, m));
@@ -54,13 +54,13 @@ describe('pause effects (TC-121, ADR-0026)', () => {
 
   it('a deny pause never acts as an allow pause', () => {
     const rows = [row('DENY', 'TOOL', 'add', d(30))];
-    expect(pauseState(rows, 'add', false, NOW)).toEqual({ allowUntil: null, denyUntil: d(30), denyScope: 'TOOL' });
+    expect(pauseState(rows, 'add', false, NOW)).toEqual({ allowUntil: null, allow: null, denyUntil: d(30), denyScope: 'TOOL' });
   });
 
   it('an unrecognised effect is DENY (fail closed)', () => {
     for (const effect of ['allow', 'ALLOW ', '', 'X', 'deny']) {
       expect(isAllow({ effect })).toBe(false);
-      expect(pauseState([row(effect, 'TOOL', 'add', d(30))], 'add', false, NOW)).toEqual({ allowUntil: null, denyUntil: d(30), denyScope: 'TOOL' });
+      expect(pauseState([row(effect, 'TOOL', 'add', d(30))], 'add', false, NOW)).toEqual({ allowUntil: null, allow: null, denyUntil: d(30), denyScope: 'TOOL' });
     }
     expect(isAllow({ effect: 'ALLOW' })).toBe(true);
   });
@@ -73,6 +73,7 @@ describe('pause effects (TC-121, ADR-0026)', () => {
   it('expired rows have no effect', () => {
     expect(pauseState([row('DENY', 'UPSTREAM', null, NOW), row('ALLOW', 'UPSTREAM', null, d(-1))], 'add', false, NOW)).toEqual({
       allowUntil: null,
+      allow: null,
       denyUntil: null,
       denyScope: null,
     });
@@ -80,7 +81,7 @@ describe('pause effects (TC-121, ADR-0026)', () => {
 
   it('both effects live: both reported (the policy lets deny win)', () => {
     const rows = [row('ALLOW', 'TOOL', 'add', d(60)), row('DENY', 'UPSTREAM', null, d(15))];
-    expect(pauseState(rows, 'add', false, NOW)).toEqual({ allowUntil: d(60), denyUntil: d(15), denyScope: 'UPSTREAM' });
+    expect(pauseState(rows, 'add', false, NOW)).toEqual({ allowUntil: d(60), allow: null, denyUntil: d(15), denyScope: 'UPSTREAM' });
   });
 });
 
@@ -112,5 +113,34 @@ describe('heldCoveredBy (TC-128: a pause also settles the held calls it covers)'
   it('DENY takes new/changed tools too (only tightens), still never another client/upstream/user', () => {
     expect(ids(heldCoveredBy(origin, held, 'TOOL', 'DENY'))).toEqual(['new-tool', 'same']);
     expect(ids(heldCoveredBy(origin, held, 'UPSTREAM', 'DENY'))).toEqual(['new-tool', 'other-tool', 'same']);
+  });
+});
+
+// ADR-0029: which allow pause "matched" a call (its anchor is what the AI
+// check compares with, and a mismatch ends exactly that row).
+describe('matchedAllow (ADR-0029)', () => {
+  const NOW = d(0);
+  const row = (id: number, effect: string, scope: 'TOOL' | 'READONLY' | 'UPSTREAM', toolName: string | null, until: Date, anchorAuditId: number | null = 100 + id) => ({
+    id, effect, scope, toolName, until, anchorAuditId,
+  });
+
+  it('the covering allow row with the latest until; ties: the highest id', () => {
+    const rows = [row(1, 'ALLOW', 'TOOL', 'add', d(30)), row(2, 'ALLOW', 'UPSTREAM', null, d(45)), row(3, 'ALLOW', 'TOOL', 'other', d(90))];
+    expect(matchedAllow(rows, 'add', false)).toEqual({ id: 2, until: d(45), anchorAuditId: 102 });
+    const tie = [row(4, 'ALLOW', 'TOOL', 'add', d(30)), row(7, 'ALLOW', 'UPSTREAM', null, d(30)), row(5, 'ALLOW', 'TOOL', 'add', d(30))];
+    expect(matchedAllow(tie, 'add', false)?.id).toBe(7);
+    expect(matchedAllow([...tie].reverse(), 'add', false)?.id).toBe(7);
+  });
+
+  it('pauseState reports the same row as allowUntil; deny/unknown effects and expired rows never match', () => {
+    const rows = [row(1, 'DENY', 'UPSTREAM', null, d(99)), row(2, 'allow', 'UPSTREAM', null, d(98)), row(3, 'ALLOW', 'TOOL', 'add', d(-1)), row(4, 'ALLOW', 'TOOL', 'add', d(10))];
+    const s = pauseState(rows, 'add', false, NOW);
+    expect(s.allow).toEqual({ id: 4, until: d(10), anchorAuditId: 104 });
+    expect(s.allowUntil).toEqual(d(10));
+  });
+
+  it('a row without anchor reports null (blind); none covering -> null', () => {
+    expect(matchedAllow([row(9, 'ALLOW', 'TOOL', 'add', d(10), null)], 'add', false)).toEqual({ id: 9, until: d(10), anchorAuditId: null });
+    expect(matchedAllow([row(9, 'ALLOW', 'TOOL', 'add', d(10))], 'other', false)).toBeNull();
   });
 });

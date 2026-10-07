@@ -122,11 +122,11 @@ test('TC-62 ua_list_items nur an ua, Audit /mcp; ask hält + Freigabe; Pause von
   // shared rules: the snooze given via /mcp applies to the same tool on /mcp/<slug>
   const again = await callTool(request, ua.slug, token, 'add_item', { item: 'Brot' });
   expect(again).toEqual({ content: [{ type: 'text', text: 'hinzugefügt: Brot' }] });
-  expect(dbAll('select * from AuditEntry where upstreamId = ? order by id desc limit 1', ua.id)[0]).toMatchObject({ endpoint: `/mcp/${ua.slug}`, outcome: 'FORWARDED', decisionPath: 'snooze' });
+  expect(dbAll('select * from AuditEntry where upstreamId = ? order by id desc limit 1', ua.id)[0]).toMatchObject({ endpoint: `/mcp/${ua.slug}`, outcome: 'FORWARDED', decisionPath: 'snooze+ki' });
   // and back on /mcp: still no question
   const third = await callTool(request, null, token, `${ua.slug}_add_item`, { item: 'Käse' });
   expect(third.isError).toBeFalsy();
-  expect(dbAll('select * from AuditEntry where upstreamId = ? order by id desc limit 1', ua.id)[0]).toMatchObject({ endpoint: '/mcp', decisionPath: 'snooze' });
+  expect(dbAll('select * from AuditEntry where upstreamId = ? order by id desc limit 1', ua.id)[0]).toMatchObject({ endpoint: '/mcp', decisionPath: 'snooze+ki' });
   expect(await fakeState(request, ub.tenant).then((s) => s.calls)).toEqual({}); // ub never touched
 });
 

@@ -4,7 +4,7 @@
   // and the deny pause "Ablehnen und nicht mehr fragen" (ADR-0026, TC-125).
   // Arguments come from the (untrusted) agent: shown as text, never as HTML.
   import { onDestroy, untrack } from 'svelte';
-  import { api, ApiError, messageOf, type ApprovalDecision, type PendingApproval, type SnoozeScope } from './api';
+  import { api, ApiError, messageOf, pauseCheckNote, type ApprovalDecision, type PendingApproval, type SnoozeScope } from './api';
   import { showToast } from './store.svelte';
   import SessionLine from './SessionLine.svelte';
   import IntentSummary from './IntentSummary.svelte';
@@ -99,6 +99,12 @@
     pending={approval.intentStatus === 'PENDING'}
   />
   <SessionLine session={approval.session} />
+  {#if approval.pauseCheck}
+    <!-- ADR-0029: why a call under a Zeitfreigabe is asked after all. -->
+    <p class="pause-check-note" class:mismatch={approval.pauseCheck.result === 'mismatch'} data-pause-check={approval.pauseCheck.result}>
+      {pauseCheckNote(approval.pauseCheck)}
+    </p>
+  {/if}
   {#if !approval.snoozable}
     <p class="hint approval-new">
       Neues oder geändertes Tool. Prüfe es in den <a href={`#/regeln/${approval.upstream.id}`}>Regeln</a>.
@@ -197,3 +203,20 @@
     >
   </div>
 </article>
+
+<style>
+  .pause-check-note {
+    margin: 0.5rem 0;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--warn);
+    background: var(--warn-soft);
+    color: var(--fg);
+    font-size: 0.875rem;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .pause-check-note.mismatch {
+    border-color: var(--danger);
+  }
+</style>

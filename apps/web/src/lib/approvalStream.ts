@@ -6,7 +6,7 @@
 // GET /api/audit's entries, ADR-0028). Verlauf refetches on every `snapshot`
 // (= every (re)connect) so events missed while disconnected are healed.
 // `intent` carries a held call's advisory summary once it is there (ADR-0025).
-import type { AuditRow, IntentFields, PendingApproval, UpstreamFault } from './api';
+import type { AuditRow, IntentFields, PauseCheckOutage, PauseCheckView, PendingApproval, UpstreamFault } from './api';
 
 export interface StreamHandlers {
   snapshot?: (list: PendingApproval[]) => void;
@@ -17,6 +17,10 @@ export interface StreamHandlers {
   /** One of the user's audit rows was created or changed (ADR-0028). */
   history?: (row: AuditRow) => void;
   upstreams?: (faults: UpstreamFault[]) => void;
+  /** ADR-0029: a held call the AI check sent back (settle path). */
+  checked?: (ev: { id: string; pauseCheck: PauseCheckView | null }) => void;
+  /** ADR-0029: the user's AI check outage (on connect, then on change). */
+  pausecheck?: (state: PauseCheckOutage) => void;
   connected?: (ok: boolean) => void;
 }
 
@@ -53,6 +57,14 @@ export function openApprovalStream(h: StreamHandlers): () => void {
   es.addEventListener('upstreams', (e) => {
     const list = parse(e as MessageEvent);
     if (Array.isArray(list)) h.upstreams?.(list);
+  });
+  es.addEventListener('checked', (e) => {
+    const ev = parse(e as MessageEvent);
+    if (ev && typeof ev.id === 'string') h.checked?.(ev);
+  });
+  es.addEventListener('pausecheck', (e) => {
+    const ev = parse(e as MessageEvent);
+    if (ev && typeof ev.failing === 'boolean') h.pausecheck?.(ev);
   });
   es.onopen = () => h.connected?.(true);
   es.onerror = () => h.connected?.(false);
