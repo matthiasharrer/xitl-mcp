@@ -48,6 +48,16 @@ chips, "Läuft gerade" overview). Deployed: whatever Matthias last bumped
    first, then Matthias decides.
 8. MG-05 (Tina), whenever convenient.
 
+**After ADR-0032 and the upstream pause (ADR-0033) (Matthias, 2026-10-07):**
+
+- **Rework the Einstellungen page, the upstream part first.** An upstream has
+  more and more buttons, and they're hard to tell apart visually. Start by
+  listing every action per upstream (inventory). Then group them (everyday:
+  pause/resume, Regeln; occasional: connect, edit, token; rare/destructive:
+  delete), give them a clear visual hierarchy (primary / secondary /
+  overflow menu, destructive set apart), and show Matthias 2–3 options as
+  phone screenshots before building.
+
 **To prioritize (Matthias, 2026-10-06, not ordered yet):**
 
 - **Per-client default per upstream: ADR-0032 accepted (2026-10-07), being
