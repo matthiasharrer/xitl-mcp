@@ -5,11 +5,11 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-07 (`v0.13.0` released)_
+_Last updated: 2026-10-07 (`v0.13.1` released)_
 
 ## Next
 
-State 2026-10-07: **`v0.13.0` released** (Einstellungen rework: switches, own upstream and client pages; `v0.12.0`: per-client default per upstream ADR-0032, pause an upstream ADR-0033, tool freshness on call ADR-0034; `v0.10.0`: live Verlauf ADR-0028,
+State 2026-10-07: **`v0.13.1` released** (Einstellungen rework: switches, own upstream and client pages; `v0.13.1` fixes a tab-bar tap toggling a switch; `v0.12.0`: per-client default per upstream ADR-0032, pause an upstream ADR-0033, tool freshness on call ADR-0034; `v0.10.0`: live Verlauf ADR-0028,
 Zeitfreigabe / Sperre wording, Zeitfreigabe AI check ADR-0029, tool review
 hint ADR-0031, AUTO ADR-0030, purpose line; `v0.11.0`: purpose suggestion
 chips, "Läuft gerade" overview). Deployed: whatever Matthias last bumped
@@ -18,7 +18,7 @@ chips, "Läuft gerade" overview). Deployed: whatever Matthias last bumped
 
 **Open, in order:**
 
-0. **Deploy `v0.13.0`** (Matthias bumps the tag; GitOps already has
+0. **Deploy `v0.13.1`** (Matthias bumps the tag; GitOps already has
    `PAUSE_CHECK_URL` and the NetworkPolicy to llama-cpp-clef, 2026-10-07).
    Then the manual gates MG-09…11: Zeitfreigabe AI check on the phone (incl.
    "Wofür?"), Sperre with purpose, AUTO with a real rule + "Mit Verlauf

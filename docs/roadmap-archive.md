@@ -3,6 +3,11 @@
 Shipped roadmap entries, newest first. The reasoning is in `decisions/`, the
 test evidence in `testing.md`'s run log.
 
+## 2026-10-07 (`v0.13.1`)
+
+- **Fix:** a tap on the tab bar toggled a switch scrolled under it (Matthias
+  paused an upstream by tapping "Freigaben"). TC-211.
+
 ## 2026-10-07 (`v0.13.0`)
 
 - **Einstellungen rework** (Matthias picked it from mock screenshots).

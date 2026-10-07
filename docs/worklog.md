@@ -23,7 +23,7 @@
   paused an upstream. The switch's enlarged tap area had `z-index: 1`, the
   fixed tab bar none, so a switch scrolled under the bar took the tap. Fix:
   tab bar `z-index: 10`, the switch input without z-index (track
-  `pointer-events: none`). TC-211.
+  `pointer-events: none`). TC-211. Released as `v0.13.1` (Matthias).
 
 ## 2026-10-07 — ADR-0033 upstream pause, ADR-0034 tool freshness (lead + implementer)
 
