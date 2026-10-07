@@ -101,3 +101,21 @@
   connect fixes it; cost: stale "xitl" entries pile up at the upstream. Seen
   only via the self-loop (ADR-0027), which was the actual cause of the
   "missing registration" report; the suspected consent rename was not it.
+
+- **AUTO policy with Clef** (Matthias, 2026-10-07): a level between ALLOW and
+  ASK, settable like the others (upstream default, tool rule, per client).
+  Clef judges the concrete call; confident "harmless" → forward, everything
+  else (unsure, risky, injection signal, Clef down/timeout/garbage) → ASK.
+  Lead's proposal: per call one request with the tool description,
+  annotations and the arguments (JSON in `<call>`, untrusted), questions
+  `risiko` (choice lesen / ändern-leicht-rückgängig / zerstören, as in
+  `scripts/bench/clef_probes.py`) + `injektion` (noul); forward only when
+  risiko ∈ the classes the user allowed for AUTO (default: lesen) with
+  confidence ≥ threshold and injektion below its threshold. Security
+  position: weaker than ASK (the verdict is attacker-influenced via the
+  arguments), stronger than ALLOW; the human picks it per rule, knowing
+  that. Never overrides DENY, new/changed tool → ASK as today. Same
+  optional/switch/outage machinery as ADR-0029. Needs: a bench on concrete
+  calls with arguments (not just tool descriptions; e.g. update_recipe that
+  only fixes a typo vs. wipes the ingredients), then an ADR, then Matthias.
+  Build after ADR-0029 (reuses its Clef client, switch and outage notice).
