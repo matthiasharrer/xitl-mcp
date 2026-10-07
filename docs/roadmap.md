@@ -68,8 +68,68 @@ chips, "Läuft gerade" overview). Deployed: whatever Matthias last bumped
   later calls against what the user just accepted. Also offer it in the
   Verlauf detail of the call that ended the pause? Needs: keep the ended
   pause's fields (it's deleted today, or mark it `endedAt` + reason), and an
-  amendment to ADR-0029. Confirm with Matthias that "intent" meant the
-  purpose plus the pause itself (not the ADR-0025 intent summary).
+  amendment to ADR-0029. Matthias confirmed (2026-10-07): it's about the
+  "Wofür?" purpose of the Zeitfreigabe.
+
+- **"Richtungswechsel" blocks too often** (Matthias, 2026-10-07: "sehr
+  häufig" right now, in real use). First collect his real cases: audit rows
+  with `pauseCheckChoice = 'richtungswechsel'` and their score, purpose and
+  anchor, from the instance he uses. Then rerun `clef_bench.py` /
+  `clef_pause_intent.py` with them as new cases. Possible levers: the
+  threshold, the prompt (does a purpose count as wider than the anchor
+  call?), anchoring on the purpose instead of the first call, or "Nur
+  hinweisen" (mark the card, don't end the pause). Scores drift between
+  llama.cpp builds (0.61 → 0.82 seen), so check `/health` and `/v1/models`
+  first.
+
+- **SECURITY, top priority: a new/changed tool was used without approval**
+  (Matthias, 2026-10-07): "geänderte Tools wurden erst angezeigt, nachdem
+  ich manuell refresh tools gedrückt habe. Claude hat das neue Tool aber
+  schon ohne Freigabe verwendet." In the current code, a proxied tools/list
+  syncs (new = ASK `new-tool`, changed = ASK `changed-tool`), so first find
+  out whether the call went through xitl at all. Is it in Verlauf, and with
+  which decisionPath? (Matthias: the upstream was connected ONLY through
+  xitl, so no direct connector.) Candidates from reading the code: (a) the
+  upstream had zero KnownTool rows at that list, so all were acknowledged
+  (a new upstream, e.g. n8n just added); (b) a SAME-NAME tool changed
+  without a re-list: change detection runs only on tools/list, and a call
+  with a cached list goes through on the stale acknowledged row; (c) a
+  per-client ALLOW on an unacknowledged tool stays ALLOW (`explicit()` only
+  downgrades AUTO for new tools; ALLOW for changed ones).
+  **Evidence (Matthias, prod, 2026-10-07 15:25:34):** `einkaufsliste_lesen`
+  on /mcp, client "Claude (Matthias)", decision `policy:upstream-default`
+  ALLOW, forwarded. The tool already existed by name. So at call time the
+  KnownTool row was acknowledged and unchanged: xitl had not seen the new
+  definition, and only the manual "Tools aktualisieren" synced it. That
+  points to (b): the upstream (Einkaufsliste, recently updated: IDs,
+  artikel_aendern, liste_neu_sortieren) changed after Claude.ai's last
+  tools/list through xitl, and Claude.ai called with its cached list. Rug-pull
+  detection only runs on tools/list, so a call never re-checks the
+  definition. **Update (Matthias):** `einkaufsliste_lesen` has no parameters and
+  was probably the ONE tool of the workflow that did NOT change, so its
+  ALLOW was correct. No call to a changed tool is proven yet; check Verlauf
+  for calls to the changed ones before calling this a bypass. The gap
+  itself (no re-check between lists) is real either way. **Decided (Matthias,
+  2026-10-07): re-sync if older than 5 minutes**, as below. Accepted
+  limits: a change inside the 5-min window still passes, and behaviour
+  changes without a definition change are never visible (say so in the ADR).
+  Fix proposal: before deciding a call, if the
+  upstream's tools were last synced more than N minutes ago (e.g. 5), list
+  and sync first (one extra upstream request at most every N min per
+  upstream), then evaluate. A change found that way makes the call ASK
+  `changed-tool`. Also make sure the Regeln page re-reads after a proxied
+  sync. Also check: the
+  deployed version (before v0.10.0 there is no inputSchema change detection,
+  ADR-0031), and whether that upstream had zero KnownTool rows (first list =
+  acknowledged, ACKNOWLEDGE_INITIAL_TOOLS). Reproduce in e2e before fixing.
+- **Bug: tools listed through xitl don't update the Regeln tool list**
+  (Matthias, 2026-10-07). The code path exists: `listFor` (mcp/server.ts)
+  calls `syncKnownTools` on every proxied tools/list. So find out what exactly
+  stays stale: a new tool missing from Regeln, a removed tool still shown
+  (pruning may only happen on "Tools aktualisieren"), a changed description,
+  or only the open Regeln page not refreshing live (no event to the web app).
+  Reproduce with the fake upstream adding/removing a tool, then a /mcp
+  tools/list, then GET /api/upstreams/:id/tools.
 
 **To prioritize (Matthias, 2026-10-06, not ordered yet):**
 
