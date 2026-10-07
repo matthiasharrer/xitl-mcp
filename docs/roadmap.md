@@ -49,20 +49,13 @@ chips, "Läuft gerade" overview). Deployed: whatever Matthias last bumped
 
 **To prioritize (Matthias, 2026-10-06, not ordered yet):**
 
-- **Per-client default per upstream** (Matthias, 2026-10-06: decided "volle
-  Voreinstellung", not built yet). Trigger: with everything on `/mcp`, the
-  Claude.ai client sees Rezepte twice (`rezepte_…` and the work copy
-  `rezepte-arbeit_…`). New per (client, upstream) policy ALLOW / ASK / DENY,
-  between the upstream default and per-tool rules; a per-client tool rule
-  still wins. **DENY = upstream invisible to that client**: no tools in
-  `tools/list`, no section in `/mcp` instructions, calls denied, and it beats
-  "new/changed tool → ASK" (else new tools reappear). Pauses don't change it.
-  UI: one row per client under "Pro Client" in the upstream's rules (Voreinst.
-  / Erlauben / Fragen / Verbieten). Makes the double-upstream workaround
-  unnecessary. Needs an ADR (policy change) and fail-closed cases (DENY never
-  listed/forwarded, incl. new tools, unified and per-slug endpoints).
-  Workaround today: per-client DENY on every tool (DENY tools are already
-  hidden from `tools/list`).
+- **Per-client default per upstream: ADR-0032 accepted (2026-10-07), being
+  built next** (after TC-128). Precedence: Client-Regel > Tool-Regel >
+  Client-Voreinst. > Upstream-Voreinst.; Verbieten as the client default
+  hides the upstream completely, masking the client's own tool rules (kept,
+  shown as ineffective). Includes the "Gilt für <client>" view in Regeln and
+  the "Sieht / Verborgen" line on the client page. Fail-closed cases in the ADR's
+  Consequences.
 
 - **Optional reason when denying**, passed to the agent in the denial text
   ("[xitl] Abgelehnt: <Grund>"), e.g. "falsches Tool, nicht nochmal
