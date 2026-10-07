@@ -1,5 +1,7 @@
 <script lang="ts">
   // #/verlauf/<id>: one audit entry with arguments and the result excerpt.
+  import { onDestroy } from 'svelte';
+  import { openApprovalStream } from '../lib/approvalStream';
   import Spinner from '../lib/Spinner.svelte';
   import SessionLine from '../lib/SessionLine.svelte';
   import IntentSummary from '../lib/IntentSummary.svelte';
@@ -21,6 +23,23 @@
     );
   }
   load();
+
+  // Live (ADR-0028): when this row changes (outcome, summary) the detail is
+  // fetched again; a reconnect refetches too. A failed refetch keeps what is shown.
+  function refetch() {
+    api.getAudit(id).then(
+      (e) => (entry = e),
+      () => {},
+    );
+  }
+  onDestroy(
+    openApprovalStream({
+      snapshot: refetch,
+      history: (row) => {
+        if (row.id === id) refetch();
+      },
+    }),
+  );
 
   const dateTime = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'medium' });
   const fmt = (iso: string | null) => (iso ? dateTime.format(new Date(iso)) : '–');

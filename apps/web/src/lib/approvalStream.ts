@@ -2,8 +2,11 @@
 // server only ever sends the caller's own events. EventSource reconnects by
 // itself; every (re)connect starts with a full `snapshot`, followed by the
 // full `upstreams` fault list (ADR-0022), which is also resent on every change.
+// `history` carries one Verlauf row (created or changed; the same shape as
+// GET /api/audit's entries, ADR-0028). Verlauf refetches on every `snapshot`
+// (= every (re)connect) so events missed while disconnected are healed.
 // `intent` carries a held call's advisory summary once it is there (ADR-0025).
-import type { IntentFields, PendingApproval, UpstreamFault } from './api';
+import type { AuditRow, IntentFields, PendingApproval, UpstreamFault } from './api';
 
 export interface StreamHandlers {
   snapshot?: (list: PendingApproval[]) => void;
@@ -11,6 +14,8 @@ export interface StreamHandlers {
   resolved?: (ev: { id: string; kind: string }) => void;
   /** A held call's advisory summary changed (ADR-0025). */
   intent?: (ev: { id: string } & IntentFields) => void;
+  /** One of the user's audit rows was created or changed (ADR-0028). */
+  history?: (row: AuditRow) => void;
   upstreams?: (faults: UpstreamFault[]) => void;
   connected?: (ok: boolean) => void;
 }
@@ -40,6 +45,10 @@ export function openApprovalStream(h: StreamHandlers): () => void {
   es.addEventListener('intent', (e) => {
     const ev = parse(e as MessageEvent);
     if (ev && typeof ev.id === 'string') h.intent?.(ev);
+  });
+  es.addEventListener('history', (e) => {
+    const row = parse(e as MessageEvent);
+    if (row && typeof row.id === 'number') h.history?.(row);
   });
   es.addEventListener('upstreams', (e) => {
     const list = parse(e as MessageEvent);

@@ -60,6 +60,7 @@ import type { Upstream } from '../generated/prisma/client.js';
 import { intents as defaultIntents } from '../intent/index.js';
 import { NO_INTENT, type IntentQueue } from '../intent/queue.js';
 import { sourceKey } from '../intent/group.js';
+import { auditEvents } from '../lib/auditEvents.js';
 import type { RequestDiagnostics } from './sessions.js';
 
 /** The running build (CI sets APP_VERSION: `0.3.1`, `main`); MCP serverInfo. */
@@ -256,7 +257,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
   async function denyUnresolved(call: McpCallContext, name: string, args: Record<string, unknown>): Promise<CallToolResult> {
     const receivedAt = clock.now();
     const text = MSG.unknownTool(name.slice(0, 100));
-    await prisma.auditEntry.create({
+    const created = await prisma.auditEntry.create({
       data: {
         userId: call.userId,
         mcpClientId: call.mcpClientId,
@@ -278,6 +279,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         ...auditDiagnostics(call.diagnostics),
       },
     });
+    auditEvents.emit({ userId: call.userId, auditId: created.id });
     return errorResult(text);
   }
 
@@ -346,6 +348,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         ...auditDiagnostics(call.diagnostics),
       },
     });
+    auditEvents.emit({ userId, auditId: audit.id });
     // ADR-0025: queue the advisory summary. Synchronous and never throws;
     // nothing below waits for it or reads it. ASK calls are queued right
     // after hold() so the summary can find them held.
@@ -361,14 +364,14 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
     if (decision.policy !== 'ASK') queueIntent(false);
     const shownName = name.slice(0, 100);
     const shownClient = call.clientName.slice(0, 100);
-    const finish = (data: {
+    const finish = async (data: {
       outcome: 'FORWARDED' | 'DENIED' | 'TIMED_OUT' | 'UPSTREAM_ERROR';
       decisionPath?: string;
       isError?: boolean;
       resultText?: string;
       decidedAt?: Date;
-    }) =>
-      prisma.auditEntry.update({
+    }) => {
+      await prisma.auditEntry.update({
         where: { id: audit.id },
         data: {
           outcome: data.outcome,
@@ -379,6 +382,8 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           finishedAt: clock.now(),
         },
       });
+      auditEvents.emit({ userId, auditId: audit.id });
+    };
 
     /** Calls the upstream; the ONLY place a call leaves xitl. */
     const forward = async (timeoutMs: number, decisionPath?: string, decidedAt?: Date): Promise<CallToolResult> => {

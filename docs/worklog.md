@@ -3,6 +3,19 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-07 — Live Verlauf (ADR-0028)
+
+- Matthias: push updates on Verlauf too. New `history` event on the existing
+  `/api/approvals/stream` carrying one list row (`serializeAuditRow`, shared
+  with `GET /api/audit`); source `lib/auditEvents.ts`, emitted at the AuditEntry
+  writes in `mcp/server.ts` and `intent/store.ts`; the stream re-reads the row
+  with the user in the query. Verlauf merges via `lib/historyLive.ts`, refetches
+  on every `snapshot` (reconnect heal); HistoryDetail refetches on its id.
+  TC-133…136, suite green (unit 411, e2e 154).
+- **Gotcha:** `page.context().setOffline()` does not close an open EventSource;
+  TC-135 simulates reconnects by fulfilling the stream route with a finite body.
+- Not live (documented in the ADR): FK `SetNull` on revoke/upstream delete, boot sweep.
+
 ## 2026-10-07 — Clef-Flash benchmark prepared, not run
 
 - Matthias deployed Clef-Flash as its own service `llama-cpp-clef` (ns `ai`).

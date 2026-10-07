@@ -10,7 +10,10 @@
 //                     `intent` {id, intentTitle, intentSummary, intentRisk, intentLowered,
 //                     intentStatus} when a held call's advisory summary
 //                     changed (ADR-0025), and `upstreams` again whenever my
-//                     fault list may have changed
+//                     fault list may have changed, and `history` (one
+//                     Verlauf list row, the same shape as GET /api/audit's
+//                     entries) whenever one of my audit rows was created or
+//                     changed (ADR-0028)
 //   GET  /:id         one call: pending, or its outcome once resolved
 //   POST /:id         { decision: 'approve'|'deny', via: 'page'|'push',
 //                       snoozeMinutes? | snoozeUntilMidnight?,
@@ -30,7 +33,8 @@ import { MAX_SNOOZE_MINUTES, snoozeUntil } from '../approval/budget.js';
 import { heldCoveredBy } from '../approval/snooze.js';
 import { MAX_APPROVAL_STREAMS_PER_USER } from '../lib/limits.js';
 import { faultList } from '../upstream/faults.js';
-import { auditIntentFields } from './audit.js';
+import { auditIntentFields, include as auditInclude, serializeAuditRow } from './audit.js';
+import { auditEvents as defaultAuditEvents, type AuditEvents } from '../lib/auditEvents.js';
 import { NO_INTENT } from '../intent/queue.js';
 import { upstreamStates as defaultStates, type UpstreamStateEvents } from '../upstream/stateEvents.js';
 
@@ -119,10 +123,11 @@ async function resolvedView(userId: number, id: string) {
 export function makeApprovalRoutes(
   hub: ApprovalHub = defaultHub,
   clock: Clock = systemClock,
-  opts: { maxStreamsPerUser?: number; states?: UpstreamStateEvents } = {},
+  opts: { maxStreamsPerUser?: number; states?: UpstreamStateEvents; auditEvents?: AuditEvents } = {},
 ) {
   const r = new Hono<AppEnv>();
   const states = opts.states ?? defaultStates;
+  const auditBus = opts.auditEvents ?? defaultAuditEvents;
   const maxStreams = opts.maxStreamsPerUser ?? MAX_APPROVAL_STREAMS_PER_USER;
   /** Open streams per user (TC-45). */
   const openStreams = new Map<number, number>();
@@ -182,6 +187,19 @@ export function makeApprovalRoutes(
       const offStates = states.on((ev) => {
         if (ev.userId === userId) sendFaults();
       });
+      // Verlauf (ADR-0028): a changed audit row of THIS user, re-read here with
+      // the user in the query and serialized by the list API's own function.
+      // Chained so one row's events arrive in order.
+      let rows: Promise<void> = Promise.resolve();
+      const offAudit = auditBus.on((ev) => {
+        if (ev.userId !== userId) return;
+        rows = rows
+          .then(async () => {
+            const a = await prisma.auditEntry.findFirst({ where: { id: ev.auditId, userId }, include: auditInclude });
+            if (a && open) push('history', serializeAuditRow(a));
+          })
+          .catch((e) => console.warn(`approval stream: history row failed: ${e instanceof Error ? e.name : 'unknown'}`));
+      });
       const close = () => {
         open = false;
         wake?.();
@@ -214,6 +232,7 @@ export function makeApprovalRoutes(
         }
       } finally {
         offStates();
+        offAudit();
         hub.off('pending', onPending);
         hub.off('resolved', onResolved);
         hub.off('intent', onIntent);

@@ -3,10 +3,13 @@
   // under day separators and grouped per session / client by time gaps
   // (lib/grouping.ts, TC-75). With an AI title (TC-126) the title is the
   // row's headline and the tool moves into the meta line.
+  import { onDestroy } from 'svelte';
   import Spinner from '../lib/Spinner.svelte';
   import SessionLine from '../lib/SessionLine.svelte';
   import { api, decisionPathText, messageOf, OUTCOME_LABEL, type AuditRow } from '../lib/api';
   import { groupByDay } from '../lib/grouping';
+  import { openApprovalStream } from '../lib/approvalStream';
+  import { applyLiveRow, mergeFirstPage } from '../lib/historyLive';
 
   let entries = $state<AuditRow[]>([]);
   let nextBefore = $state<number | null>(null);
@@ -29,6 +32,55 @@
     }
   }
   load();
+
+  // Live (ADR-0028): the approval stream also carries this user's changed audit
+  // rows. Every (re)connect starts with a `snapshot`: refetch the first page then,
+  // so nothing missed while disconnected stays stale. Rows that arrive while
+  // that fetch is in flight are applied on top of its result.
+  let refreshing = false;
+  let buffered: AuditRow[] = [];
+  let fresh = $state<Set<number>>(new Set());
+  async function refresh() {
+    refreshing = true;
+    buffered = [];
+    try {
+      const page = await api.listAudit();
+      const merged = mergeFirstPage(entries, page.entries, page.nextBefore);
+      // Older pages the user already loaded stay, and so does their cursor.
+      if (page.nextBefore === null || merged.length === page.entries.length) nextBefore = page.nextBefore;
+      entries = merged;
+      for (const r of buffered) entries = applyLiveRow(entries, nextBefore, r);
+      loadError = null;
+      loaded = true;
+    } catch {
+      // keep what is shown; the next event or reconnect tries again
+    } finally {
+      refreshing = false;
+      buffered = [];
+    }
+  }
+  function live(row: AuditRow) {
+    if (refreshing) buffered.push(row);
+    const isNew = !entries.some((e) => e.id === row.id);
+    const next = applyLiveRow(entries, nextBefore, row);
+    if (next === entries) return;
+    entries = next;
+    if (isNew) {
+      fresh = new Set(fresh).add(row.id);
+      setTimeout(() => {
+        const s = new Set(fresh);
+        s.delete(row.id);
+        fresh = s;
+      }, 4000);
+    }
+  }
+  const close = openApprovalStream({
+    // Also the first one: it closes the gap between the initial load and the
+    // stream being up.
+    snapshot: () => void refresh(),
+    history: live,
+  });
+  onDestroy(close);
 
   const time = new Intl.DateTimeFormat('de-DE', { timeStyle: 'short' });
   const timeSec = new Intl.DateTimeFormat('de-DE', { timeStyle: 'medium' });
@@ -60,7 +112,7 @@
             <ul class="list" aria-label={`Aufrufe von ${g.clientName ?? 'Client'}`}>
               {#each g.items as e (e.id)}
                 {@const title = e.intentStatus === 'DONE' ? e.intentTitle : null}
-                <li class="item history-item">
+                <li class="item history-item" class:fresh={fresh.has(e.id)}>
                   <a class="history-link" href={`#/verlauf/${e.id}`} data-audit={e.id}>
                     <span class="item-head">
                       {#if title}
@@ -89,6 +141,22 @@
 </div>
 
 <style>
+  .fresh {
+    animation: fresh-row 4s ease-out;
+  }
+  @keyframes fresh-row {
+    from {
+      background: var(--accent-soft);
+    }
+    to {
+      background: transparent;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .fresh {
+      animation: none;
+    }
+  }
   .day-label {
     margin: 1.25rem 0 0.5rem;
     padding-bottom: 0.25rem;

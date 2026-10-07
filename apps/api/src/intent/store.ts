@@ -1,9 +1,21 @@
 // The intent queue's DB side (queue.ts IntentStore) and the boot sweep.
 // Every query is scoped by the call's user.
 import { prisma } from '../db.js';
+import { auditEvents } from '../lib/auditEvents.js';
 import type { Clock } from '../lib/clock.js';
 import { IntentQueue, type IntentResult, type IntentStore } from './queue.js';
 import type { IntentModel } from './model.js';
+
+/** Tells the history stream that these rows changed (ADR-0028). Never throws:
+ * a failed lookup only means Verlauf shows the change on its next refetch. */
+async function announce(where: { id: number | { in: number[] } }): Promise<void> {
+  try {
+    const rows = await prisma.auditEntry.findMany({ where, select: { id: true, userId: true } });
+    for (const r of rows) auditEvents.emit({ userId: r.userId, auditId: r.id });
+  } catch {
+    // advisory only
+  }
+}
 
 export const prismaIntentStore: IntentStore = {
   async loadCall(auditId, userId) {
@@ -103,11 +115,14 @@ export const prismaIntentStore: IntentStore = {
               intentContextId: r.contextId,
             },
     });
+    // Verlauf shows the summary live (ADR-0028).
+    await announce({ id: auditId });
   },
 
   async skip(auditIds) {
     if (auditIds.length === 0) return;
     await prisma.auditEntry.updateMany({ where: { id: { in: auditIds }, intentStatus: 'PENDING' }, data: { intentStatus: 'SKIPPED' } });
+    await announce({ id: { in: auditIds } });
   },
 };
 

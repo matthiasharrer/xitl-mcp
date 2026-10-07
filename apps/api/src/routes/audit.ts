@@ -4,11 +4,15 @@
 //
 //   GET /?before=<id>   newest first, 50 per page; `nextBefore` for the next page
 //   GET /:id            one entry with arguments and the result excerpt
+//
+// New and changed rows also arrive live on /api/approvals/stream (`history`,
+// ADR-0028) in exactly the list row's shape (serializeAuditRow).
 // Both carry the advisory intent summary (ADR-0025) as intentStatus,
 // intentTitle (TC-126), intentSummary, intentRisk (the floored one), intentLowered, intentAt,
 // intentModel: never the stored prompt / raw answer / model risk.
 import { Hono } from 'hono';
 import { prisma } from '../db.js';
+import type { Prisma } from '../generated/prisma/client.js';
 import type { AppEnv } from '../identity.js';
 import { parseNames } from '../mcp/sessions.js';
 
@@ -29,11 +33,34 @@ function parseArgs(raw: string): unknown {
   }
 }
 
-const include = {
+export const include = {
   mcpClient: { select: { name: true } },
   upstream: { select: { id: true, slug: true, name: true } },
   session: { select: { id: true, createdAt: true } },
 } as const;
+
+
+type AuditListRow = Prisma.AuditEntryGetPayload<{ include: typeof include }>;
+
+/** One row of the history list. The single place that decides what a list row
+ * contains: the list API and the live `history` stream event (ADR-0028) both
+ * use it, so the stream can never carry more than the API would. */
+export function serializeAuditRow(a: AuditListRow) {
+  return {
+    id: a.id,
+    tool: a.toolName,
+    upstream: a.upstream,
+    clientName: a.mcpClient?.name ?? null,
+    /** The McpClient row id (null once revoked): the UI groups by it. */
+    clientId: a.mcpClientId,
+    outcome: a.outcome,
+    decisionPath: a.decisionPath,
+    isError: a.isError,
+    receivedAt: a.receivedAt.toISOString(),
+    session: sessionRef(a.session),
+    ...auditIntentFields(a),
+  };
+}
 
 /** The audit row's MCP session (ADR-0016) as the UI shows it. */
 export const sessionRef = (s: { id: string; createdAt: Date } | null) => (s ? { id: s.id, createdAt: s.createdAt.toISOString() } : null);
@@ -76,20 +103,7 @@ audit.get('/', async (c) => {
   });
   const page = rows.slice(0, PAGE);
   return c.json({
-    entries: page.map((a) => ({
-      id: a.id,
-      tool: a.toolName,
-      upstream: a.upstream,
-      clientName: a.mcpClient?.name ?? null,
-      /** The McpClient row id (null once revoked): the UI groups by it. */
-      clientId: a.mcpClientId,
-      outcome: a.outcome,
-      decisionPath: a.decisionPath,
-      isError: a.isError,
-      receivedAt: a.receivedAt.toISOString(),
-      session: sessionRef(a.session),
-      ...auditIntentFields(a),
-    })),
+    entries: page.map(serializeAuditRow),
     nextBefore: rows.length > PAGE ? page[page.length - 1]!.id : null,
   });
 });

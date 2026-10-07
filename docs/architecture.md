@@ -1,7 +1,7 @@
 # Architecture
 
 > How the system fits together **right now**. Target design lives in the ADRs;
-> this file describes what exists. _Last updated: 2026-10-05 (v0.4.1: URL
+> this file describes what exists. _Last updated: 2026-10-07 (live Verlauf, ADR-0028; earlier 2026-10-05, v0.4.1: URL
 > change resets trust, ADR-0021; unbound DCR clients pruned; KnownTool cap;
 > earlier: unified `/mcp`,
 > ADR-0017: all upstreams in one, `<slug>_` names; token scope one/all,
@@ -30,7 +30,13 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
     /api/mcp/config      { configured } (is MCP_TOKEN set)
     /api/mcp/tokens      routes/mcpTokens.ts: create an all-upstreams token
     /api/mcp/clients     routes/mcpClients.ts: list/rename/revoke own clients (OAUTH and TOKEN kind)
-    /api/approvals       routes/approvals.ts: my held calls, SSE stream, decide
+    /api/approvals       routes/approvals.ts: my held calls, SSE stream, decide.
+                         The stream also carries `history` (ADR-0028): one
+                         Verlauf list row (routes/audit.ts serializeAuditRow)
+                         per create/change of my audit rows, fed by
+                         lib/auditEvents.ts (emitted in mcp/server.ts and
+                         intent/store.ts); the row is re-read per stream with
+                         the user in the query
     /api/audit           routes/audit.ts: my call history (Verlauf)
     /api/sessions        routes/sessions.ts: my MCP sessions + diagnostics
     /api/push            routes/push.ts: VAPID key, subscriptions, test push
@@ -49,6 +55,7 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
                          resolved among the user's upstreams, then the same
                          callTool() as /mcp/<slug>; unresolved -> DENY audited
                          without upstream. Instructions: proxyText.unifiedInstructions
+  lib/auditEvents.ts     in-process AuditEntry change emitter (ADR-0028)
   lib/policy.ts          THE policy function (pure, policy.test.ts = TC-24)
   lib/limits.ts          every abuse limit in one place (TC-44/45/48/88/89)
   lib/limitedResponse.ts byte cap on upstream/AS responses (TC-48)
@@ -84,7 +91,8 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
   lib/slugs.ts           slug pattern + reserved words (register, token)
 apps/web/   Svelte 5 SPA (Vite), German UI, mobile-first, installable PWA
             (manifest + icons + public/sw.js, push only). Tab bar:
-            Freigaben (#/, live list of held calls; #/freigabe/<id> one call,
+            Freigaben (#/, live list of held calls; Verlauf and its detail
+            are live too, ADR-0028, lib/historyLive.ts; #/freigabe/<id> one call,
             the push deep link), Verlauf (#/verlauf, #/verlauf/<id>),
             Einstellungen (#/einstellungen: Benachrichtigungen, upstreams with
             status, Verbinden/Neu verbinden, Regeln link, endpoint URL + copy,
@@ -96,7 +104,7 @@ apps/web/   Svelte 5 SPA (Vite), German UI, mobile-first, installable PWA
 e2e/        Playwright against the built server on :3202 with .e2e/e2e.db
             (output in .e2e/api.log) plus the fake upstream on :3210
             (e2e/support/fakeUpstream.ts) with its sink host on :3211.
-            TC-01…TC-68 (TC-37 unit; malicious suite in
+            TC-01…TC-136 (TC-37 unit; malicious suite in
             malicious-client.spec.ts / malicious-upstream.spec.ts). The
             server runs with APPROVAL_TIMEOUT_MS=5000, PUSH_OUTBOX,
             OUTBOUND_ALLOW_PRIVATE=127.0.0.1:3210 (paths.ts; a spec that
