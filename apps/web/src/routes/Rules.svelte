@@ -5,10 +5,17 @@
   // change is saved at once and applies to the next tools/list and tools/call.
   // "Aktive Pausen" (ADR-0026, TC-125): live allow and deny pauses of any
   // client on this upstream; lifting is the only edit.
+  // "Gilt für" (ADR-0032, TC-192): "Alle Clients" is the view above; one
+  // client shows that client's default for this upstream (Voreinst. / … /
+  // Verbieten = hidden) and per tool its EFFECTIVE policy and source, as the
+  // API computes it (`forClient`, never recomputed here); the row control
+  // edits that client's tool rule. The choice lives in the URL hash
+  // (`#/regeln/<id>?client=<id>`), so it survives a reload.
   import Spinner from '../lib/Spinner.svelte';
   import ToolReview from '../lib/ToolReview.svelte';
   import {
     api,
+    ApiError,
     messageOf,
     HINT_LABEL,
     POLICY_LABEL,
@@ -24,6 +31,22 @@
   import { scopeText, untilText } from '../lib/pauses';
 
   let { upstreamId }: { upstreamId: number } = $props();
+
+  /** The selected client (`?client=` in the hash), null = "Alle Clients". */
+  function clientFromHash(): number | null {
+    const query = location.hash.split('?')[1] ?? '';
+    const m = /(?:^|&)client=(\d{1,9})(?:&|$)/.exec(query);
+    return m ? Number(m[1]) : null;
+  }
+  let scope = $state<number | null>(clientFromHash());
+  function writeScope(id: number | null) {
+    const base = location.hash.split('?')[0];
+    try {
+      history.replaceState(history.state, '', id === null ? base : `${base}?client=${id}`);
+    } catch {
+      /* the selection just isn't kept across reloads */
+    }
+  }
 
   let view = $state<ToolsView | null>(null);
   let pauses = $state<Pause[]>([]);
@@ -110,17 +133,73 @@
     'new-tool': 'neues Tool',
     'changed-tool': 'geändertes Tool',
     'policy:upstream-default': 'Standard',
+    'client-hidden': 'für diesen Client verborgen',
+    'policy:client-upstream': 'Client-Voreinstellung',
   };
+  /** ADR-0032: the source of a client's effective policy ("Erlauben · Tool-Regel"). */
+  const SOURCE_LABEL: Record<string, string> = {
+    'policy:client': 'Client-Regel',
+    'policy:tool': 'Tool-Regel',
+    'policy:client-upstream': 'Client-Voreinst.',
+    'policy:upstream-default': 'Upstream-Voreinst.',
+    'client-hidden': 'Client-Voreinst.',
+    'new-tool': 'neu',
+    'changed-tool': 'geändert',
+  };
+  const forClientText = (f: NonNullable<ToolRow['forClient']>) =>
+    `${f.path === 'client-hidden' ? 'Verborgen' : POLICY_LABEL[f.policy] ?? f.policy} · ${SOURCE_LABEL[f.path] ?? f.path}`;
+
+  /** The tools view for the current scope (with `forClient` for one client). */
+  async function fetchView(): Promise<ToolsView> {
+    if (scope === null) return api.getTools(upstreamId);
+    try {
+      return await api.getTools(upstreamId, scope);
+    } catch (e) {
+      // The client is gone (revoked) or not one of ours: back to "Alle Clients".
+      if (!(e instanceof ApiError) || e.status !== 404) throw e;
+      scope = null;
+      writeScope(null);
+      return api.getTools(upstreamId);
+    }
+  }
 
   async function load() {
     try {
-      [view, pauses] = await Promise.all([api.getTools(upstreamId), api.listPauses(upstreamId)]);
+      [view, pauses] = await Promise.all([fetchView(), api.listPauses(upstreamId)]);
       loadError = null;
     } catch (e) {
       loadError = messageOf(e);
     }
   }
   load();
+
+  async function choose(id: number | null) {
+    if (scope === id) return;
+    scope = id;
+    writeScope(id);
+    busy = true;
+    try {
+      view = await fetchView();
+    } catch (e) {
+      showToast(messageOf(e), { error: true });
+    } finally {
+      busy = false;
+    }
+  }
+
+  const selected = $derived(view && scope !== null ? (view.clients.find((c) => c.id === scope) ?? null) : null);
+  const defaultOf = (clientId: number) => view?.clientDefaults.find((d) => d.mcpClientId === clientId)?.policy ?? null;
+  const selectedDefault = $derived(selected ? defaultOf(selected.id) : null);
+  const clientName = (id: number) => view?.clients.find((c) => c.id === id)?.name ?? '';
+
+  async function setClientDefault(policy: Policy | null) {
+    if (!selected || selectedDefault === policy) return;
+    const name = selected.name;
+    await apply(
+      () => api.setClientDefault(upstreamId, selected.id, policy),
+      policy === null ? `${name}: Voreinst.` : policy === 'DENY' ? `Für ${name} verborgen` : `${name}: ${POLICY_LABEL[policy]}`,
+    );
+  }
 
 
   async function lift(p: Pause) {
@@ -141,6 +220,8 @@
     busy = true;
     try {
       view = await change();
+      // The answer has no `forClient`: fetch the client view again.
+      if (scope !== null) view = await fetchView();
       if (done) showToast(done);
     } catch (e) {
       showToast(messageOf(e), { error: true });
@@ -155,7 +236,7 @@
     busy = true;
     try {
       await api.updateUpstream(upstreamId, { defaultPolicy: policy });
-      view = await api.getTools(upstreamId);
+      view = await fetchView();
       showToast(`Standard: ${POLICY_LABEL[policy]}`);
     } catch (e) {
       showToast(messageOf(e), { error: true });
@@ -199,6 +280,7 @@
   }
 
   const clientPolicy = (t: ToolRow, clientId: number) => t.clientPolicies.find((p) => p.mcpClientId === clientId)?.policy ?? '';
+  const clientMasked = (t: ToolRow, clientId: number) => t.clientPolicies.find((p) => p.mcpClientId === clientId)?.masked === true;
 </script>
 
 <div class="rules">
@@ -216,6 +298,50 @@
       <p class="hint">Status: {STATUS_LABEL[u.status]}. Verbinde den Upstream in den Einstellungen, um seine Tools zu laden.</p>
     {/if}
 
+    {#if view.clients.length > 0}
+      <section aria-labelledby="scope-title">
+        <h3 id="scope-title" class="section-title">Gilt für</h3>
+        <div class="scope-switch" role="radiogroup" aria-label="Gilt für">
+          <label class:selected={scope === null}>
+            <input type="radio" name="rules-scope" checked={scope === null} disabled={busy} onchange={() => choose(null)} />
+            Alle Clients
+          </label>
+          {#each view.clients as c (c.id)}
+            <label class:selected={scope === c.id} data-scope-client={c.id}>
+              <input type="radio" name="rules-scope" checked={scope === c.id} disabled={busy} onchange={() => choose(c.id)} />
+              <span class="scope-name">{c.name}</span>
+              {#if c.paused}<span class="chip paused" data-testid="scope-paused">pausiert</span>{/if}
+              {#if defaultOf(c.id) === 'DENY'}<span class="chip hidden-chip">verborgen</span>{/if}
+            </label>
+          {/each}
+        </div>
+      </section>
+    {/if}
+
+    {#if selected}
+      <section aria-labelledby="client-default-title" data-testid="client-default">
+        <h3 id="client-default-title" class="section-title">Voreinstellung für {selected.name}</h3>
+        <div class="segmented five" role="radiogroup" aria-label={`Voreinstellung für ${selected.name}`}>
+          <label class:selected={selectedDefault === null}>
+            <input type="radio" name="client-default" checked={selectedDefault === null} disabled={busy} onchange={() => setClientDefault(null)} />
+            Voreinst.
+          </label>
+          {#each POLICIES as p}
+            <label class:selected={selectedDefault === p}>
+              <input type="radio" name="client-default" checked={selectedDefault === p} disabled={busy} onchange={() => setClientDefault(p)} />
+              {POLICY_LABEL[p]}
+            </label>
+          {/each}
+        </div>
+        <p class="hint section-hint">Voreinst. = Standard des Upstreams ({POLICY_LABEL[u.defaultPolicy]}).</p>
+        <p class="hint section-hint precedence" data-testid="precedence">
+          Client-Regel &gt; Tool-Regel &gt; Client-Voreinst. &gt; Upstream-Voreinst. · Verbieten als Voreinstellung verbirgt alles
+        </p>
+        {#if selectedDefault === 'DENY'}
+          <p class="hidden-note" role="status" data-testid="hidden-note">Für {selected.name} unsichtbar: keine Tools, kein Abschnitt in den Anweisungen</p>
+        {/if}
+      </section>
+    {:else}
     <section aria-labelledby="default-title">
       <h3 id="default-title" class="section-title">Standard</h3>
       <div class="segmented four" role="radiogroup" aria-label="Standard-Regel">
@@ -227,7 +353,13 @@
         {/each}
       </div>
       <p class="hint section-hint">Gilt für jedes Tool ohne eigene Regel. Neue Tools werden trotzdem erst gefragt, bis du sie gesehen hast.</p>
+      {#if view.clientDefaults.length > 0}
+        <p class="hint section-hint" data-testid="client-defaults">
+          Eigene Voreinstellung: {view.clientDefaults.map((d) => `${clientName(d.mcpClientId)} (${d.policy === 'DENY' ? 'verborgen' : POLICY_LABEL[d.policy]})`).join(', ')}
+        </p>
+      {/if}
     </section>
+    {/if}
 
     {#if usesAuto}
       <section aria-labelledby="auto-title" class="auto-rule">
@@ -343,6 +475,24 @@
               {#if t.description}<p class="tool-desc">{t.description}</p>{/if}
               <ToolReview tool={t} />
 
+              {#if selected && t.forClient}
+                {@const f = t.forClient}
+                <p class="for-client" class:hidden-row={f.path === 'client-hidden'} data-testid="for-client">
+                  <strong>{forClientText(f)}</strong>
+                </p>
+                <label class="client-row" class:masked={f.masked}>
+                  <span class="client-name">Regel für {selected.name}{#if f.masked}<span class="masked-note" data-testid="masked">wirkungslos: Upstream für {selected.name} verborgen</span>{/if}</span>
+                  <select
+                    aria-label={`Regel für ${t.name} bei ${selected.name}`}
+                    value={clientPolicy(t, selected.id)}
+                    disabled={busy}
+                    onchange={(e) => setClient(t, selected.id, e.currentTarget.value)}
+                  >
+                    <option value="">Wie für alle ({POLICY_LABEL[t.effectivePolicy]})</option>
+                    {#each POLICIES as p}<option value={p}>{POLICY_LABEL[p]}</option>{/each}
+                  </select>
+                </label>
+              {:else}
               <div class="segmented five" role="radiogroup" aria-label={`Regel für ${t.name}`}>
                 <label class:selected={t.policy === null}>
                   <input type="radio" name={`tool-${t.id}`} checked={t.policy === null} disabled={busy} onchange={() => setTool(t, null)} />
@@ -359,6 +509,7 @@
               {#if t.policy === 'AUTO' || (t.policy === null && t.effectivePolicy === 'AUTO')}
                 <p class="hint auto-tool-note">nutzt die Auto-Regel des Upstreams</p>
               {/if}
+              {/if}
 
               {#if t.isChanged}
                 <p class="hint changed-note">Beschreibung, Hinweise oder Parameter dieses Tools haben sich geändert. Bis du es ansiehst, wird jeder Aufruf erfragt, auch wenn eine eigene Regel „Erlauben“ sagt („Fragen“ und „Verbieten“ gelten weiter).</p>
@@ -367,16 +518,19 @@
                 <button type="button" class="btn wide" disabled={busy} onclick={() => acknowledge(t)}>Gesehen, Standard anwenden</button>
               {/if}
 
-              {#if view.clients.length > 0}
+              {#if view.clients.length > 0 && !selected}
                 <details class="client-overrides">
                   <summary>
                     Pro Client{t.clientPolicies.length > 0 ? ` (${t.clientPolicies.length} abweichend)` : ''}
                   </summary>
                   {#each view.clients as c (c.id)}
-                    <label class="client-row">
+                    <label class="client-row" class:masked={clientMasked(t, c.id)}>
                       <span class="client-name"
                         >{c.name}{#if c.paused}
-                          <span class="chip paused" data-testid="client-paused">pausiert</span>{/if}</span
+                          <span class="chip paused" data-testid="client-paused">pausiert</span>{/if}{#if clientMasked(t, c.id)}<span
+                            class="masked-note"
+                            data-testid="masked">wirkungslos: Upstream für {c.name} verborgen</span
+                          >{/if}</span
                       >
                       <select
                         aria-label={`Regel für ${t.name} bei ${c.name}`}
@@ -400,6 +554,83 @@
 </div>
 
 <style>
+  /* ADR-0032 "Gilt für": wrapping pills, each a full touch target. */
+  .scope-switch {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .scope-switch label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    min-height: var(--tap);
+    max-width: 100%;
+    padding: 0 0.875rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    cursor: pointer;
+    font-size: 0.9375rem;
+  }
+  .scope-switch label.selected {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+  .scope-switch label.selected .chip {
+    color: #fff;
+    border-color: #fff;
+    background: transparent;
+  }
+  .scope-switch input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .scope-switch label:has(input:focus-visible) {
+    outline: 2px solid var(--accent-text);
+    outline-offset: 2px;
+  }
+  .scope-name {
+    overflow-wrap: anywhere;
+    min-width: 0;
+  }
+  .chip.hidden-chip {
+    margin-left: 0.25rem;
+  }
+  .precedence {
+    font-size: 0.8125rem;
+  }
+  .hidden-note {
+    margin: 0.5rem 0 0;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius);
+    background: var(--warn-soft);
+    color: var(--warn);
+    font-weight: 600;
+    font-size: 0.875rem;
+    overflow-wrap: anywhere;
+  }
+  .for-client {
+    margin: 0;
+    font-size: 0.9375rem;
+  }
+  .for-client.hidden-row {
+    color: var(--muted);
+  }
+  .client-row.masked .client-name {
+    color: var(--muted);
+  }
+  .client-row.masked select {
+    opacity: 0.6;
+  }
+  .masked-note {
+    display: block;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
   .pause {
     display: flex;
     flex-direction: column;

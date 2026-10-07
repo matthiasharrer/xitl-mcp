@@ -27,6 +27,14 @@
 //   among the user's own upstreams; anything unresolved is denied and audited.
 //   Both endpoints then take the same path (callTool), so rules, snoozes and
 //   approvals are one set per user.
+// - ADR-0032: an upstream whose default for THIS client is DENY (or garbage)
+//   is hidden from it everywhere: listFor returns [] without contacting the
+//   upstream, `/mcp`'s instructions have no section/state line for it,
+//   `/mcp/<slug>` initialize gets only xitl's line, and a call is refused at
+//   once with exactly the unknown-tool text for the name as called (on `/mcp`
+//   the prefixed name, as denyUnresolved does), audited DENIED
+//   `client-hidden`, no Clef gate, no hold, no intent. The read of the
+//   ClientUpstreamPolicy row never falls back: a failure throws.
 //
 // WHO is acting and WHICH upstream comes only from `AuthInfo.extra`, which
 // mcp/verifier.ts (user, client) and mcp/mount.ts (upstream, resolved among
@@ -38,8 +46,9 @@ import type { McpRequestContext } from '@modelcontextprotocol/server';
 import type { CallToolResult, Tool } from '@modelcontextprotocol/client';
 import { prisma } from '../db.js';
 import { systemClock, type Clock } from '../lib/clock.js';
-import { awaitingReview, evaluatePolicy, type Policy, type PolicyTool } from '../lib/policy.js';
+import { awaitingReview, evaluatePolicy, hidesUpstream, type Policy, type PolicyTool } from '../lib/policy.js';
 import {
+  INSTRUCTIONS_PREFIX,
   MSG,
   errorResult,
   instructionsFor,
@@ -182,6 +191,17 @@ function policyTool(k: { policy: string | null; acknowledgedAt: Date | null; cha
   return { policy: k.policy as Policy | null, acknowledgedAt: k.acknowledgedAt, changedAt: k.changedAt };
 }
 
+/** ADR-0032: this client's default for this upstream (null = none,
+ * "Voreinst."). Scoped by the user on both sides. A failed read throws: the
+ * caller never falls back to the upstream default (fail closed). */
+async function clientUpstreamOf(userId: number, mcpClientId: number, upstreamId: number): Promise<Policy | null> {
+  const row = await prisma.clientUpstreamPolicy.findFirst({
+    where: { mcpClientId, upstreamId, upstream: { userId }, mcpClient: { userId } },
+    select: { policy: true },
+  });
+  return (row?.policy as Policy | undefined) ?? null;
+}
+
 function parseAnnotations(raw: string | null): unknown {
   if (!raw) return null;
   try {
@@ -296,6 +316,10 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
    * ProtocolError with a generic text) when the upstream fails. */
   async function listFor(upstream: Upstream, mcpClientId: number, displayName: string): Promise<Tool[]> {
     const userId = upstream.userId;
+    // ADR-0032: hidden from this client: nothing listed, nothing contacted
+    // (new tools included). A failed read throws (never a fallback).
+    const clientUpstream = await clientUpstreamOf(userId, mcpClientId, upstream.id);
+    if (hidesUpstream(clientUpstream)) return [];
     // Not connected yet: nothing to offer, and nothing to contact.
     if (!isUsable(upstream)) return [];
     let tools: Tool[];
@@ -330,6 +354,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         upstreamDefault: (current?.defaultPolicy ?? 'DENY') as Policy,
         tool: k ? policyTool(k) : null,
         clientOverride: (k?.clientPolicies[0]?.policy as Policy | undefined) ?? null,
+        clientUpstream,
         snoozedUntil: snoozes(t.name, isReadOnly(k?.annotations)),
         now,
       });
@@ -379,25 +404,34 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
     upstream: UpstreamRef;
     endpoint: string;
     name: string;
+    /** The name exactly as the client called it (`<slug>_<tool>` on `/mcp`):
+     * an unknown or hidden tool is refused with it, so the text is the same
+     * as for a name that resolves to nothing (no oracle, ADR-0032). */
+    calledName: string;
     args: Record<string, unknown>;
     signal: AbortSignal;
     /** The JSON-RPC id of this tools/call (for `notifications/cancelled`). */
     rpcId: string | number;
   }): Promise<CallToolResult> {
-    const { call, displayName, upstream, endpoint, name, args, signal, rpcId } = p;
+    const { call, displayName, upstream, endpoint, name, calledName, args, signal, rpcId } = p;
     const { userId, mcpClientId } = call;
     // The 300 s budget (TC-37) counts from here.
     const receivedAt = clock.now();
 
     // Fresh reads: policy state at call time, scoped by the token's user.
-    const [tool, current] = await Promise.all([
+    // A failed read (incl. the client's upstream default) throws: nothing is
+    // forwarded, nothing falls back.
+    const [tool, current, clientUpstream] = await Promise.all([
       prisma.knownTool.findFirst({
         where: { upstreamId: upstream.id, name, upstream: { userId } },
         include: { clientPolicies: { where: { mcpClientId } } },
       }),
       prisma.upstream.findFirst({ where: { id: upstream.id, userId }, select: { defaultPolicy: true, autoRule: true } }),
+      clientUpstreamOf(userId, mcpClientId, upstream.id),
     ]);
     if (!current) throw new Error('upstream vanished mid-request');
+    // ADR-0032: refused like an unknown tool, with the name as called.
+    const unknownText = MSG.unknownTool(calledName.slice(0, 100));
     // Read-only by the STORED annotations (an unknown tool is not read-only).
     const readOnly = isReadOnly(tool?.annotations);
     const snoozeOwner = { userId, upstreamId: upstream.id, mcpClientId };
@@ -410,6 +444,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         upstreamDefault: current.defaultPolicy as Policy,
         tool: toolState,
         clientOverride: (tool?.clientPolicies[0]?.policy as Policy | undefined) ?? null,
+        clientUpstream,
         snoozedUntil: pauses.allowUntil,
         denyPausedUntil: pauses.denyUntil,
         now,
@@ -422,6 +457,9 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
               upstreamDefault: current.defaultPolicy as Policy,
               tool: toolState,
               clientOverride: (tool?.clientPolicies[0]?.policy as Policy | undefined) ?? null,
+              // A hidden upstream never gets here (client-hidden comes before
+              // snooze-deny); passed anyway so this can't loosen it.
+              clientUpstream,
               snoozedUntil: pauses.allowUntil,
               denyPausedUntil: null,
               now,
@@ -490,6 +528,34 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         : null;
 
     const first = await evaluate(receivedAt);
+    // ADR-0032: hidden from this client. Refused at once like an unknown tool:
+    // no Clef gate, no hold, no push, no intent summary, never forwarded.
+    // The audit row tells the truth (client-hidden).
+    if (first.base.path === 'client-hidden' || (first.base.policy === 'DENY' && hidesUpstream(clientUpstream))) {
+      const created = await prisma.auditEntry.create({
+        data: {
+          userId,
+          mcpClientId,
+          upstreamId: upstream.id,
+          endpoint,
+          toolName: name.slice(0, MAX_TOOL_NAME_IN_AUDIT),
+          arguments: JSON.stringify(args),
+          policy: 'DENY',
+          decisionPath: first.base.path,
+          outcome: 'DENIED',
+          isError: true,
+          resultText: unknownText,
+          receivedAt,
+          decidedAt: receivedAt,
+          finishedAt: receivedAt,
+          sessionId: call.session?.id ?? null,
+          intentStatus: intents.enabled ? 'SKIPPED' : 'OFF',
+          ...auditDiagnostics(call.diagnostics),
+        },
+      });
+      auditEvents.emit({ userId, auditId: created.id });
+      return errorResult(unknownText);
+    }
     // ADR-0029: an ALLOW that only an allow pause gave goes through the AI
     // check, under the access's serial lock, re-evaluated there (an earlier
     // check of this access may have ended the pause meanwhile). The check can
@@ -572,8 +638,8 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
 
     if (decision.policy === 'DENY') {
       const text =
-        decision.path === 'unknown-tool'
-          ? MSG.unknownTool(shownName)
+        decision.path === 'unknown-tool' || decision.path === 'client-hidden'
+          ? unknownText
           : decision.path === 'snooze-deny' && pauses.denyUntil
             ? MSG.blocked(shownName, pauses.denyScope === 'TOOL' ? null : upstream.name.slice(0, 100), pauses.denyUntil)
             : MSG.denied(shownName);
@@ -645,6 +711,13 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           await finish({ outcome: 'DENIED', decisionPath: `${rule}+paused`, decidedAt: d.at, isError: true, resultText: text });
           return errorResult(text);
         }
+        // ADR-0032 §4: hiding settles held calls (routes/upstreamTools.ts), but
+        // one held right after that would survive it: re-check (a failed read
+        // throws, nothing is forwarded).
+        if (hidesUpstream(await clientUpstreamOf(userId, mcpClientId, upstream.id))) {
+          await finish({ outcome: 'DENIED', decisionPath: `${rule}+denied:client-hidden`, decidedAt: d.at, isError: true, resultText: unknownText });
+          return errorResult(unknownText);
+        }
         if (d.snoozeUntil && held.call.snoozable) {
           try {
             // READONLY only from a read-only tool; anything else narrows to TOOL.
@@ -667,7 +740,9 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         return forward(timeoutMs, path, d.at);
       }
       if (d.kind === 'deny') {
-        let text = MSG.declined(shownName, displayName);
+        // ADR-0032 §4: settled because the upstream was hidden from this
+        // client: the same text as an unknown tool.
+        let text = d.via === 'client-hidden' ? unknownText : MSG.declined(shownName, displayName);
         if (d.pauseUntil) {
           // ADR-0026: "Ablehnen und nicht mehr fragen". Stored BEFORE the
           // agent gets its answer, so an immediate retry already hits it.
@@ -720,13 +795,16 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
     const upstream = await prisma.upstream.findFirst({ where: { id: ref.id, userId: call.userId } });
     if (!upstream) throw new Error('upstream vanished mid-request');
     const endpoint = `/mcp/${upstream.slug}`;
-    const upstreamInstructions = call.wantsInstructions ? (await liveInstructions(upstream)).instructions : upstream.instructions;
+    // ADR-0032: hidden from this client: only xitl's line, nothing of the
+    // upstream (not contacted). tools/list and calls check it again.
+    const hidden = hidesUpstream(await clientUpstreamOf(call.userId, call.mcpClientId, upstream.id));
+    const upstreamInstructions = hidden ? null : call.wantsInstructions ? (await liveInstructions(upstream)).instructions : upstream.instructions;
 
     const server = new Server(
       { name: `xitl/${upstream.slug}`, version: APP_VERSION },
       {
         capabilities: { tools: {} },
-        instructions: instructionsFor(upstreamInstructions, upstream.description?.trim() || upstream.name),
+        instructions: hidden ? INSTRUCTIONS_PREFIX : instructionsFor(upstreamInstructions, upstream.description?.trim() || upstream.name),
       },
     );
     server.setRequestHandler('tools/list', async () => ({ tools: await listFor(upstream, call.mcpClientId, displayName) }));
@@ -737,6 +815,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         upstream: { id: upstream.id, slug: upstream.slug, name: upstream.name, description: upstream.description },
         endpoint,
         name: request.params.name,
+        calledName: request.params.name,
         args: request.params.arguments ?? {},
         signal: reqCtx.mcpReq.signal,
         rpcId: reqCtx.mcpReq.id,
@@ -748,7 +827,15 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
   /** `/mcp`: all of the user's upstreams, names prefixed `<slug>_` (ADR-0017). */
   async function buildUnified(call: McpCallContext, displayName: string): Promise<Server> {
     const { userId, mcpClientId } = call;
-    const upstreams = await prisma.upstream.findMany({ where: { userId }, orderBy: { slug: 'asc' } });
+    // ADR-0032: upstreams hidden from this client get no section, no state
+    // line and no failure notice, and are not contacted for instructions. A
+    // failed read throws (no instructions rather than a leak).
+    const defaults = await prisma.clientUpstreamPolicy.findMany({
+      where: { mcpClientId, mcpClient: { userId }, upstream: { userId } },
+      select: { upstreamId: true, policy: true },
+    });
+    const hiddenIds = new Set(defaults.filter((d) => hidesUpstream(d.policy as Policy)).map((d) => d.upstreamId));
+    const upstreams = (await prisma.upstream.findMany({ where: { userId }, orderBy: { slug: 'asc' } })).filter((u) => !hiddenIds.has(u.id));
 
     // Live only when the client asks for them (initialize): one connection per
     // usable upstream, in parallel; the stored ones otherwise.
@@ -803,6 +890,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         upstream,
         endpoint: UNIFIED_ENDPOINT,
         name: split.tool,
+        calledName: name,
         args,
         signal: reqCtx.mcpReq.signal,
         rpcId: reqCtx.mcpReq.id,

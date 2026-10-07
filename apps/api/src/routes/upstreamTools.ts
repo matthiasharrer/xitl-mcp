@@ -4,7 +4,8 @@ import { prisma } from '../db.js';
 import { pauseEvents } from '../lib/pauseEvents.js';
 import type { AppEnv } from '../identity.js';
 import { systemClock } from '../lib/clock.js';
-import { evaluatePolicy, type Policy } from '../lib/policy.js';
+import { evaluatePolicy, hidesUpstream, type Policy } from '../lib/policy.js';
+import { approvals } from '../approval/pending.js';
 import { toolHint } from '../lib/proxyText.js';
 import { UpstreamNeedsReconnect, UpstreamNotConnected } from '../upstream/connection.js';
 import { errorTag } from '../upstream/oauthClient.js';
@@ -16,7 +17,11 @@ import type { KnownTool } from '../generated/prisma/client.js';
 
 // /api/upstreams/:id/tools…: the policy UI's API (ADR-0004, TC-23/25/26).
 // Also /api/upstreams/:id/snoozes[/:snoozeId]: list and lift active pauses
-// (ADR-0026, TC-124).
+// (ADR-0026, TC-124), and /api/upstreams/:id/clients/:mcpClientId: a client's
+// default for this upstream (ADR-0032, TC-185; DENY hides the upstream from
+// it and settles its held calls there).
+// `GET …/tools?client=<id>` adds that client's effective policy per tool
+// (`forClient`), from the same evaluatePolicy as the proxy (no pauses).
 // Mounted under /api (identity). Every handler first resolves the upstream
 // among the CALLER's upstreams (404 otherwise, no oracle), and every tool is
 // addressed through that upstream, so a tool id of someone else's upstream is
@@ -89,13 +94,15 @@ export function unremarkable(t: KnownTool, clefOn: boolean): boolean {
   return h.review && !h.attention && !h.pending;
 }
 
-/** The whole policy view of one upstream. */
-async function toolsView(upstreamId: number, userId: number) {
+/** The whole policy view of one upstream; with `forClientId` (already checked
+ * to be the caller's and to reach the upstream) also that client's effective
+ * policy per tool (ADR-0032 client view). */
+async function toolsView(upstreamId: number, userId: number, forClientId: number | null = null) {
   const owner = await prisma.user.findUnique({ where: { id: userId }, select: { pauseCheck: true } });
   const clefOn = clefConfig !== null && owner?.pauseCheck === true;
   const upstream = await ownUpstream(upstreamId, userId);
   if (!upstream) return null;
-  const [tools, clients] = await Promise.all([
+  const [tools, clients, defaults] = await Promise.all([
     prisma.knownTool.findMany({
       where: { upstreamId },
       include: { clientPolicies: { where: { mcpClient: { userId } } } },
@@ -109,17 +116,44 @@ async function toolsView(upstreamId: number, userId: number) {
       select: { id: true, name: true, pausedAt: true },
       orderBy: [{ name: 'asc' }, { id: 'asc' }],
     }),
+    // ADR-0032: the caller's clients' defaults for this upstream.
+    prisma.clientUpstreamPolicy.findMany({
+      where: { upstreamId, upstream: { userId }, mcpClient: { userId, OR: reachesUpstream(upstreamId) } },
+      select: { mcpClientId: true, policy: true },
+      orderBy: { mcpClientId: 'asc' },
+    }),
   ]);
+  const defaultOf = new Map(defaults.map((d) => [d.mcpClientId, d.policy as Policy]));
   return {
     upstream: { id: upstream.id, name: upstream.name, defaultPolicy: upstream.defaultPolicy, status: upstream.status, auth: upstream.auth, autoRule: upstream.autoRule },
     clients: clients.map((c) => ({ id: c.id, name: c.name, paused: c.pausedAt !== null })),
+    // ADR-0032: no entry = "Voreinst." (the upstream default).
+    clientDefaults: defaults.map((d) => ({ mcpClientId: d.mcpClientId, policy: d.policy })),
     tools: tools.map((t) => {
-      // Effective policy without a client override (what most clients get).
+      const toolState = { policy: t.policy as Policy | null, acknowledgedAt: t.acknowledgedAt, changedAt: t.changedAt };
+      // Effective policy without a client override or client default (what a
+      // client with neither gets).
       const base = evaluatePolicy({
         upstreamDefault: upstream.defaultPolicy as Policy,
-        tool: { policy: t.policy as Policy | null, acknowledgedAt: t.acknowledgedAt, changedAt: t.changedAt },
+        tool: toolState,
         clientOverride: null,
+        clientUpstream: null,
       });
+      // ADR-0032 client view: the same evaluation as the proxy, without pauses.
+      const ownRule = forClientId === null ? null : ((t.clientPolicies.find((cp) => cp.mcpClientId === forClientId)?.policy as Policy | undefined) ?? null);
+      const forClient =
+        forClientId === null
+          ? undefined
+          : (() => {
+              const d = evaluatePolicy({
+                upstreamDefault: upstream.defaultPolicy as Policy,
+                tool: toolState,
+                clientOverride: ownRule,
+                clientUpstream: defaultOf.get(forClientId) ?? null,
+              });
+              // A stored client rule that the hidden upstream overrides.
+              return { policy: d.policy, path: d.path, masked: ownRule !== null && d.path === 'client-hidden' };
+            })();
       return {
         id: t.id,
         name: t.name,
@@ -142,7 +176,9 @@ async function toolsView(upstreamId: number, userId: number) {
             : null,
         annotations: parseJson(t.annotations),
         cosmeticAckAt: t.cosmeticAckAt?.toISOString() ?? null,
-        clientPolicies: t.clientPolicies.map((cp) => ({ mcpClientId: cp.mcpClientId, policy: cp.policy })),
+        // masked (ADR-0032): stored, but the client's default hides the upstream.
+        clientPolicies: t.clientPolicies.map((cp) => ({ mcpClientId: cp.mcpClientId, policy: cp.policy, masked: hidesUpstream(defaultOf.get(cp.mcpClientId)) })),
+        ...(forClient ? { forClient } : {}),
       };
     }),
   };
@@ -150,7 +186,18 @@ async function toolsView(upstreamId: number, userId: number) {
 
 upstreamTools.get('/:id/tools', async (c) => {
   noStore(c);
-  const view = await toolsView(parseId(c.req.param('id')) ?? -1, c.get('user').id);
+  const userId = c.get('user').id;
+  const upstreamId = parseId(c.req.param('id')) ?? -1;
+  // ADR-0032: `?client=<id>` must be the caller's own client that reaches
+  // this upstream, else 404 (no oracle).
+  const rawClient = c.req.query('client');
+  let forClientId: number | null = null;
+  if (rawClient !== undefined) {
+    const client = await ownClient(parseId(rawClient), userId, upstreamId);
+    if (!client) return c.json(NOT_FOUND, 404);
+    forClientId = client.id;
+  }
+  const view = await toolsView(upstreamId, userId, forClientId);
   return view ? c.json(view) : c.json(NOT_FOUND, 404);
 });
 
@@ -285,6 +332,48 @@ upstreamTools.delete('/:id/tools/:toolId/clients/:mcpClientId', async (c) => {
   const client = await ownClient(parseId(c.req.param('mcpClientId')), userId, upstream.id);
   if (!tool || !client) return c.json(NOT_FOUND, 404);
   await prisma.clientToolPolicy.deleteMany({ where: { toolId: tool.id, mcpClientId: client.id } });
+  return c.json(await toolsView(upstream.id, userId));
+});
+
+// ADR-0032: a client's default for this upstream. PUT sets it, DELETE removes
+// it ("Voreinst."). Both answer the tools view. DENY hides the upstream from
+// the client and settles the client's held calls on it as denied
+// (`+denied:client-hidden`, the agent gets the unknown-tool text); other values
+// leave held calls alone. The row is written first, so a call evaluated after
+// the settle is refused by the policy itself, and one held in between is
+// caught by the proxy's re-check after an approval (mcp/server.ts).
+upstreamTools.put('/:id/clients/:mcpClientId', async (c) => {
+  noStore(c);
+  const userId = c.get('user').id;
+  const upstream = await ownUpstream(parseId(c.req.param('id')), userId);
+  if (!upstream) return c.json(NOT_FOUND, 404);
+  const client = await ownClient(parseId(c.req.param('mcpClientId')), userId, upstream.id);
+  if (!client) return c.json(NOT_FOUND, 404);
+  const parsed = policyOnly.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'Die Voreinstellung ist ungültig.' }, 400);
+  await prisma.clientUpstreamPolicy.upsert({
+    where: { mcpClientId_upstreamId: { mcpClientId: client.id, upstreamId: upstream.id } },
+    create: { mcpClientId: client.id, upstreamId: upstream.id, policy: parsed.data.policy },
+    update: { policy: parsed.data.policy },
+  });
+  if (hidesUpstream(parsed.data.policy)) {
+    for (const held of approvals.list(userId)) {
+      if (held.mcpClientId === client.id && held.upstreamId === upstream.id) {
+        approvals.decide(userId, held.id, { kind: 'deny', via: 'client-hidden' });
+      }
+    }
+  }
+  return c.json(await toolsView(upstream.id, userId));
+});
+
+upstreamTools.delete('/:id/clients/:mcpClientId', async (c) => {
+  noStore(c);
+  const userId = c.get('user').id;
+  const upstream = await ownUpstream(parseId(c.req.param('id')), userId);
+  if (!upstream) return c.json(NOT_FOUND, 404);
+  const client = await ownClient(parseId(c.req.param('mcpClientId')), userId, upstream.id);
+  if (!client) return c.json(NOT_FOUND, 404);
+  await prisma.clientUpstreamPolicy.deleteMany({ where: { mcpClientId: client.id, upstreamId: upstream.id } });
   return c.json(await toolsView(upstream.id, userId));
 });
 

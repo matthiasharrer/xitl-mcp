@@ -81,20 +81,20 @@ model Upstream {
 
   /// OAUTH: xitl's client registration at the upstream's AS (DCR result) and
   /// the discovered AS metadata, both JSON; the user's tokens.
-  oauthClient   String?
-  oauthMetadata String?
-  accessToken   String?
-  refreshToken  String?
+  oauthClient    String?
+  oauthMetadata  String?
+  accessToken    String?
+  refreshToken   String?
   tokenExpiresAt DateTime?
   /// OAUTH, in flight: PKCE verifier + state of a started connect flow.
-  pendingAuth   String?
+  pendingAuth    String?
 
   /// HEADER: a static header injected on every upstream request.
-  headerName    String?
-  headerValue   String?
+  headerName  String?
+  headerValue String?
 
   /// The upstream's own server instructions, last seen (ADR-0014).
-  instructions  String?
+  instructions String?
 
   /// ADR-0022: when the last contact (withUpstream) failed for a reason other
   /// than a connection state; null once a contact succeeded again.
@@ -104,20 +104,21 @@ model Upstream {
   /// URL may be an internal address. Set only if the URL really was internal
   /// at save time; recomputed on every URL change. Allows exactly the URL's
   /// own host:port (lib/outbound.ts upstreamAllowance), nothing else.
-  allowInternal Boolean        @default(false)
+  allowInternal Boolean  @default(false)
   /// ADR-0030: the user's prose rule for AUTO (≤ 1000 chars, trusted: written
   /// only through /api with Authelia identity, never by an agent). Used by
   /// every AUTO decision on this upstream (default, tool or client rule).
   /// NULL/empty = AUTO behaves like ASK.
   autoRule      String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  tools         KnownTool[]
-  snoozes       Snooze[]
-  auditEntries  AuditEntry[]
-  tokenClients  McpClient[]
-  mcpSessions   McpSession[]
+  tools          KnownTool[]
+  snoozes        Snooze[]
+  auditEntries   AuditEntry[]
+  tokenClients   McpClient[]
+  mcpSessions    McpSession[]
+  clientDefaults ClientUpstreamPolicy[]
 
   @@unique([userId, slug])
 }
@@ -127,29 +128,29 @@ model Upstream {
 /// (ADR-0004). policy null = use the upstream default. annotations is the
 /// upstream's ToolAnnotations JSON (readOnlyHint, destructiveHint, ...).
 model KnownTool {
-  id             Int          @id @default(autoincrement())
-  upstreamId     Int
-  upstream       Upstream     @relation(fields: [upstreamId], references: [id], onDelete: Cascade)
-  name           String
-  description    String?
-  annotations    String?
-  policy         Policy?
-  firstSeenAt    DateTime     @default(now())
-  lastSeenAt     DateTime     @default(now())
-  acknowledgedAt DateTime?
+  id              Int                @id @default(autoincrement())
+  upstreamId      Int
+  upstream        Upstream           @relation(fields: [upstreamId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  annotations     String?
+  policy          Policy?
+  firstSeenAt     DateTime           @default(now())
+  lastSeenAt      DateTime           @default(now())
+  acknowledgedAt  DateTime?
   /// Set when a known tool's description or annotations changed ("rug pull",
   /// TC-36): acknowledgedAt is cleared at the same time, the tool is ASK
   /// ("changed-tool") even over an explicit tool/client ALLOW (lib/policy.ts),
   /// and the UI says "Geändert" instead of "Neu". Cleared again when the user
   /// acknowledges or sets a policy. Also set for every tool of an upstream
   /// whose URL changes (ADR-0021).
-  changedAt      DateTime?
+  changedAt       DateTime?
   /// ADR-0031: the tool's inputSchema as canonical JSON (keys sorted), always
   /// a string once recorded ("null" when the upstream sent none); over
   /// MAX_TOOL_SCHEMA_CHARS a prefix plus its sha256, so a change past the cap
   /// is still a change. NULL = recorded before this column existed: the next
   /// tools/list stores it silently (not a change).
-  inputSchema    String?
+  inputSchema     String?
   /// ADR-0031: the acknowledged definition, set when a change is detected
   /// (kept across further changes until acknowledged; the Regeln diff shows
   /// old -> new) and on a cosmetic auto-ack (what the text was before).
@@ -159,20 +160,20 @@ model KnownTool {
   prevInputSchema String?
   /// ADR-0031: changedAt was set by an upstream URL change (ADR-0021), an
   /// attention reason. Cleared with changedAt.
-  urlChanged     Boolean      @default(false)
+  urlChanged      Boolean            @default(false)
   /// ADR-0031: the last cosmetic-only change (whitespace, punctuation, case)
   /// that was auto-acknowledged (history path `auto-ack:cosmetic`). The only
   /// automatic acknowledgement; no model involved.
-  cosmeticAckAt  DateTime?
+  cosmeticAckAt   DateTime?
   /// ADR-0031: the advisory Clef label (never read by policy or acknowledge):
   /// risiko choice (lesen | aendern | zerstoeren) and p(injection), computed
   /// once per definition (`hintFor` = its version key) in the background.
   /// NULL label with hintAt set = the request failed or Clef was off.
-  hintRisk       String?
-  hintInjection  Float?
-  hintAt         DateTime?
-  hintFor        String?
-  clientPolicies ClientToolPolicy[]
+  hintRisk        String?
+  hintInjection   Float?
+  hintAt          DateTime?
+  hintFor         String?
+  clientPolicies  ClientToolPolicy[]
 
   @@unique([upstreamId, name])
 }
@@ -189,28 +190,47 @@ model ClientToolPolicy {
   @@unique([toolId, mcpClientId])
 }
 
-/// "Don't ask again for this client + tool until": set when approving (ADR-0004).
-model Snooze {
+/// ADR-0032: one client's default for one upstream ("Gilt für <client>").
+/// No row = the upstream default ("Voreinst."). DENY hides the upstream from
+/// that client completely (path `client-hidden`: not listed, no instructions
+/// section, calls refused like an unknown tool) and beats every other rule;
+/// ALLOW / ASK / AUTO replace the upstream default for this client only
+/// (`policy:client-upstream`, below tool rules and new/changed tools). The
+/// client must be the user's and reach the upstream (routes/upstreamTools.ts);
+/// written only through /api. Survives a URL change (hiding is not trust).
+model ClientUpstreamPolicy {
   id          Int       @id @default(autoincrement())
-  userId      Int
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mcpClientId Int
+  mcpClient   McpClient @relation(fields: [mcpClientId], references: [id], onDelete: Cascade)
   upstreamId  Int
   upstream    Upstream  @relation(fields: [upstreamId], references: [id], onDelete: Cascade)
+  policy      Policy
+
+  @@unique([mcpClientId, upstreamId])
+}
+
+/// "Don't ask again for this client + tool until": set when approving (ADR-0004).
+model Snooze {
+  id            Int         @id @default(autoincrement())
+  userId        Int
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  upstreamId    Int
+  upstream      Upstream    @relation(fields: [upstreamId], references: [id], onDelete: Cascade)
   /// TOOL: just `toolName`; READONLY: every tool of the upstream whose stored
   /// annotations say readOnlyHint; UPSTREAM: every tool of the upstream.
   /// toolName is null for the two wide scopes. An ALLOW pause only ever turns
   /// ASK -> ALLOW, never for new/changed tools (policy.ts).
-  scope       SnoozeScope @default(TOOL)
+  scope         SnoozeScope @default(TOOL)
   /// ADR-0026: "ALLOW" turns ASK into ALLOW (the original snooze); "DENY"
   /// refuses every covered call (deny pause, policy.ts `snooze-deny`). Plain
   /// String on purpose: any value other than exactly "ALLOW" is read as DENY
   /// (fail closed, approval/snooze.ts).
-  effect      String    @default("ALLOW")
-  toolName    String?
-  mcpClientId Int
-  mcpClient   McpClient @relation(fields: [mcpClientId], references: [id], onDelete: Cascade)
-  until       DateTime
-  createdAt   DateTime  @default(now())
+  effect        String      @default("ALLOW")
+  toolName      String?
+  mcpClientId   Int
+  mcpClient     McpClient   @relation(fields: [mcpClientId], references: [id], onDelete: Cascade)
+  until         DateTime
+  createdAt     DateTime    @default(now())
   /// ADR-0029: the held call (AuditEntry.id) this ALLOW pause was granted on;
   /// the AI check compares later calls with it. Null = granted before the
   /// check existed (or a DENY pause): stays blind. No relation on purpose
@@ -248,34 +268,35 @@ enum McpClientKind {
 /// at creation, only sha256(token) is stored (tokenHash) plus a recognition
 /// prefix. A TOKEN row never takes part in the OAuth flows.
 model McpClient {
-  id             Int                @id @default(autoincrement())
-  clientId       String             @unique
-  name           String
-  redirectUris   String
-  kind           McpClientKind      @default(OAUTH)
-  userId         Int?
-  user           User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  upstreamId     Int?
-  upstream       Upstream?          @relation(fields: [upstreamId], references: [id], onDelete: Cascade)
+  id               Int                    @id @default(autoincrement())
+  clientId         String                 @unique
+  name             String
+  redirectUris     String
+  kind             McpClientKind          @default(OAUTH)
+  userId           Int?
+  user             User?                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  upstreamId       Int?
+  upstream         Upstream?              @relation(fields: [upstreamId], references: [id], onDelete: Cascade)
   /// TOKEN scope (ADR-0018): true = all of the user's upstreams (upstreamId
   /// must then be null); false = the one upstream in upstreamId.
-  allUpstreams   Boolean            @default(false)
+  allUpstreams     Boolean                @default(false)
   /// ADR-0023: JSON array of normalized browser origins
   /// (`http(s)://host[:port]`, lib/origins.ts) that may use this access token
   /// from a web page (CORS on /mcp and /mcp/<slug>). TOKEN clients only;
   /// always "[]" for OAUTH. At most 10.
-  allowedOrigins String             @default("[]")
+  allowedOrigins   String                 @default("[]")
   /// ADR-0024: set (Clock) while the access is paused; the gate (mcp/mount.ts)
   /// then refuses every request with 403 access_paused. null = active.
-  pausedAt       DateTime?
-  tokenHash      String?            @unique
-  tokenPrefix    String?
-  createdAt      DateTime           @default(now())
-  lastUsedAt     DateTime?
-  toolPolicies   ClientToolPolicy[]
-  snoozes        Snooze[]
-  auditEntries   AuditEntry[]
-  mcpSessions    McpSession[]
+  pausedAt         DateTime?
+  tokenHash        String?                @unique
+  tokenPrefix      String?
+  createdAt        DateTime               @default(now())
+  lastUsedAt       DateTime?
+  toolPolicies     ClientToolPolicy[]
+  upstreamDefaults ClientUpstreamPolicy[]
+  snoozes          Snooze[]
+  auditEntries     AuditEntry[]
+  mcpSessions      McpSession[]
 
   @@index([userId])
 }
@@ -295,32 +316,32 @@ enum CallOutcome {
 /// "flood", ... endpoint is "/mcp/<slug>"
 /// or "/mcp".
 model AuditEntry {
-  id           Int         @id @default(autoincrement())
-  userId       Int
-  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  mcpClientId  Int?
-  mcpClient    McpClient?  @relation(fields: [mcpClientId], references: [id], onDelete: SetNull)
-  upstreamId   Int?
-  upstream     Upstream?   @relation(fields: [upstreamId], references: [id], onDelete: SetNull)
-  endpoint     String
-  toolName     String
-  arguments    String
-  policy       Policy
-  decisionPath String
-  outcome      CallOutcome @default(PENDING)
-  isError      Boolean?
-  resultText   String?
-  receivedAt   DateTime
-  decidedAt    DateTime?
-  finishedAt   DateTime?
+  id              Int         @id @default(autoincrement())
+  userId          Int
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mcpClientId     Int?
+  mcpClient       McpClient?  @relation(fields: [mcpClientId], references: [id], onDelete: SetNull)
+  upstreamId      Int?
+  upstream        Upstream?   @relation(fields: [upstreamId], references: [id], onDelete: SetNull)
+  endpoint        String
+  toolName        String
+  arguments       String
+  policy          Policy
+  decisionPath    String
+  outcome         CallOutcome @default(PENDING)
+  isError         Boolean?
+  resultText      String?
+  receivedAt      DateTime
+  decidedAt       DateTime?
+  finishedAt      DateTime?
   /// The pending approval's unguessable id (approval/pending.ts) when the
   /// call was held for a decision (ASK). Lets the API answer 409 "nicht mehr
   /// offen" and the deep-link page show the outcome after the call resolved.
-  approvalId   String?     @unique
+  approvalId      String?     @unique
   /// The MCP session the call came in on (ADR-0016), null for sessionless
   /// clients. The session is diagnostics, never authority.
-  sessionId    String?
-  session      McpSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  sessionId       String?
+  session         McpSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
   /// Per-request diagnostics (sessions.requestDiagnostics), so calls can be
   /// told apart without a session: untrusted, clipped, header NAMES only.
   protocolVersion String?
@@ -339,27 +360,27 @@ model AuditEntry {
   /// approval or forwarding. Status OFF (feature off) | PENDING (queued) |
   /// DONE | FAILED (model error/garbage/timeout) | SKIPPED (queue overflow,
   /// restart, nothing to summarize).
-  intentStatus    String      @default("OFF")
+  intentStatus        String    @default("OFF")
   /// What the UI shows: intent (+ concerns), length-capped, plain text.
-  intentSummary   String?
+  intentSummary       String?
   /// TC-126: the model's short German title (≤ 60 chars, plain text), DONE only.
-  intentTitle     String?
+  intentTitle         String?
   /// Shown risk = max(tool hint, model risk) on read < write < destructive.
-  intentRisk      String?
+  intentRisk          String?
   /// The model's own (attacker-influenced) risk verdict.
-  intentModelRisk String?
+  intentModelRisk     String?
   /// The model rated lower than the tool's own hint (UI warning).
-  intentLowered   Boolean?
-  intentModel     String?
-  intentAt        DateTime?
+  intentLowered       Boolean?
+  intentModel         String?
+  intentAt            DateTime?
   /// The exact user-turn text sent for this call and the raw answer: the next
   /// call of the context replays them byte-identically (KV cache). Never
   /// exposed by the API.
-  intentPrompt    String?
-  intentAnswer    String?
+  intentPrompt        String?
+  intentAnswer        String?
   /// The context (append-only conversation) this call belongs to: the audit
   /// id of the context's first call.
-  intentContextId Int?
+  intentContextId     Int?
   /// TC-172: the model's two suggested Zeitfreigabe purposes ("zweck_eng" ->
   /// "Nur dies", "zweck_art" -> "Diese Art"): one line, ≤ 120 chars, DONE
   /// only, null if absent. Advisory model output, shown as tappable chips.
@@ -370,23 +391,23 @@ model AuditEntry {
   /// of an allow pause and the verdict label (gleich | richtungswechsel |
   /// ausweitung; on a mismatch the stronger of the two deviations). Null when
   /// unchecked or the check failed (decisionPath `snooze-ki-error`).
-  pauseCheckScore  Float?
-  pauseCheckChoice String?
+  pauseCheckScore    Float?
+  pauseCheckChoice   String?
   /// The ALLOW pause (Snooze.id) this call was let through under: the AI
   /// check's "calls since" for that pause. Diagnostics, never authority.
-  pauseSnoozeId    Int?
+  pauseSnoozeId      Int?
   /// The purpose of the Zeitfreigabe this call was checked against (copied:
   /// the pause row may be gone after a mismatch). Shown in Verlauf.
-  pausePurpose     String?
+  pausePurpose       String?
   /// TC-173: Snooze.purposeSource copied with pausePurpose ("typed" |
   /// "suggested"; null without a purpose).
   pausePurposeSource String?
   /// ADR-0026 amendment: p(outside) of a Sperre's purpose check (the call
   /// was refused below the threshold, or asked as `snooze-deny-ki-ask`).
-  sperreScore      Float?
+  sperreScore        Float?
   /// ADR-0030 (stored for tuning, shown in Verlauf): p(erlaubt) of the AUTO
   /// check. Null when not checked or the check failed (`auto-error`).
-  autoScore        Float?
+  autoScore          Float?
 
   @@index([userId, receivedAt])
   @@index([sessionId])

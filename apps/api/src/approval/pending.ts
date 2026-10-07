@@ -30,17 +30,20 @@ import type { IntentView } from '../intent/queue.js';
 import type { AutoCheckView } from '../auto/text.js';
 import type { PauseCheckView } from '../pausecheck/text.js';
 
-/** How a decision was made: in the app, from the notification, or by a
- * pause set on another held call (it also settles the held calls it covers,
- * routes/approvals.ts `heldCoveredBy`). 'pause' never comes from a request. */
-export type Via = 'page' | 'push' | 'pause';
+/** How a decision was made: in the app, from the notification, by a pause
+ * set on another held call (it also settles the held calls it covers,
+ * routes/approvals.ts `heldCoveredBy`), or by hiding the upstream from the
+ * call's client (ADR-0032 §4, routes/upstreamTools.ts; deny only, the agent
+ * gets the unknown-tool text). 'pause' and 'client-hidden' never come from a
+ * request body. */
+export type Via = 'page' | 'push' | 'pause' | 'client-hidden';
 
 /** TC-173: a Zeitfreigabe purpose the human typed, or an AI suggestion the
  * human tapped. A Sperre's purpose has no source field: always typed. */
 export type PurposeSource = 'typed' | 'suggested';
 
 export type Decision =
-  | { kind: 'approve'; via: Via; at: Date; snoozeUntil: Date | null; snoozeScope?: SnoozeScope; purpose?: string | null; purposeSource?: PurposeSource | null }
+  | { kind: 'approve'; via: Exclude<Via, 'client-hidden'>; at: Date; snoozeUntil: Date | null; snoozeScope?: SnoozeScope; purpose?: string | null; purposeSource?: PurposeSource | null }
   /** `pauseUntil`/`pauseScope`: also refuse this tool/upstream for this
    * client until then (deny pause, ADR-0026). */
   | { kind: 'deny'; via: Via; at: Date; pauseUntil?: Date | null; pauseScope?: Exclude<SnoozeScope, 'READONLY'>; purpose?: string | null }
@@ -178,7 +181,7 @@ export class ApprovalHub extends EventEmitter {
     userId: number,
     id: string,
     d:
-      | { kind: 'approve'; via: Via; snoozeUntil: Date | null; snoozeScope?: SnoozeScope; purpose?: string | null; purposeSource?: PurposeSource | null }
+      | { kind: 'approve'; via: Exclude<Via, 'client-hidden'>; snoozeUntil: Date | null; snoozeScope?: SnoozeScope; purpose?: string | null; purposeSource?: PurposeSource | null }
       | { kind: 'deny'; via: Via; pauseUntil?: Date | null; pauseScope?: Exclude<SnoozeScope, 'READONLY'>; purpose?: string | null },
   ): DecideResult {
     const entry = this.entries.get(id);

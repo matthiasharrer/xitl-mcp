@@ -3,6 +3,16 @@
 Shipped roadmap entries, newest first. The reasoning is in `decisions/`, the
 test evidence in `testing.md`'s run log.
 
+## 2026-10-07 (unreleased)
+
+- **ADR-0032: a default per client and upstream.** Voreinst. / Erlauben /
+  Auto / Fragen / Verbieten per (client, upstream); Verbieten hides the
+  upstream from that client (no tools, no instructions section, calls get
+  the unknown-tool text, held calls refused), masking its tool rules. Regeln
+  has a "Gilt für <client>" view with the effective policy and source per tool;
+  the client page shows "Sieht / Verborgen". TC-184…193.
+- **TC-128 e2e** (held calls settled by a new pause).
+
 ## 2026-10-07 (`v0.11.0`)
 
 - **"Wofür?" suggestion chips** from the intent model (ADR-0029 amendment),

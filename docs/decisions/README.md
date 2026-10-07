@@ -33,4 +33,4 @@
 | 0029 | [Pause with AI check: Clef narrows an allow pause, a mismatch ends it](0029-pause-ai-check.md) | Accepted |
 | 0030 | [AUTO policy: a prose rule per upstream, checked by Clef per call](0030-auto-policy.md) | Accepted |
 | 0031 | [Review hint for new and changed tools (advisory), and inputSchema change detection](0031-tool-review-hint.md) | Accepted |
-| 0032 | [A default per client and upstream; "Verbieten" hides the upstream from that client](0032-client-upstream-default.md) | Accepted (not built) |
+| 0032 | [A default per client and upstream; "Verbieten" hides the upstream from that client](0032-client-upstream-default.md) | Accepted |

@@ -3,6 +3,25 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-07 — ADR-0032 client default per upstream, TC-128 e2e (lead)
+
+- ADR-0032 decided with Matthias: Verbieten hides the upstream from a client
+  and masks (not resets) its tool rules, no dialog; precedence Client-Regel >
+  Tool-Regel > Client-Voreinst. > Upstream-Voreinst.; "Gilt für" client view.
+- Built by an Opus implementer, stopped halfway on Matthias's request (usage
+  limit), resumed by a scheduled run 2 h later: the lead reviewed the security
+  paths, wrote TC-192/193, ran the mutations (see run log 32).
+- TC-128 e2e: with the KI-Prüfung on, held calls are settled by the proxy
+  through Clef and `alsoDecided` is 0, so the toast never names a count
+  (roadmap item 2).
+- Gotcha: the new "Sieht: …" line names upstreams inside client rows, so
+  `li.item` + upstream name became ambiguous in 4 UI specs; scope upstream rows
+  with `li.item[data-slug]`.
+- Matthias reported a call to a tool that may have changed, made without a
+  re-list (n8n workflow behind Einkaufsliste): the call was correct (that tool
+  was unchanged), but change detection only runs on tools/list. Decided: re-sync
+  if older than 5 min (next).
+
 ## 2026-10-07 — Purpose suggestion chips + "Läuft gerade" overview (implementer)
 
 - Chips (TC-172…177): the intent prompt gains `zweck_eng` / `zweck_art`

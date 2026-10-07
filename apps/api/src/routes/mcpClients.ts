@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { generateAccessToken, hashAccessToken, tokenDisplayPrefix } from '../lib/accessToken.js';
 import { parseAllowedOrigins, storedOrigins } from '../lib/origins.js';
 import { systemClock } from '../lib/clock.js';
+import { hidesUpstream, type Policy } from '../lib/policy.js';
 
 const clock = systemClock;
 
@@ -21,6 +22,10 @@ const clock = systemClock;
 // `redirectUris`, `userId` or the token hash (TOKEN clients, ADR-0015, are listed
 // with their upstream, display prefix and allowed browser origins, ADR-0023).
 // Every client carries `pausedAt` (ADR-0024: ISO while paused, else null).
+// The list (GET /) also carries `sees` / `hidden` (ADR-0032): the names of the
+// caller's upstreams the client can reach, split by its per-upstream default
+// (DENY or anything unrecognised = hidden), for the "Sieht: … · Verborgen: …"
+// line. Display only; the proxy decides on its own reads.
 export const mcpClients = new Hono<AppEnv>();
 
 export const clientSelect = {
@@ -111,12 +116,31 @@ function parseId(raw: string | undefined): number | null {
 // desc order, then newest registration first.
 mcpClients.get('/', async (c) => {
   noStore(c);
-  const rows = await prisma.mcpClient.findMany({
-    where: { userId: c.get('user').id },
-    select: listSelect,
-    orderBy: [{ lastUsedAt: 'desc' }, { createdAt: 'desc' }],
-  });
-  return c.json(rows.map(serialize));
+  const userId = c.get('user').id;
+  const [rows, upstreams, defaults] = await Promise.all([
+    prisma.mcpClient.findMany({
+      where: { userId },
+      select: { ...listSelect, upstreamId: true },
+      orderBy: [{ lastUsedAt: 'desc' }, { createdAt: 'desc' }],
+    }),
+    prisma.upstream.findMany({ where: { userId }, select: { id: true, name: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }] }),
+    prisma.clientUpstreamPolicy.findMany({
+      where: { mcpClient: { userId }, upstream: { userId } },
+      select: { mcpClientId: true, upstreamId: true, policy: true },
+    }),
+  ]);
+  const hidden = new Set(defaults.filter((d) => hidesUpstream(d.policy as Policy)).map((d) => `${d.mcpClientId}:${d.upstreamId}`));
+  return c.json(
+    rows.map((row) => {
+      // Reach as in routes/upstreamTools.ts `reachesUpstream`.
+      const reach = row.kind === 'OAUTH' || row.allUpstreams ? upstreams : upstreams.filter((u) => u.id === row.upstreamId);
+      return {
+        ...serialize(row),
+        sees: reach.filter((u) => !hidden.has(`${row.id}:${u.id}`)).map((u) => u.name),
+        hidden: reach.filter((u) => hidden.has(`${row.id}:${u.id}`)).map((u) => u.name),
+      };
+    }),
+  );
 });
 
 /** The 400 for origins on an OAuth client (ADR-0023). */

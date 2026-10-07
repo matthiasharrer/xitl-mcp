@@ -527,6 +527,12 @@
                   {#if c.pausedAt}
                     <span>pausiert seit {dateTime.format(new Date(c.pausedAt))}, Anfragen werden abgewiesen</span>
                   {/if}
+                  {#if c.sees && c.hidden && c.sees.length + c.hidden.length > 0}
+                    <!-- ADR-0032: what this client sees; hidden = Voreinstellung "Verbieten" in Regeln. -->
+                    <span data-testid="client-sees"
+                      >Sieht: {c.sees.length > 0 ? c.sees.join(', ') : 'nichts'}{#if c.hidden.length > 0}{' '}· Verborgen: {c.hidden.join(', ')}{/if}</span
+                    >
+                  {/if}
                   {#if c.kind === 'TOKEN' && c.allowedOrigins.length > 0}
                     <span data-testid="token-origins">Im Browser erlaubt: {c.allowedOrigins.join(', ')}</span>
                   {/if}

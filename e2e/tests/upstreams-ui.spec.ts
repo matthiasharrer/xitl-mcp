@@ -34,7 +34,7 @@ test('TC-08 Einstellungen: Upstream hinzufügen, bearbeiten, löschen (mit Best�
   await sheet.getByRole('button', { name: 'Hinzufügen' }).click();
   await expect(sheet).toBeHidden();
 
-  const item = page.locator('li.item', { hasText: name });
+  const item = page.locator('li.item[data-slug]', { hasText: name });
   await expect(item).toBeVisible();
   await expect(item).toContainText(slug);
   await expect(item).toContainText('https://haushalt.example/mcp');
@@ -73,6 +73,6 @@ test('TC-08 Einstellungen: Upstream hinzufügen, bearbeiten, löschen (mit Best�
 
   await item.getByRole('button', { name: 'Löschen' }).click();
   await confirm.getByRole('button', { name: 'Löschen' }).click();
-  await expect(page.locator('li.item', { hasText: name })).toHaveCount(0);
+  await expect(page.locator('li.item[data-slug]', { hasText: name })).toHaveCount(0);
   await noHorizontalScroll(page);
 });

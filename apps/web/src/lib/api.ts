@@ -148,7 +148,12 @@ export interface ToolRow {
   /** Acknowledged once, then its description/annotations changed (TC-36). */
   isChanged: boolean;
   lastSeenAt: string;
-  clientPolicies: { mcpClientId: number; policy: Policy }[];
+  /** `masked` (ADR-0032): stored, but the client's default hides the upstream. */
+  clientPolicies: { mcpClientId: number; policy: Policy; masked: boolean }[];
+  /** ADR-0032: only with `?client=`: that client's effective policy and its
+   * source, from the server's evaluatePolicy (no pauses); `masked` = its own
+   * stored tool rule is overridden by the hidden upstream. */
+  forClient?: { policy: Policy; path: string; masked: boolean };
   /** ADR-0031: the advisory review hint of a new/changed tool. */
   review: ToolReview;
   parameters: ToolParam[] | null;
@@ -183,6 +188,8 @@ export interface ToolsView {
   /** Clients that can reach this upstream (OAuth, its tokens, all-upstreams
    * tokens); paused ones included (TC-127). */
   clients: { id: number; name: string; paused: boolean }[];
+  /** ADR-0032: the clients' defaults for this upstream; none = "Voreinst.". */
+  clientDefaults: { mcpClientId: number; policy: Policy }[];
   tools: ToolRow[];
 }
 
@@ -202,6 +209,10 @@ export interface McpClient {
   pausedAt: string | null;
   createdAt: string;
   lastUsedAt: string | null;
+  /** ADR-0032 (list only): names of the upstreams this client reaches, split
+   * by its per-upstream default (hidden = Verbieten). Absent on PATCH answers. */
+  sees?: string[];
+  hidden?: string[];
 }
 
 /** An upstream that needs the user (ADR-0022): a "Störung" card on Freigaben. */
@@ -480,7 +491,14 @@ export const api = {
   getHealth: () => request<{ status: string; version: string }>('GET', '/api/health'),
   getMcpConfig: () => request<{ configured: boolean }>('GET', '/api/mcp/config'),
   connectUpstream: (id: number) => request<{ authorizationUrl: string }>('POST', `/api/upstreams/${id}/connect`),
-  getTools: (id: number) => request<ToolsView>('GET', `/api/upstreams/${id}/tools`),
+  /** With `clientId`: every tool also carries `forClient` (ADR-0032). */
+  getTools: (id: number, clientId: number | null = null) =>
+    request<ToolsView>('GET', clientId === null ? `/api/upstreams/${id}/tools` : `/api/upstreams/${id}/tools?client=${clientId}`),
+  /** ADR-0032: a client's default for an upstream; null = "Voreinst.". */
+  setClientDefault: (id: number, clientId: number, policy: Policy | null) =>
+    policy === null
+      ? request<ToolsView>('DELETE', `/api/upstreams/${id}/clients/${clientId}`)
+      : request<ToolsView>('PUT', `/api/upstreams/${id}/clients/${clientId}`, { policy }),
   refreshTools: (id: number) => request<ToolsView>('POST', `/api/upstreams/${id}/tools/refresh`),
   setToolPolicy: (id: number, toolId: number, policy: Policy | null) =>
     request<ToolsView>('PATCH', `/api/upstreams/${id}/tools/${toolId}`, { policy }),
@@ -555,6 +573,10 @@ const PATH_PART: Record<string, string> = {
   'policy:upstream-default': 'Standardregel',
   'policy:tool': 'Regel des Tools',
   'policy:client': 'Regel für diesen Client',
+  // ADR-0032: the client's default for the upstream.
+  'client-hidden': 'für diesen Client verborgen',
+  'policy:client-upstream': 'Client-Voreinstellung',
+  'denied:client-hidden': 'abgelehnt: für diesen Client verborgen',
   'new-tool': 'neues Tool',
   'changed-tool': 'geändertes Tool',
   'unknown-tool': 'unbekanntes Tool',

@@ -343,7 +343,7 @@ test.describe('Einstellungen im Browser', () => {
     await runOAuthFlow(request, theirs, ANNA);
 
     await page.goto('/#/einstellungen');
-    const item = page.locator('li.item', { hasText: 'Haushalt TC14' });
+    const item = page.locator('li.item[data-slug]', { hasText: 'Haushalt TC14' });
     await expect(item).toBeVisible();
 
     // both endpoints: /mcp/<slug> per upstream with a copy button, /mcp for all (TC-68)

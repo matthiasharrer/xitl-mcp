@@ -325,7 +325,7 @@ test('TC-84 Formular am Handy: interne Adresse -> Hinweis + "Trotzdem erlauben" 
 
   await allow.click();
   await expect(sheet).toBeHidden();
-  const item = page.locator('li.item', { hasText: name });
+  const item = page.locator('li.item[data-slug]', { hasText: name });
   await expect(item).toBeVisible();
   await expect(item.locator('.badge', { hasText: 'intern' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);

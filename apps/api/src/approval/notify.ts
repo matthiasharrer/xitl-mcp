@@ -52,7 +52,7 @@ export function wireApprovalPush(hub: ApprovalHub, opts: { clock?: Clock; deps?:
     const d = ev.decision;
     let outcome: 'approved' | 'denied' | 'expired' | 'revoked' | 'paused';
     if (d.kind === 'approve' && (d.via === 'page' || d.via === 'pause')) outcome = 'approved';
-    else if (d.kind === 'deny' && (d.via === 'page' || d.via === 'pause')) outcome = 'denied';
+    else if (d.kind === 'deny' && (d.via === 'page' || d.via === 'pause' || d.via === 'client-hidden')) outcome = 'denied';
     else if (d.kind === 'timeout') outcome = 'expired';
     else if (d.kind === 'revoked' || d.kind === 'paused') outcome = d.kind;
     else return;

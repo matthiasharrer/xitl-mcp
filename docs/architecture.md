@@ -423,6 +423,17 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   `AuditEntry.sperreScore` (+ `pausePurpose`) for inside/outside;
   `PendingCall.sperreCheck` for the card/push note. Held calls covered by a
   NEW Sperre are still all denied at once by the approvals route (no Clef).
+- **Client default per upstream (ADR-0032, `ClientUpstreamPolicy`).**
+  `evaluatePolicy` takes a required `clientUpstream`. DENY (or garbage) =
+  `client-hidden`, right after `unknown-tool`, before every pause and rule;
+  `hidesUpstream()` is the one test used by the policy, `listFor` (returns []
+  without contacting the upstream), `/mcp` instructions (section left out)
+  and `/mcp/<slug>` initialize (xitl's line only). A hidden call is audited
+  and refused with `MSG.unknownTool(<name as called>)`, no gate, no hold.
+  ALLOW/ASK/AUTO sit below tool rules and new/changed tools
+  (`policy:client-upstream`). PUT DENY settles the client's held calls on
+  the upstream (`via: 'client-hidden'`); the proxy re-checks after an
+  approval before forwarding.
 - **AUTO policy (ADR-0030, `auto/`).** `evaluatePolicy` may return `AUTO`
   (resolved at the same steps as ALLOW/ASK/DENY; an explicit AUTO on a new
   tool is ASK `new-tool`, on a changed one ASK `changed-tool`; a live allow
