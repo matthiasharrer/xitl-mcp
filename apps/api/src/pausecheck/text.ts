@@ -18,3 +18,10 @@ export function pauseCheckNote(v: PauseCheckView): string {
   }
   return 'KI-Prüfung nicht erreichbar';
 }
+
+/** ADR-0026 amendment: a call Clef judged outside a Sperre's purpose. The
+ * purpose is the human's own text (capped). */
+export function sperreCheckNote(purpose: string): string {
+  const p = purpose.length > 120 ? `${purpose.slice(0, 119)}…` : purpose;
+  return `KI-Prüfung: fällt nicht unter die Sperre („${p}“) – bitte entscheiden`;
+}

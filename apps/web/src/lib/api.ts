@@ -6,6 +6,8 @@ export type Me = {
   pauseCheck: boolean;
   /** The server has the check configured (PAUSE_CHECK_URL); else no switch. */
   pauseCheckAvailable: boolean;
+  /** ADR-0030: "Vorschlag" (the intent model) is configured. */
+  autoDraftAvailable?: boolean;
 };
 
 /** ADR-0029: why the AI check sent a paused call back to the human. */
@@ -32,7 +34,51 @@ export function pauseCheckNote(v: PauseCheckView): string {
   return 'KI-Prüfung nicht erreichbar';
 }
 
-const score2 = (n: number) => n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** ADR-0026 amendment: card/push text (same as the API's). */
+export function sperreCheckNote(purpose: string): string {
+  const p = purpose.length > 120 ? `${purpose.slice(0, 119)}…` : purpose;
+  return `KI-Prüfung: fällt nicht unter die Sperre („${p}“) – bitte entscheiden`;
+}
+
+/** Verlauf detail line of a call checked against a Sperre's purpose. */
+export function sperreLine(e: { decisionPath: string; sperreScore?: number | null }): string | null {
+  if (typeof e.sperreScore !== 'number') return null;
+  return e.decisionPath.split('+').includes('snooze-deny-ki-ask')
+    ? `Sperre: KI sieht den Aufruf außerhalb (${score2(e.sperreScore)}) – gefragt`
+    : `Sperre: KI sieht den Aufruf darunter (${score2(e.sperreScore)}) – abgelehnt`;
+}
+
+/** ADR-0030: why the AUTO check asked a call (same texts as the API's push note). */
+export interface AutoCheckView {
+  result: 'below' | 'error' | 'off' | 'norule';
+  score: number | null;
+}
+
+export function autoCheckNote(v: AutoCheckView): string {
+  switch (v.result) {
+    case 'below':
+      return `KI: von deiner Auto-Regel nicht eindeutig gedeckt${v.score !== null ? ` (${score2(v.score)})` : ''}`;
+    case 'error':
+      return 'KI-Prüfung nicht erreichbar – Auto-Regel fragt nach';
+    case 'norule':
+      return 'Auto: noch keine Auto-Regel für diesen Upstream – wird gefragt';
+    default:
+      return 'Auto: KI-Prüfung ausgeschaltet – wird gefragt';
+  }
+}
+
+/** Verlauf detail line of an AUTO call: "Auto-Regel: gedeckt (0,95)",
+ * "Auto-Regel: nicht eindeutig gedeckt (0,20)", "KI-Prüfung nicht erreichbar". */
+export function autoLine(e: { decisionPath: string; autoScore?: number | null }): string | null {
+  const parts = e.decisionPath.split('+');
+  if (parts.includes('auto-error')) return 'KI-Prüfung nicht erreichbar';
+  if (typeof e.autoScore !== 'number') return null;
+  return parts.includes('auto') ? `Auto-Regel: gedeckt (${score2(e.autoScore)})` : `Auto-Regel: nicht eindeutig gedeckt (${score2(e.autoScore)})`;
+}
+
+function score2(n: number): string {
+  return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
 /** Verlauf detail line: "KI-Prüfung: passt (0,95)", "KI-Prüfung: weicht ab
  * (Richtungswechsel, 0,10) – Zeitfreigabe beendet", "KI-Prüfung nicht
@@ -45,7 +91,7 @@ export function pauseCheckLine(e: { decisionPath: string; pauseCheckScore: numbe
   return `KI-Prüfung: weicht ab (${label}, ${score2(e.pauseCheckScore)}) – Zeitfreigabe beendet`;
 }
 
-export type Policy = 'ALLOW' | 'ASK' | 'DENY';
+export type Policy = 'ALLOW' | 'ASK' | 'DENY' | 'AUTO';
 export type UpstreamAuth = 'OAUTH' | 'HEADER' | 'NONE';
 export type UpstreamStatus = 'NOT_CONNECTED' | 'CONNECTED' | 'NEEDS_RECONNECT';
 
@@ -64,6 +110,8 @@ export interface Upstream {
   hasHeaderValue: boolean;
   /** The user confirmed an internal address for this upstream (ADR-0020). */
   allowInternal: boolean;
+  /** ADR-0030: the prose rule for AUTO (own text), null = none. */
+  autoRule: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -80,6 +128,8 @@ export interface UpstreamInput {
   headerValue?: string | null;
   /** "Trotzdem erlauben": confirm an internal URL (ADR-0020). */
   allowInternal?: boolean;
+  /** ADR-0030: the AUTO rule text (edit only); null/"" clears it. */
+  autoRule?: string | null;
 }
 
 export type ToolHint = 'read' | 'write' | 'destructive';
@@ -99,10 +149,37 @@ export interface ToolRow {
   isChanged: boolean;
   lastSeenAt: string;
   clientPolicies: { mcpClientId: number; policy: Policy }[];
+  /** ADR-0031: the advisory review hint of a new/changed tool. */
+  review: ToolReview;
+  parameters: ToolParam[] | null;
+  annotations: Record<string, unknown> | null;
+  /** The acknowledged definition before the change (or before a cosmetic edit). */
+  previous: { description: string | null; annotations: Record<string, unknown> | null; parameters: ToolParam[] | null } | null;
+  /** Last cosmetic-only change, auto-acknowledged (`auto-ack:cosmetic`). */
+  cosmeticAckAt: string | null;
+}
+
+export interface ToolParam {
+  name: string;
+  /** canonical JSON of the schema's `type`, e.g. "\"string\"". */
+  type: string | null;
+  required: boolean;
+  description: string | null;
+}
+
+/** ADR-0031: "Genauer ansehen" (attention + reasons) or "Unauffällig". */
+export interface ToolReview {
+  review: boolean;
+  attention: boolean;
+  reasons: string[];
+  /** "KI: wirkt ändernd" once Clef labelled it. */
+  label: string | null;
+  /** The Clef label is still to come (not "unauffällig" yet). */
+  pending: boolean;
 }
 
 export interface ToolsView {
-  upstream: { id: number; name: string; defaultPolicy: Policy; status: UpstreamStatus; auth: UpstreamAuth };
+  upstream: { id: number; name: string; defaultPolicy: Policy; status: UpstreamStatus; auth: UpstreamAuth; autoRule: string | null };
   /** Clients that can reach this upstream (OAuth, its tokens, all-upstreams
    * tokens); paused ones included (TC-127). */
   clients: { id: number; name: string; paused: boolean }[];
@@ -205,6 +282,12 @@ export interface PendingApproval extends IntentFields {
   session: SessionRef;
   /** ADR-0029: the AI check sent this paused call back; null otherwise. */
   pauseCheck?: PauseCheckView | null;
+  /** ADR-0031: the review hint of a new/changed tool (advisory), or null. */
+  toolReview?: { attention: boolean; reasons: string[]; label: string | null } | null;
+  /** ADR-0030: why an AUTO call is asked; null otherwise. */
+  autoCheck?: AutoCheckView | null;
+  /** ADR-0026 amendment: asked because Clef judged it outside the Sperre's purpose. */
+  sperreCheck?: { purpose: string; score: number } | null;
 }
 
 export type Outcome = 'PENDING' | 'FORWARDED' | 'DENIED' | 'TIMED_OUT' | 'UPSTREAM_ERROR';
@@ -227,8 +310,9 @@ export interface ResolvedApproval extends AuditIntentFields {
 export type ApprovalDecision =
   | { decision: 'deny' }
   /** ADR-0026: deny and pause (this tool or the whole upstream). */
-  | { decision: 'deny'; snoozeMinutes?: number; snoozeUntilMidnight?: boolean; snoozeScope: 'tool' | 'upstream' }
-  | { decision: 'approve'; snoozeMinutes?: number; snoozeUntilMidnight?: boolean; snoozeScope?: SnoozeScope };
+  | { decision: 'deny'; snoozeMinutes?: number; snoozeUntilMidnight?: boolean; snoozeScope: 'tool' | 'upstream'; purpose?: string }
+  /** `purpose`: the optional "Wofür?" of the Zeitfreigabe (ADR-0029 amendment). */
+  | { decision: 'approve'; snoozeMinutes?: number; snoozeUntilMidnight?: boolean; snoozeScope?: SnoozeScope; purpose?: string };
 
 /** An active pause on an upstream (ADR-0026, TC-124): allow or deny. */
 export interface Pause {
@@ -240,6 +324,8 @@ export interface Pause {
   clientName: string;
   until: string;
   createdAt: string;
+  /** ADR-0029 amendment: the "Wofür?" of an allow pause, or null. */
+  purpose?: string | null;
 }
 
 /** What a snooze covers (TC-76). */
@@ -269,6 +355,12 @@ export interface AuditDetail extends AuditRow {
   /** ADR-0029: p(gleich) and the verdict label of the AI check, if any. */
   pauseCheckScore: number | null;
   pauseCheckChoice: string | null;
+  /** ADR-0029 amendment: the Zeitfreigabe's "Wofür?" it was checked against. */
+  pausePurpose?: string | null;
+  /** ADR-0026 amendment: p(outside) of a Sperre's purpose check, or null. */
+  sperreScore?: number | null;
+  /** ADR-0030: p(erlaubt) of the AUTO check, or null. */
+  autoScore?: number | null;
   /** What this request said about its client (names only; ADR-0016). */
   diagnostics: {
     protocolVersion: string | null;
@@ -303,15 +395,17 @@ function germanMessage(status: number): string {
   return 'Das hat nicht geklappt. Bitte versuche es noch einmal.';
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, {
       method,
       headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
     });
-  } catch {
+  } catch (e) {
+    if (signal?.aborted) throw e;
     throw new ApiError(0, germanMessage(0));
   }
   if (!res.ok) {
@@ -354,6 +448,16 @@ export const api = {
   refreshTools: (id: number) => request<ToolsView>('POST', `/api/upstreams/${id}/tools/refresh`),
   setToolPolicy: (id: number, toolId: number, policy: Policy | null) =>
     request<ToolsView>('PATCH', `/api/upstreams/${id}/tools/${toolId}`, { policy }),
+  /** ADR-0031: "Alle unauffälligen bestätigen" (the server decides which). */
+  acknowledgeUnremarkable: (id: number) =>
+    request<{ acknowledged: number; view: ToolsView }>('POST', `/api/upstreams/${id}/tools/acknowledge-unremarkable`),
+  /** ADR-0030: "Vorschlag" (nothing is saved). */
+  draftAutoRule: (id: number) => request<{ draft: string }>('POST', `/api/upstreams/${id}/auto-rule/draft`),
+  /** ADR-0030: "Mit Verlauf testen": the rows, then one test per row. */
+  autoRuleHistory: (id: number) =>
+    request<{ available: boolean; entries: { id: number; tool: string; receivedAt: string; outcome: Outcome }[] }>('GET', `/api/upstreams/${id}/auto-rule/history`),
+  testAutoRule: (id: number, rule: string, auditId: number, signal?: AbortSignal) =>
+    request<{ auditId: number; result: 'pass' | 'below' | 'error'; score: number | null }>('POST', `/api/upstreams/${id}/auto-rule/test`, { rule, auditId }, signal),
   acknowledgeTool: (id: number, toolId: number) =>
     request<ToolsView>('POST', `/api/upstreams/${id}/tools/${toolId}/acknowledge`),
   setClientPolicy: (id: number, toolId: number, clientId: number, policy: Policy) =>
@@ -389,7 +493,9 @@ export const api = {
 export const messageOf = (e: unknown) =>
   e instanceof ApiError ? e.message : 'Das hat nicht geklappt. Bitte versuche es noch einmal.';
 
-export const POLICY_LABEL: Record<Policy, string> = { ALLOW: 'Erlauben', ASK: 'Fragen', DENY: 'Verbieten' };
+export const POLICY_LABEL: Record<Policy, string> = { ALLOW: 'Erlauben', AUTO: 'Auto', ASK: 'Fragen', DENY: 'Verbieten' };
+/** The choices, weakest first (ADR-0030: Auto sits between Erlauben and Fragen). */
+export const POLICIES: Policy[] = ['ALLOW', 'AUTO', 'ASK', 'DENY'];
 
 export const HINT_LABEL: Record<ToolHint, string> = { read: 'Lesen', write: 'Schreiben', destructive: 'Destruktiv' };
 
@@ -433,6 +539,12 @@ const PATH_PART: Record<string, string> = {
   paused: 'Zugang pausiert',
   flood: 'zu viele offene Freigaben',
   'ask:no-channel': 'Freigabe noch nicht verfügbar',
+  auto: 'Auto-Regel: von der KI gedeckt',
+  'auto-ask': 'Auto-Regel: nicht eindeutig gedeckt',
+  'auto-error': 'Auto-Regel: KI-Prüfung nicht erreichbar',
+  'auto-off': 'Auto-Regel: KI-Prüfung aus',
+  'auto-norule': 'Auto ohne Regeltext',
+  'snooze-deny-ki-ask': 'Sperre, KI-Prüfung: fällt nicht darunter – gefragt',
 };
 
 /** "policy:upstream-default+approved:page" -> "Standardregel → erlaubt in der App". */

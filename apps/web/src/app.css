@@ -915,3 +915,11 @@ a.session-line {
   color: var(--danger);
   overflow-wrap: anywhere;
 }
+/* ADR-0030: Standard + Erlauben / Auto / Fragen / Verbieten on a tool. */
+.segmented.five {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.segmented.five label {
+  font-size: 0.8125rem;
+  padding: 0 0.125rem;
+}

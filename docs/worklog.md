@@ -3,6 +3,31 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-07 — Review hint (ADR-0031), AUTO policy (ADR-0030), "Wofür?" for Zeitfreigabe and Sperre, unreleased
+
+- Shared `apps/api/src/clef/` (transport, strict noul/choice parsing,
+  `withTimeout` that also fires when a client ignores the abort); pausecheck
+  keeps its API and tests. One Clef endpoint, one switch (`User.pauseCheck`,
+  UI renamed "KI-Prüfung (Clef)"), one outage notice for all features.
+- ADR-0031: `toolhint/` (pure `reviewHint`, canonical `inputSchema`, cosmetic
+  auto-ack, background `HintQueue`), bulk "Alle unauffälligen bestätigen".
+  Migration `20261006040000_tool_review_hint`. TC-149…154.
+- ADR-0030: `Policy.AUTO` (no SQL needed: SQLite TEXT, no CHECK), `auto/`
+  (pure `resolveAuto`, gate, Vorschlag via the intent model, Mit Verlauf
+  testen read-only), migration `20261006050000_auto_policy`. TC-155…162.
+- Lead's third slice: Zeitfreigabe purpose (`Snooze.purpose`,
+  `AuditEntry.pausePurpose`, migration `20261006060000_pause_purpose`,
+  TC-163…166), then extended to Sperren (anchor + purpose on deny pauses,
+  `pausecheck/sperre.ts`, `AuditEntry.sperreScore`, migration
+  `20261006070000_sperre_purpose`, TC-167…171). ADR-0029/0026 amendment text
+  is the lead's to write.
+- **Gotchas:** Prisma rejects an unknown enum value on read, so a corrupted
+  `defaultPolicy` fails the request (500, no audit) before the engine's
+  "unrecognised → DENY" runs (still fail closed). The fake Clef's default
+  `risiko` follows `readOnlyHint`, else every read-only tool in other specs
+  becomes "Genauer ansehen". Description growth (> 50 %) makes small test
+  descriptions with markers "attention": keep markers short.
+
 ## 2026-10-07 — Zeitfreigabe with AI check built (ADR-0029), unreleased
 
 - `apps/api/src/pausecheck/` (prompt, check, gate, outage, text, index);

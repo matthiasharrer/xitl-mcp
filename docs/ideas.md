@@ -102,7 +102,7 @@
   only via the self-loop (ADR-0027), which was the actual cause of the
   "missing registration" report; the suspected consent rename was not it.
 
-- **AUTO policy with Clef** (Matthias, 2026-10-07): a level between ALLOW and
+- **AUTO policy with Clef** (Matthias, 2026-10-07; **built as ADR-0030, 2026-10-07, unreleased**): a level between ALLOW and
   ASK, settable like the others (upstream default, tool rule, per client).
   Clef judges the concrete call; confident "harmless" → forward, everything
   else (unsure, risky, injection signal, Clef down/timeout/garbage) → ASK.
@@ -141,7 +141,7 @@
   the injection noul on the new text as a warning ("Beschreibung enthält
   Anweisungen an KI-Agenten"), which is a strong rug-pull signal; (3) never
   automatic when readOnlyHint goes true → false or destructiveHint appears.
-  Note: `inputSchema` changes aren't detected at all yet (roadmap debt).
+  Note: `inputSchema` changes are detected since ADR-0031 (built 2026-10-07).
 
 - **From Claude Code's auto mode** (Matthias shared a summary, 2026-10-07:
   deterministic rules first, hard-deny floor, read-only skip, two-stage
@@ -171,7 +171,7 @@
   4. Later, for unattended agents: a soft-deny mode (deny back to the agent
      with a reason, escalate to the human after n denials).
 
-- **Zeitfreigabe with a purpose the human types** (Matthias, 2026-10-07; **build decided**, after ADR-0030):
+- **Zeitfreigabe with a purpose the human types** (Matthias, 2026-10-07; **built 2026-10-07, unreleased**, TC-163…166; ADR-0029 amendment pending):
   optional one line ("Wofür?") when granting; trusted (the only intent the
   agent can't touch); goes into the ADR-0029 state above the anchor, question
   prefixed "Does the new call serve exactly the purpose the human stated, in

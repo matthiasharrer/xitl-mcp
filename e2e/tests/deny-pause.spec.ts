@@ -221,7 +221,7 @@ test.describe('TC-124 Pausen ansehen und aufheben', () => {
         expect.objectContaining({ effect: 'DENY', scope: 'TOOL', toolName: 'add_item', clientName: ctx.B.name }),
       ]),
     );
-    for (const p of list) expect(Object.keys(p).sort()).toEqual(['clientName', 'createdAt', 'effect', 'id', 'mcpClientId', 'scope', 'toolName', 'until']);
+    for (const p of list) expect(Object.keys(p).sort()).toEqual(['clientName', 'createdAt', 'effect', 'id', 'mcpClientId', 'purpose', 'scope', 'toolName', 'until']);
     // Foreign: listing and lifting are 404, nothing changes.
     expect((await request.get(`/api/upstreams/${ctx.up.id}/snoozes`, { headers: other.user })).status()).toBe(404);
     const deny = list.find((p) => p.effect === 'DENY')!;

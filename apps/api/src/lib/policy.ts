@@ -15,11 +15,16 @@
 //      recorded it, `changedAt` set; rug pull, TC-36) never resolves to ALLOW:
 //      an explicit ALLOW at 3. or 4. becomes ASK "changed-tool" (Matthias,
 //      2026-10-04). An explicit ASK or DENY applies unchanged.
+//      AUTO (ADR-0030) is resolved at the same steps as ALLOW / ASK / DENY,
+//      but like ALLOW it never covers a definition nobody has looked at: an
+//      explicit AUTO at 3. or 4. on a CHANGED tool is ASK "changed-tool", on
+//      a NEW (unacknowledged) tool ASK "new-tool" (a new or changed tool
+//      never reaches the Clef check; rug pull stays ASK).
 //   5. tool changed (see above), no rule    -> ASK   "changed-tool"
 //   6. tool not yet acknowledged (new)      -> ASK   "new-tool"
 //   7. the upstream's default               -> it    "policy:upstream-default"
 // Then one post-step (ADR-0004 allow snooze, TC-30):
-//   8. result is ASK, the tool is NOT awaiting review (new or changed, see
+//   8. result is ASK or AUTO, the tool is NOT awaiting review (new or changed, see
 //      `awaitingReview`), and a snooze for (this client, this tool) is live
 //      at `now`                             -> ALLOW "snooze"
 //   An allow snooze only ever upgrades ASK. Never DENY, never an unknown tool, and
@@ -27,10 +32,18 @@
 //   at in the rules first, so a snooze set before a tool changed under us
 //   cannot carry over.
 //
-// Fail closed: anything that is not a recognised Policy value is treated as
-// DENY (a corrupted row must never become ALLOW).
+// An AUTO result is NOT a decision to forward: the caller (mcp/server.ts,
+// auto/gate.ts `resolveAuto`) turns it into ALLOW "auto" only when Clef
+// clearly says the user's rule covers the call, and into ASK otherwise
+// (below the threshold, error, Clef off, no rule). A live allow pause wins
+// over the AUTO check (step 8, then the ADR-0029 check); a deny pause (2.)
+// wins over everything.
+//
+// Fail closed: anything that is not a recognised Policy value (ALLOW, ASK,
+// DENY, AUTO; e.g. "AUTOO") is treated as DENY (a corrupted row must never
+// become ALLOW).
 
-export type Policy = 'ALLOW' | 'ASK' | 'DENY';
+export type Policy = 'ALLOW' | 'ASK' | 'DENY' | 'AUTO';
 
 export type DecisionPath =
   | 'unknown-tool'
@@ -85,7 +98,7 @@ export interface PolicyInput {
   now?: Date;
 }
 
-const POLICIES: readonly string[] = ['ALLOW', 'ASK', 'DENY'];
+const POLICIES: readonly string[] = ['ALLOW', 'ASK', 'DENY', 'AUTO'];
 
 /** Anything that isn't exactly a Policy is DENY (fail closed). */
 function sane(value: unknown): Policy {
@@ -95,7 +108,7 @@ function sane(value: unknown): Policy {
 export function evaluatePolicy(input: PolicyInput): PolicyDecision {
   const base = baseDecision(input);
   if (
-    base.policy === 'ASK' &&
+    (base.policy === 'ASK' || base.policy === 'AUTO') &&
     !awaitingReview(input.tool) &&
     input.snoozedUntil instanceof Date &&
     input.now instanceof Date &&
@@ -126,9 +139,14 @@ function baseDecision(input: PolicyInput): PolicyDecision {
   if (denyPauseLive(input.denyPausedUntil, input.now)) return { policy: 'DENY', path: 'snooze-deny' };
 
   const changed = isChanged(tool);
-  // An explicit ALLOW does not cover a definition the user hasn't seen.
-  const explicit = (policy: Policy, path: DecisionPath): PolicyDecision =>
-    changed && policy === 'ALLOW' ? { policy: 'ASK', path: 'changed-tool' } : { policy, path };
+  const unacknowledged = !tool.acknowledgedAt;
+  // An explicit ALLOW (or AUTO) does not cover a definition the user hasn't
+  // seen; AUTO on a new tool doesn't either (ADR-0030 §3).
+  const explicit = (policy: Policy, path: DecisionPath): PolicyDecision => {
+    if (changed && (policy === 'ALLOW' || policy === 'AUTO')) return { policy: 'ASK', path: 'changed-tool' };
+    if (unacknowledged && policy === 'AUTO') return { policy: 'ASK', path: 'new-tool' };
+    return { policy, path };
+  };
 
   if (input.clientOverride !== null && input.clientOverride !== undefined) {
     return explicit(sane(input.clientOverride), 'policy:client');
@@ -137,6 +155,6 @@ function baseDecision(input: PolicyInput): PolicyDecision {
     return explicit(sane(tool.policy), 'policy:tool');
   }
   if (changed) return { policy: 'ASK', path: 'changed-tool' };
-  if (!tool.acknowledgedAt) return { policy: 'ASK', path: 'new-tool' };
+  if (unacknowledged) return { policy: 'ASK', path: 'new-tool' };
   return { policy: sane(input.upstreamDefault), path: 'policy:upstream-default' };
 }

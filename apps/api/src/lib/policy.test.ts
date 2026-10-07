@@ -214,3 +214,40 @@ describe('deny pause (TC-121)', () => {
     expect(evaluatePolicy({ upstreamDefault: 'ALLOW', tool, clientOverride: null, denyPausedUntil: NOW, now: new Date(NaN) })).toEqual(DENIED);
   });
 });
+
+describe('AUTO (ADR-0030, TC-158 unit)', () => {
+  const NOW = new Date('2026-10-04T12:00:00Z');
+  const LATER = new Date('2026-10-04T13:00:00Z');
+  test('AUTO resolves at the same steps as ALLOW/ASK/DENY', () => {
+    expect(evaluatePolicy({ upstreamDefault: 'AUTO', tool: known(), clientOverride: null })).toEqual({ policy: 'AUTO', path: 'policy:upstream-default' });
+    expect(evaluatePolicy({ upstreamDefault: 'ASK', tool: known('AUTO'), clientOverride: null })).toEqual({ policy: 'AUTO', path: 'policy:tool' });
+    expect(evaluatePolicy({ upstreamDefault: 'ASK', tool: known('ALLOW'), clientOverride: 'AUTO' })).toEqual({ policy: 'AUTO', path: 'policy:client' });
+  });
+  test('precedence unchanged: tool DENY under default AUTO; client ASK over tool AUTO', () => {
+    expect(evaluatePolicy({ upstreamDefault: 'AUTO', tool: known('DENY'), clientOverride: null })).toEqual({ policy: 'DENY', path: 'policy:tool' });
+    expect(evaluatePolicy({ upstreamDefault: 'AUTO', tool: known('AUTO'), clientOverride: 'ASK' })).toEqual({ policy: 'ASK', path: 'policy:client' });
+    expect(evaluatePolicy({ upstreamDefault: 'AUTO', tool: known('AUTO'), clientOverride: 'DENY' })).toEqual({ policy: 'DENY', path: 'policy:client' });
+  });
+  test('new and changed tools never resolve to AUTO, wherever AUTO is set', () => {
+    for (const where of ['default', 'tool', 'client'] as const) {
+      const inp = (tool: ReturnType<typeof known>) => ({
+        upstreamDefault: (where === 'default' ? 'AUTO' : 'ASK') as Policy,
+        tool: { ...tool, policy: where === 'tool' ? ('AUTO' as Policy) : null },
+        clientOverride: where === 'client' ? ('AUTO' as Policy) : null,
+      });
+      expect(evaluatePolicy(inp(known(null, null)))).toEqual({ policy: 'ASK', path: 'new-tool' });
+      expect(evaluatePolicy(inp(changed()))).toEqual({ policy: 'ASK', path: 'changed-tool' });
+    }
+  });
+  test('a live allow pause turns AUTO into ALLOW "snooze" (the ADR-0029 path); a deny pause wins', () => {
+    expect(evaluatePolicy({ upstreamDefault: 'AUTO', tool: known(), clientOverride: null, snoozedUntil: LATER, now: NOW })).toEqual({ policy: 'ALLOW', path: 'snooze' });
+    expect(evaluatePolicy({ upstreamDefault: 'AUTO', tool: known(), clientOverride: null, snoozedUntil: NOW, now: NOW })).toEqual({ policy: 'AUTO', path: 'policy:upstream-default' });
+    expect(evaluatePolicy({ upstreamDefault: 'AUTO', tool: known(), clientOverride: null, snoozedUntil: LATER, denyPausedUntil: LATER, now: NOW })).toEqual({ policy: 'DENY', path: 'snooze-deny' });
+  });
+  test('unrecognised values (typos, case, AUTO-like) are DENY', () => {
+    for (const bad of ['AUTOO', 'auto', 'Auto', ' AUTO', 'AUTO ', 'ALLOW_AUTO', '', 7, null]) {
+      expect(evaluatePolicy({ upstreamDefault: bad as Policy, tool: known(), clientOverride: null }).policy).toBe(bad === null ? 'DENY' : 'DENY');
+      expect(evaluatePolicy({ upstreamDefault: 'ALLOW', tool: known(bad as Policy), clientOverride: null }).policy).toBe(bad === null ? 'ALLOW' : 'DENY');
+    }
+  });
+});

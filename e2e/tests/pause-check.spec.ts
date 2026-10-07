@@ -272,16 +272,16 @@ test.describe('TC-142 Schalter', () => {
     expect((await (await request.get('/api/me', { headers: ctx.user })).json()).pauseCheck).toBe(false);
   });
 
-  test('Einstellungen: Schalter „KI-Prüfung für Zeitfreigaben“, übersteht Neuladen; ohne PAUSE_CHECK_URL kein Schalter', async ({ page }) => {
+  test('Einstellungen: Schalter „KI-Prüfung (Clef)“, übersteht Neuladen; ohne PAUSE_CHECK_URL kein Schalter', async ({ page }) => {
     const user = freshUser('kc142ui');
     await page.setExtraHTTPHeaders(user);
     await page.goto('/#/einstellungen');
-    const sw = page.getByRole('checkbox', { name: 'KI-Prüfung für Zeitfreigaben' });
+    const sw = page.getByRole('checkbox', { name: 'KI-Prüfung (Clef)' });
     await expect(sw).toBeChecked();
     await sw.uncheck();
-    await expect(page.getByText('KI-Prüfung für Zeitfreigaben ausgeschaltet')).toBeVisible();
+    await expect(page.getByText('KI-Prüfung ausgeschaltet', { exact: true })).toBeVisible();
     await page.reload();
-    await expect(page.getByRole('checkbox', { name: 'KI-Prüfung für Zeitfreigaben' })).not.toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'KI-Prüfung (Clef)' })).not.toBeChecked();
     expect(await noHScroll(page)).toBe(false);
     await page.screenshot({ path: test.info().outputPath('einstellungen-ki.png') });
     // Feature off on the server (no PAUSE_CHECK_URL): the API says so, no switch.
@@ -291,7 +291,7 @@ test.describe('TC-142 Schalter', () => {
     });
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Upstreams' })).toBeVisible();
-    await expect(page.getByRole('checkbox', { name: 'KI-Prüfung für Zeitfreigaben' })).toHaveCount(0);
+    await expect(page.getByRole('checkbox', { name: 'KI-Prüfung (Clef)' })).toHaveCount(0);
   });
 });
 

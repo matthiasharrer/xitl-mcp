@@ -39,10 +39,15 @@ model User {
   pauseCheck        Boolean            @default(true)
 }
 
+/// AUTO (ADR-0030): a Clef check of the call against Upstream.autoRule;
+/// passes -> forwarded, anything else -> asked. Stored as TEXT in SQLite (no
+/// CHECK constraint), so adding it needed no SQL; old code reading AUTO fails
+/// closed (policy.ts: unrecognised -> DENY).
 enum Policy {
   ALLOW
   ASK
   DENY
+  AUTO
 }
 
 enum UpstreamAuth {
@@ -100,6 +105,11 @@ model Upstream {
   /// at save time; recomputed on every URL change. Allows exactly the URL's
   /// own host:port (lib/outbound.ts upstreamAllowance), nothing else.
   allowInternal Boolean        @default(false)
+  /// ADR-0030: the user's prose rule for AUTO (≤ 1000 chars, trusted: written
+  /// only through /api with Authelia identity, never by an agent). Used by
+  /// every AUTO decision on this upstream (default, tool or client rule).
+  /// NULL/empty = AUTO behaves like ASK.
+  autoRule      String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
@@ -134,6 +144,34 @@ model KnownTool {
   /// acknowledges or sets a policy. Also set for every tool of an upstream
   /// whose URL changes (ADR-0021).
   changedAt      DateTime?
+  /// ADR-0031: the tool's inputSchema as canonical JSON (keys sorted), always
+  /// a string once recorded ("null" when the upstream sent none); over
+  /// MAX_TOOL_SCHEMA_CHARS a prefix plus its sha256, so a change past the cap
+  /// is still a change. NULL = recorded before this column existed: the next
+  /// tools/list stores it silently (not a change).
+  inputSchema    String?
+  /// ADR-0031: the acknowledged definition, set when a change is detected
+  /// (kept across further changes until acknowledged; the Regeln diff shows
+  /// old -> new) and on a cosmetic auto-ack (what the text was before).
+  /// Cleared when the user acknowledges or sets a policy.
+  prevDescription String?
+  prevAnnotations String?
+  prevInputSchema String?
+  /// ADR-0031: changedAt was set by an upstream URL change (ADR-0021), an
+  /// attention reason. Cleared with changedAt.
+  urlChanged     Boolean      @default(false)
+  /// ADR-0031: the last cosmetic-only change (whitespace, punctuation, case)
+  /// that was auto-acknowledged (history path `auto-ack:cosmetic`). The only
+  /// automatic acknowledgement; no model involved.
+  cosmeticAckAt  DateTime?
+  /// ADR-0031: the advisory Clef label (never read by policy or acknowledge):
+  /// risiko choice (lesen | aendern | zerstoeren) and p(injection), computed
+  /// once per definition (`hintFor` = its version key) in the background.
+  /// NULL label with hintAt set = the request failed or Clef was off.
+  hintRisk       String?
+  hintInjection  Float?
+  hintAt         DateTime?
+  hintFor        String?
   clientPolicies ClientToolPolicy[]
 
   @@unique([upstreamId, name])
@@ -178,6 +216,11 @@ model Snooze {
   /// check existed (or a DENY pause): stays blind. No relation on purpose
   /// (plain column, no cascade rebuild).
   anchorAuditId Int?
+  /// ADR-0029 amendment (2026-10-07): "Wofür?" — the purpose the human typed
+  /// when granting this ALLOW pause (≤ 200 chars, one line, optional). Trusted
+  /// (written via /api with Remote-User only, never from /mcp); goes into the
+  /// AI check's state above the anchor. NULL = none: the check as before.
+  purpose       String?
 
   @@index([userId, upstreamId, toolName, mcpClientId])
 }
@@ -322,6 +365,15 @@ model AuditEntry {
   /// The ALLOW pause (Snooze.id) this call was let through under: the AI
   /// check's "calls since" for that pause. Diagnostics, never authority.
   pauseSnoozeId    Int?
+  /// The purpose of the Zeitfreigabe this call was checked against (copied:
+  /// the pause row may be gone after a mismatch). Shown in Verlauf.
+  pausePurpose     String?
+  /// ADR-0026 amendment: p(outside) of a Sperre's purpose check (the call
+  /// was refused below the threshold, or asked as `snooze-deny-ki-ask`).
+  sperreScore      Float?
+  /// ADR-0030 (stored for tuning, shown in Verlauf): p(erlaubt) of the AUTO
+  /// check. Null when not checked or the check failed (`auto-error`).
+  autoScore        Float?
 
   @@index([userId, receivedAt])
   @@index([sessionId])

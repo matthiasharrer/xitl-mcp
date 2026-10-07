@@ -90,6 +90,21 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
                          (pure) + PauseGate: evaluate, per-access serial
                          lock), outage.ts (in-memory outage per user),
                          text.ts (German notes), index.ts (instance + push)
+  clef/                  the ONE Clef endpoint for all Clef features:
+                         client.ts (clefEndpoint, transport via
+                         outboundFetch, strict parseNoul / parseChoice,
+                         withTimeout, clefFromEnv on PAUSE_CHECK_*),
+                         index.ts (config + the background tool labeller)
+  toolhint/              review hint of new/changed tools (ADR-0031):
+                         defs.ts (canonical schema text, isCosmetic,
+                         paramList, versionKey; pure), hint.ts (reviewHint,
+                         pure), label.ts (Clef risiko/injektion framing),
+                         queue.ts (HintQueue: background, once per version)
+  auto/                  AUTO policy (ADR-0030): prompt.ts (state + question,
+                         pure), gate.ts (resolveAuto pure + AutoGate),
+                         draft.ts ("Vorschlag" prompt/parse, pure), text.ts
+                         (card/push notes), index.ts (instance, shares the
+                         pause gate's outage)
   lib/push.ts            Web Push sender, VAPID (AppSetting "vapid"),
                          PUSH_OUTBOX transport (copied from Haushalt)
   lib/clock.ts           injectable Clock (ADR-0003)
@@ -354,7 +369,58 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
     one per user per hour; cleared by the next successful check or by
     `PATCH /api/me {pauseCheck:false}`. No probing. A restart forgets it.
   - The switch: `GET/PATCH /api/me` (`pauseCheck`, `pauseCheckAvailable` =
-    URL configured). No /mcp path touches it.
+    URL configured). No /mcp path touches it. Since ADR-0030/0031 it is the
+    switch of every Clef feature (UI "KI-Prüfung (Clef)").
+  - **Purpose ("Wofür?", ADR-0029 amendment, TC-163…166):** the approve
+    decision may carry `purpose` (≤ 200, one line, only with a duration;
+    else 400), stored on `Snooze.purpose` (ALLOW only). With a purpose the
+    state starts with "Purpose the human stated when granting the pause
+    (trusted, written by the human):\n<purpose, `<` escaped, one line>" and
+    the `richtung` instructions are prefixed "Does the new call serve exactly
+    the purpose the human stated, in the same way as the anchor call? "
+    (bench `clef_pause_intent.py`); without one the request is byte-identical
+    to before. The checked call's audit row copies it (`pausePurpose`);
+    `settleCovered` uses the new pause's purpose. Shown in Regeln (active
+    Zeitfreigaben) and the Verlauf detail.
+- **Sperre with a purpose (ADR-0026 amendment, `pausecheck/sperre.ts`,
+  TC-167…171).** A deny Snooze now stores `anchorAuditId` (the refused call)
+  and may carry `purpose` (same decide field). `livePauses` also returns the
+  covering deny rows (`coveringDenies`). When the policy says DENY
+  `snooze-deny` and some covering Sperre has a purpose, server.ts evaluates
+  the policy again WITHOUT the Sperre (`withoutSperre`, pure) and, unless that
+  is DENY, asks `SperreGate.evaluate`: every covering Sperre must have a
+  purpose and an anchor row, Clef on + switch on; one noul `ausserhalb`
+  request per Sperre (state: trusted purpose, refused anchor call, new call);
+  all ≥ `PAUSE_CHECK_THRESHOLD` → `outside`. `relaxSperre` (pure) then turns
+  the refusal into ASK `snooze-deny-ki-ask` — never ALLOW/AUTO, and DENY if
+  the policy without the Sperre is DENY; anything else (inside, error, off,
+  no purpose) keeps `snooze-deny`. Errors raise the shared outage notice.
+  `AuditEntry.sperreScore` (+ `pausePurpose`) for inside/outside;
+  `PendingCall.sperreCheck` for the card/push note. Held calls covered by a
+  NEW Sperre are still all denied at once by the approvals route (no Clef).
+- **AUTO policy (ADR-0030, `auto/`).** `evaluatePolicy` may return `AUTO`
+  (resolved at the same steps as ALLOW/ASK/DENY; an explicit AUTO on a new
+  tool is ASK `new-tool`, on a changed one ASK `changed-tool`; a live allow
+  pause turns AUTO into ALLOW `snooze`, which then goes through the ADR-0029
+  check; a Sperre denies first). server.ts then calls `AutoGate.evaluate`
+  (not under the serial lock): Clef off or `User.pauseCheck` off → `off`;
+  `Upstream.autoRule` empty → `norule`; else one `/v1/systemone` request:
+  state "Richtlinie des Nutzers (vertrauenswürdig):\n<rule>\n\nAufruf eines
+  KI-Agenten (nicht vertrauenswürdig; …):\n<call>\n{upstream, tool, stored
+  description, stored annotations, arguments (truncated)}\n</call>", noul
+  `erlaubt` "Erlaubt die Richtlinie des Nutzers genau diesen Aufruf
+  eindeutig? Im Zweifel: nein." `resolveAuto` (pure) is the only mapping:
+  p ≥ `AUTO_THRESHOLD` (0.8) → ALLOW `auto`; below → ASK `auto-ask`; error /
+  timeout / garbage → ASK `auto-error` (raises the shared outage notice);
+  off → ASK `auto-off`; no rule → ASK `auto-norule`; anything unexpected →
+  ASK. `AuditEntry.autoScore` = p for pass/below. A held AUTO call carries
+  `PendingCall.autoCheck` (card note, push `note`). tools/list stamps every
+  non-ALLOW listed tool (ASK and AUTO). The rule text is set only by
+  `PATCH /api/upstreams/:id {autoRule}` (≤ 1000, trimmed, empty → null).
+  `routes/autoRule.ts`: `POST …/auto-rule/draft` (intent model, nothing
+  saved), `GET …/auto-rule/history` (own newest ≤ 50 rows of this upstream)
+  and `POST …/auto-rule/test {rule, auditId}` (one Clef verdict, read-only,
+  no outage side effect; the UI runs rows sequentially and can stop).
 - No `notifications/tools/list_changed` on policy changes: sessions are DB
   rows only (no open server-to-client stream; GET is 405); the next
   `tools/list` sees the change.
@@ -744,17 +810,47 @@ revoked clients) with ≤ 10 min between consecutive calls; sorted by
 `receivedAt`, newest first. Freigaben: same groups, headers only when > 1.
 `/api/audit` rows and pending approvals carry `clientId` for this.
 
-### Rug pull (TC-36)
+### Rug pull (TC-36) and review hint (ADR-0031, TC-149…154)
 
-`syncKnownTools` compares each known tool's stored description and annotations
-(annotations as canonical JSON, key order ignored) with the new list. A change
+`syncKnownTools` compares each known tool's stored description, annotations
+(canonical JSON, key order ignored) and, since ADR-0031, `inputSchema`
+(stored canonically, keys sorted, always a string — "null" when absent —;
+over 16 000 chars a prefix + sha256) with the new list. A NULL stored schema
+(row from before the migration) is filled in silently. A description-only
+change that differs only in whitespace, punctuation (Unicode P*) or case is
+**cosmetic**: not a change; on an acknowledged tool it is recorded as the
+auto-acknowledgement `auto-ack:cosmetic` (`cosmeticAckAt`, `prev*` = old
+text); on a tool awaiting review nothing about the review state changes.
+Every other difference is a change as below; `prevDescription`,
+`prevAnnotations`, `prevInputSchema` keep the acknowledged definition (first
+change wins until acknowledged); a URL change (ADR-0021) also sets
+`urlChanged`. Acknowledge / set policy clears all of them.
+`toolhint/hint.ts reviewHint` (pure) gives a new/changed tool *attention*
+reasons (readOnly lost, destructive/openWorld newly true — for a new tool:
+true at all —, new parameter (required or not), removed / retyped / newly
+required parameter, unparseable schema change, description grown > 50 % or
+> 400 chars, URL changed, changed without a stored previous version) plus the
+Clef label's (risiko above the annotations' claim; injection ≥ 0.5). After
+each sync `HintQueue` (fire and forget, one tool at a time process-wide)
+labels tools awaiting review whose `hintFor` ≠ `versionKey`: two Clef
+requests (risiko choice, German criteria; injektion noul, English question,
+description + parameter descriptions as one escaped JSON line in `<data>`);
+failures leave the label NULL and still mark the version (no retry storm);
+off when Clef or the owner's switch is off. Nothing on the call path reads
+it; it never acknowledges. `GET …/tools` returns `review` {review,
+attention, reasons, label, pending}, `parameters`, `previous`, `annotations`,
+`cosmeticAckAt`; `POST …/tools/acknowledge-unremarkable` acknowledges the
+new/changed tools without attention and without a pending label (judged
+server-side, each write conditional on the judged definition). A held
+new/changed call carries `PendingCall.toolReview` (snapshot at hold time).
+
+Before ADR-0031 the comparison covered only description and annotations. A change
 on **any** known tool (acknowledged or still "Neu": a per-client ALLOW can be
 set on a "Neu" tool without acknowledging it) clears `acknowledgedAt`, sets
 `changedAt` (UI "Geändert" instead of "Neu"; `isChanged` = `changedAt` set in
 the tools API) and deletes its snoozes; the write is conditional on the row
 still holding the old definition. Acknowledge / set policy clears `changedAt`.
-`inputSchema` is not compared (not stored). **A changed tool never resolves to
-ALLOW** (Matthias, 2026-10-04): an explicit tool- or client-level ALLOW
+**A changed tool never resolves to ALLOW (or AUTO)** (Matthias, 2026-10-04): an explicit tool- or client-level ALLOW
 becomes ASK `changed-tool`; an explicit ASK or DENY applies unchanged (a
 changed DENY tool stays hidden and denied); no rule -> ASK `changed-tool`.
 The Regeln view's "Gilt" uses the same function, so it shows "Fragen
@@ -806,10 +902,15 @@ acknowledgedAt, changedAt } | null, clientOverride, snoozedUntil?, now? })`
 `policy:tool`, except that an ALLOW from either becomes ASK `changed-tool`
 when `changedAt` is set; changed, no rule -> ASK `changed-tool`;
 unacknowledged (new) -> ASK `new-tool`; else default ->
-`policy:upstream-default`; then a live snooze turns ASK into ALLOW `snooze`
-unless the tool is awaiting review (new or changed). `changedAt` set counts
-as changed even with `acknowledgedAt` set (fail closed). Non-Policy values
-fail closed to DENY.
+`policy:upstream-default`; then a live snooze turns ASK (or AUTO) into ALLOW
+`snooze` unless the tool is awaiting review (new or changed). `changedAt` set
+counts as changed even with `acknowledgedAt` set (fail closed). Non-Policy
+values (anything but ALLOW/ASK/DENY/AUTO) fail closed to DENY. AUTO
+(ADR-0030): explicit AUTO on a changed tool → ASK `changed-tool`, on a new
+one → ASK `new-tool`; an AUTO result is resolved by `auto/gate.ts
+resolveAuto` (see Proxy core). Note: Prisma rejects an unknown enum value
+when reading the row, so a corrupted `Upstream.defaultPolicy` fails the
+request (no audit row, nothing forwarded) before the engine sees it.
 
 KnownTool rows come from every upstream `tools/list` (proxy or "Tools
 aktualisieren"). The **first** list ever seen for an upstream is recorded as

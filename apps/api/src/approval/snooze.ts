@@ -48,6 +48,7 @@ interface EffectRow extends Row {
    * pure helpers can be fed plain test rows. */
   id?: number;
   anchorAuditId?: number | null;
+  purpose?: string | null;
 }
 
 /** The ALLOW pause that turned a call into ALLOW (ADR-0029): the AI check
@@ -57,6 +58,8 @@ export interface MatchedAllowPause {
   until: Date;
   /** null: granted before ADR-0029 shipped -> blind until it expires. */
   anchorAuditId: number | null;
+  /** The human's "Wofür?" (ADR-0029 amendment); null/absent = none. */
+  purpose?: string | null;
 }
 
 /** Fail closed: a row is an allow pause only if its effect is exactly 'ALLOW'. */
@@ -127,7 +130,14 @@ export function matchedAllow(live: EffectRow[], toolName: string, readOnly: bool
     if (!isAllow(r) || !covers(r, toolName, readOnly) || typeof r.id !== 'number') continue;
     if (!best || r.until > best.until || (r.until.getTime() === best.until.getTime() && r.id > (best.id as number))) best = r;
   }
-  return best ? { id: best.id as number, until: best.until, anchorAuditId: typeof best.anchorAuditId === 'number' ? best.anchorAuditId : null } : null;
+  return best
+    ? {
+        id: best.id as number,
+        until: best.until,
+        anchorAuditId: typeof best.anchorAuditId === 'number' ? best.anchorAuditId : null,
+        ...(typeof best.purpose === 'string' && best.purpose.trim() ? { purpose: best.purpose } : {}),
+      }
+    : null;
 }
 
 export interface PauseState {
@@ -143,7 +153,7 @@ export interface PauseState {
 async function liveRows(owner: SnoozeOwner, now: Date): Promise<EffectRow[]> {
   return prisma.snooze.findMany({
     where: { userId: owner.userId, upstreamId: owner.upstreamId, mcpClientId: owner.mcpClientId, until: { gt: now } },
-    select: { id: true, scope: true, toolName: true, until: true, effect: true, anchorAuditId: true },
+    select: { id: true, scope: true, toolName: true, until: true, effect: true, anchorAuditId: true, purpose: true },
   });
 }
 
@@ -153,9 +163,32 @@ export async function liveSnoozeUntil(owner: SnoozeOwner, toolName: string, read
   return (await livePauses(owner, toolName, readOnly, now)).allowUntil;
 }
 
-/** Both effects for one tools/call (ADR-0026): one query. */
-export async function livePauses(owner: SnoozeOwner, toolName: string, readOnly: boolean, now: Date): Promise<PauseState> {
-  return pauseState(await liveRows(owner, now), toolName, readOnly, now);
+/** A live deny pause (Sperre) covering a call, with what its purpose check
+ * needs (ADR-0026 amendment). */
+export interface CoveringDeny {
+  id: number;
+  anchorAuditId: number | null;
+  purpose: string | null;
+}
+
+/** Every live non-ALLOW row covering the tool (any unrecognised effect counts
+ * as a Sperre). Pure. Rows without an id are reported with id -1 (never a
+ * purpose check: no anchor). */
+export function coveringDenies(rows: EffectRow[], toolName: string, readOnly: boolean, now: Date): CoveringDeny[] {
+  return rows
+    .filter((r) => r.until.getTime() > now.getTime() && !isAllow(r) && covers(r, toolName, readOnly))
+    .map((r) => ({
+      id: typeof r.id === 'number' ? r.id : -1,
+      anchorAuditId: typeof r.anchorAuditId === 'number' ? r.anchorAuditId : null,
+      purpose: typeof r.purpose === 'string' && r.purpose.trim() ? r.purpose : null,
+    }));
+}
+
+/** Both effects for one tools/call (ADR-0026): one query. `denies`: the
+ * covering Sperren themselves (purpose check). */
+export async function livePauses(owner: SnoozeOwner, toolName: string, readOnly: boolean, now: Date): Promise<PauseState & { denies: CoveringDeny[] }> {
+  const rows = await liveRows(owner, now);
+  return { ...pauseState(rows, toolName, readOnly, now), denies: coveringDenies(rows, toolName, readOnly, now) };
 }
 
 /** For tools/list: one query, then `untilFor(tool, readOnly)` per tool. Only
@@ -165,8 +198,10 @@ export async function liveSnoozesFor(owner: SnoozeOwner, now: Date): Promise<(to
   return (toolName, readOnly) => pauseState(rows, toolName, readOnly, now).allowUntil;
 }
 
-/** `anchorAuditId` (ADR-0029): the held call an ALLOW pause is granted on;
- * ignored (null) for a DENY pause. Returns the new row's id. */
+/** `anchorAuditId` (ADR-0029): the held call the pause is granted / the
+ * Sperre is set on; `purpose`: the human's "Wofür?" (ADR-0029/0026
+ * amendment). Both kept for either effect: a Sperre's purpose check needs
+ * the blocked call. Returns the new row. */
 export async function createSnooze(
   owner: SnoozeOwner,
   scope: SnoozeScope,
@@ -175,10 +210,11 @@ export async function createSnooze(
   now: Date,
   effect: SnoozeEffect = 'ALLOW',
   anchorAuditId: number | null = null,
-): Promise<{ id: number; until: Date; anchorAuditId: number | null }> {
+  purpose: string | null = null,
+): Promise<MatchedAllowPause> {
   await prisma.snooze.deleteMany({ where: { userId: owner.userId, until: { lte: now } } });
   return prisma.snooze.create({
-    select: { id: true, until: true, anchorAuditId: true },
+    select: { id: true, until: true, anchorAuditId: true, purpose: true },
     data: {
       userId: owner.userId,
       upstreamId: owner.upstreamId,
@@ -188,7 +224,8 @@ export async function createSnooze(
       toolName: scope === 'TOOL' ? toolName : null,
       until,
       createdAt: now,
-      anchorAuditId: effect === 'DENY' ? null : anchorAuditId,
+      anchorAuditId,
+      purpose: purpose?.trim() || null,
     },
   });
 }

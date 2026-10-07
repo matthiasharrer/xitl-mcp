@@ -14,6 +14,7 @@ import { parseAllowedOrigins } from '../lib/origins.js';
 import { systemClock } from '../lib/clock.js';
 import { faultList } from '../upstream/faults.js';
 import { upstreamStates } from '../upstream/stateEvents.js';
+import { MAX_AUTO_RULE_CHARS } from '../lib/limits.js';
 
 // /api/upstreams: the user's registry of upstream MCP servers (ADR-0013).
 // Mounted under /api, so it sits behind the identity middleware. Every query is
@@ -38,6 +39,8 @@ export function serializeUpstream(row: Upstream) {
     status: row.status,
     headerName: row.headerName,
     allowInternal: row.allowInternal,
+    /** ADR-0030: the owner's own prose rule (trusted, their text). */
+    autoRule: row.autoRule,
     // The value itself is write-only: it never leaves the server.
     hasHeaderValue: row.headerValue !== null && row.headerValue !== '',
     createdAt: row.createdAt.toISOString(),
@@ -75,7 +78,16 @@ const descriptionSchema = z
   .max(1000, 'Die Beschreibung ist zu lang (höchstens 1000 Zeichen).')
   .nullable();
 
-const policySchema = z.enum(['ALLOW', 'ASK', 'DENY'], { error: 'Die Standard-Regel muss ALLOW, ASK oder DENY sein.' });
+const policySchema = z.enum(['ALLOW', 'ASK', 'DENY', 'AUTO'], { error: 'Die Standard-Regel muss ALLOW, ASK, DENY oder AUTO sein.' });
+
+/** ADR-0030: the prose rule for AUTO. Only here (Remote-User), never via /mcp. */
+const autoRuleSchema = z
+  .string({ error: 'Die Auto-Regel ist ungültig.' })
+  .trim()
+  .max(MAX_AUTO_RULE_CHARS, `Die Auto-Regel ist zu lang (höchstens ${MAX_AUTO_RULE_CHARS} Zeichen).`)
+  // eslint-disable-next-line no-control-regex
+  .refine((v) => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(v), 'Die Auto-Regel enthält ungültige Zeichen.')
+  .nullable();
 const authSchema = z.enum(['OAUTH', 'HEADER', 'NONE'], { error: 'Die Anmeldung muss OAUTH, HEADER oder NONE sein.' });
 
 // RFC 9110 token characters: what a header name may consist of.
@@ -120,6 +132,7 @@ const patchSchema = z.object({
   headerName: headerNameSchema.nullish(),
   headerValue: headerValueSchema.nullish(),
   allowInternal: z.boolean().optional(),
+  autoRule: autoRuleSchema.optional(),
 });
 
 /** Save-time half of ADR-0020 (UX only; the request-time guard in
@@ -305,6 +318,7 @@ upstreams.patch('/:id', async (c) => {
   if (v.slug !== undefined) data.slug = v.slug;
   if (v.description !== undefined) data.description = v.description ? v.description : null;
   if (v.defaultPolicy !== undefined) data.defaultPolicy = v.defaultPolicy;
+  if (v.autoRule !== undefined) data.autoRule = v.autoRule ? v.autoRule : null;
 
   const auth = v.auth ?? existing.auth;
   if (auth === 'HEADER') {
@@ -359,7 +373,7 @@ upstreams.patch('/:id', async (c) => {
       if (urlChanged) {
         await tx.knownTool.updateMany({
           where: { upstreamId: id, upstream: { userId } },
-          data: { acknowledgedAt: null, changedAt: clock.now() },
+          data: { acknowledgedAt: null, changedAt: clock.now(), urlChanged: true },
         });
         await tx.snooze.deleteMany({ where: { upstreamId: id, userId } });
       }

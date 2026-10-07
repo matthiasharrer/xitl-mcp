@@ -4,7 +4,9 @@ import { prisma } from '../db.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { sendToSubscriptions, type SenderDeps } from '../lib/push.js';
 import { PushCooldown, UPSTREAM_PUSH_COOLDOWN_MS, UPSTREAM_PUSH_TTL_S } from '../upstream/notify.js';
-import { pauseCheckFromEnv } from './check.js';
+import { pauseCheckFromEnv, thresholdFromEnv } from './check.js';
+import { SperreGate } from './sperre.js';
+import { clefConfig } from '../clef/index.js';
 import { PauseGate } from './gate.js';
 import type { PauseCheckOutage } from './outage.js';
 
@@ -25,3 +27,7 @@ export function wirePauseCheckPush(outage: PauseCheckOutage = pauseGate.outage, 
     })().catch((e) => console.error('pause check push failed', e instanceof Error ? e.name : ''));
   });
 }
+
+// ADR-0026 amendment: Sperre with a purpose. Same Clef, switch, threshold
+// (PAUSE_CHECK_THRESHOLD) and outage notice as the pause check.
+export const sperreGate = new SperreGate(clefConfig, thresholdFromEnv(process.env.PAUSE_CHECK_THRESHOLD, () => {}), pauseGate.outage);

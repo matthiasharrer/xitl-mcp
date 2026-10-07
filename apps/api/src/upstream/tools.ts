@@ -8,6 +8,7 @@ import { systemClock, type Clock } from '../lib/clock.js';
 import { withUpstream, CONNECT_TIMEOUT_MS } from './connection.js';
 import { MAX_KNOWN_TOOLS_PER_UPSTREAM, MAX_UPSTREAM_TOOLS } from '../lib/limits.js';
 import { scrubSecrets } from '../lib/proxyText.js';
+import { canonical, isCosmetic, schemaText } from '../toolhint/defs.js';
 
 /** Whether the FIRST tools/list ever seen for an upstream counts as
  * acknowledged. ADR-0004 says the new-tool rule is for tools "the upstream
@@ -43,19 +44,40 @@ export function usableTools(tools: Tool[], max: number = MAX_UPSTREAM_TOOLS): To
 /** One log line per list, although sync and listing both filter it. */
 const warnedAbout = new WeakSet<Tool[]>();
 
+/** Called after every sync with the upstream id (ADR-0031: the background
+ * Clef label of new/changed tools). Registered at boot (app.ts); listeners
+ * must not throw and must not block (fire and forget). */
+type SyncListener = (upstreamId: number) => void;
+const syncListeners = new Set<SyncListener>();
+export function onToolsSynced(l: SyncListener): () => void {
+  syncListeners.add(l);
+  return () => syncListeners.delete(l);
+}
+
 /**
  * Upserts KnownTool rows for one upstream's current tool list.
  *
- * Rug pull (TC-36): when a known tool comes back with a different description
- * or annotations, `changedAt` is set and its acknowledgement withdrawn, so the
- * UI says "Geändert" and the policy engine treats it as changed: ASK
- * ("changed-tool") whatever the upstream default says, and an explicit
- * tool- or client-level ALLOW no longer applies until the user acknowledges it
- * (policy.ts; an explicit ASK/DENY still does). Its snoozes are dropped too,
- * so an explicit ASK can't be bypassed by a snooze given for the old
- * definition. This holds for tools that were never acknowledged as well: a
- * per-client ALLOW can be set on a "Neu" tool without acknowledging it, and
- * must not carry over to a definition nobody has seen.
+ * Rug pull (TC-36): when a known tool comes back with a different description,
+ * annotations or inputSchema (ADR-0031, canonical JSON), `changedAt` is set
+ * and its acknowledgement withdrawn, so the UI says "Geändert" and the policy
+ * engine treats it as changed: ASK ("changed-tool") whatever the upstream
+ * default says, and an explicit tool- or client-level ALLOW (or AUTO) no
+ * longer applies until the user acknowledges it (policy.ts; an explicit
+ * ASK/DENY still does). Its snoozes are dropped too, so an explicit ASK can't
+ * be bypassed by a snooze given for the old definition. This holds for tools
+ * that were never acknowledged as well: a per-client ALLOW can be set on a
+ * "Neu" tool without acknowledging it, and must not carry over to a
+ * definition nobody has seen. The acknowledged definition is kept in prev*
+ * (first change wins until acknowledged) for the Regeln diff and the hint.
+ *
+ * ADR-0031 exceptions, both without any model:
+ * - First sight of an inputSchema on a row recorded before the column existed
+ *   (NULL): stored silently, not a change.
+ * - Cosmetic: only the description changed, and only in whitespace,
+ *   punctuation or case (toolhint/defs.ts isCosmetic). Not a change: the new
+ *   text is stored; on an acknowledged tool this is the auto-acknowledgement
+ *   `auto-ack:cosmetic` (cosmeticAckAt, prev* = the text before). A tool
+ *   still awaiting review stays exactly as it was (never acknowledged by it).
  */
 export async function syncKnownTools(
   upstreamId: number,
@@ -67,39 +89,80 @@ export async function syncKnownTools(
   const current = usableTools(tools);
   const existingRows = await prisma.knownTool.findMany({
     where: { upstreamId },
-    select: { id: true, name: true, description: true, annotations: true },
+    select: { id: true, name: true, description: true, annotations: true, inputSchema: true, acknowledgedAt: true, changedAt: true },
   });
   const byName = new Map(existingRows.map((r) => [r.name, r]));
   const acknowledgedAt = existingRows.length === 0 && ACKNOWLEDGE_INITIAL_TOOLS ? now : null;
   for (const t of current) {
     const description = typeof t.description === 'string' ? t.description.slice(0, MAX_DESCRIPTION) : null;
     const annotations = t.annotations ? JSON.stringify(t.annotations) : null;
+    const inputSchema = schemaText((t as { inputSchema?: unknown }).inputSchema);
     const prev = byName.get(t.name);
     if (!prev) {
       await prisma.knownTool.upsert({
         where: { upstreamId_name: { upstreamId, name: t.name } },
-        create: { upstreamId, name: t.name, description, annotations, firstSeenAt: now, lastSeenAt: now, acknowledgedAt },
-        update: { description, annotations, lastSeenAt: now },
+        create: { upstreamId, name: t.name, description, annotations, inputSchema, firstSeenAt: now, lastSeenAt: now, acknowledgedAt },
+        update: { description, annotations, inputSchema, lastSeenAt: now },
       });
       continue;
     }
-    const changed = prev.description !== description || !sameAnnotations(prev.annotations, annotations);
-    if (changed) {
-      // Conditional on the row still holding the old definition, so a
-      // concurrent sync that already flagged it doesn't flag it again (and
-      // undo an acknowledgement given for the new definition meanwhile).
-      await prisma.knownTool.updateMany({
-        where: { id: prev.id, description: prev.description, annotations: prev.annotations },
-        data: { description, annotations, lastSeenAt: now, acknowledgedAt: null, changedAt: now },
-      });
-      const owner = await prisma.upstream.findUnique({ where: { id: upstreamId }, select: { userId: true } });
-      if (owner) await prisma.snooze.deleteMany({ where: { userId: owner.userId, upstreamId, toolName: t.name } });
-      console.warn(`tools: upstream ${upstreamId}: tool definition changed, re-flagged for review`);
-    } else {
-      await prisma.knownTool.update({ where: { id: prev.id }, data: { description, annotations, lastSeenAt: now } });
+    const prevSchema = prev.inputSchema ?? null;
+    // NULL = recorded before ADR-0031: nothing to compare with (stored below).
+    const schemaChanged = prevSchema !== null && prevSchema !== inputSchema;
+    const descChanged = prev.description !== description;
+    const annChanged = !sameAnnotations(prev.annotations, annotations);
+    // Conditional on the row still holding the old definition, so a
+    // concurrent sync that already handled it doesn't do it twice (and undo
+    // an acknowledgement given for the new definition meanwhile).
+    const unchangedSince = { id: prev.id, description: prev.description, annotations: prev.annotations, inputSchema: prevSchema };
+    if (!descChanged && !annChanged && !schemaChanged) {
+      await prisma.knownTool.update({ where: { id: prev.id }, data: { description, annotations, inputSchema, lastSeenAt: now } });
+      continue;
     }
+    if (!annChanged && !schemaChanged && isCosmetic(prev.description, description)) {
+      const acknowledged = prev.acknowledgedAt !== null && prev.changedAt === null;
+      await prisma.knownTool.updateMany({
+        where: unchangedSince,
+        data: {
+          description,
+          inputSchema,
+          lastSeenAt: now,
+          ...(acknowledged
+            ? { prevDescription: prev.description, prevAnnotations: prev.annotations, prevInputSchema: prevSchema ?? inputSchema, cosmeticAckAt: now }
+            : {}),
+        },
+      });
+      console.log(`tools: upstream ${upstreamId}: cosmetic description change${acknowledged ? ' auto-acknowledged (auto-ack:cosmetic)' : ''}`);
+      continue;
+    }
+    // A real change. prev* keeps the acknowledged definition: set only when
+    // the tool wasn't already awaiting review as changed.
+    const keepPrev = prev.changedAt !== null;
+    await prisma.knownTool.updateMany({
+      where: unchangedSince,
+      data: {
+        description,
+        annotations,
+        inputSchema,
+        lastSeenAt: now,
+        acknowledgedAt: null,
+        changedAt: now,
+        cosmeticAckAt: null,
+        ...(keepPrev ? {} : { prevDescription: prev.description, prevAnnotations: prev.annotations, prevInputSchema: prevSchema }),
+      },
+    });
+    const owner = await prisma.upstream.findUnique({ where: { id: upstreamId }, select: { userId: true } });
+    if (owner) await prisma.snooze.deleteMany({ where: { userId: owner.userId, upstreamId, toolName: t.name } });
+    console.warn(`tools: upstream ${upstreamId}: tool definition changed, re-flagged for review`);
   }
   await pruneStaleTools(upstreamId, new Set(current.map((t) => t.name)), now, maxRows);
+  for (const l of [...syncListeners]) {
+    try {
+      l(upstreamId);
+    } catch (e) {
+      console.warn(`tools: sync listener failed: ${e instanceof Error ? e.name : 'unknown'}`);
+    }
+  }
 }
 
 /**
@@ -149,17 +212,6 @@ function sameAnnotations(a: string | null, b: string | null): boolean {
   } catch {
     return false;
   }
-}
-
-function canonical(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
-  if (v && typeof v === 'object') {
-    return `{${Object.keys(v as Record<string, unknown>)
-      .sort()
-      .map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(v) ?? 'null';
 }
 
 /** Fetches tools/list from the upstream (as `userId`) and records it. */

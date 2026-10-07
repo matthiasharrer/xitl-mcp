@@ -4,6 +4,7 @@ import { identity, type AppEnv } from './identity.js';
 import { me } from './routes/me.js';
 import { upstreams } from './routes/upstreams.js';
 import { upstreamTools } from './routes/upstreamTools.js';
+import { autoRule } from './routes/autoRule.js';
 import { mcpClients } from './routes/mcpClients.js';
 import { mcpTokens } from './routes/mcpTokens.js';
 import { mcpConfig } from './routes/mcpConfig.js';
@@ -17,6 +18,7 @@ import { wireUpstreamPush } from './upstream/notify.js';
 import { upstreamStates } from './upstream/stateEvents.js';
 import { wireIntents } from './intent/index.js';
 import { wirePauseCheckPush } from './pausecheck/index.js';
+import { wireToolHints } from './clef/index.js';
 import { mountMcp } from './mcp/mount.js';
 import { INSTANCE_HEADER, isOwnRequest } from './lib/selfLoop.js';
 import { mountStatic } from './static.js';
@@ -66,6 +68,7 @@ app.use('/api/*', identity);
 app.route('/api/me', me);
 app.route('/api/upstreams', upstreams);
 app.route('/api/upstreams', upstreamTools);
+app.route('/api/upstreams', autoRule);
 app.route('/api/mcp', mcpConfig);
 app.route('/api/mcp/clients', mcpClients);
 app.route('/api/mcp/tokens', mcpTokens);
@@ -82,6 +85,8 @@ wireUpstreamPush(upstreamStates);
 wireIntents();
 // The AI check of allow pauses failed: one push per outage (ADR-0029).
 wirePauseCheckPush();
+// ADR-0031: advisory Clef label of new/changed tools, in the background.
+wireToolHints();
 
 app.onError((err, c) => {
   console.error(err);

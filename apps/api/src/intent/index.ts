@@ -5,8 +5,12 @@ import { intentModelFromEnv, intentTimeoutFromEnv } from './model.js';
 import type { IntentEvent, IntentQueue } from './queue.js';
 import { makeIntentQueue } from './store.js';
 
+/** The configured intent model (ADR-0025), also used for the AUTO
+ * "Vorschlag" draft (ADR-0030 §5); null = off. */
+export const intentModel = intentModelFromEnv();
+
 export const intents: IntentQueue = makeIntentQueue({
-  model: intentModelFromEnv(),
+  model: intentModel,
   timeoutMs: intentTimeoutFromEnv(process.env.INTENT_LLM_TIMEOUT_MS),
 });
 

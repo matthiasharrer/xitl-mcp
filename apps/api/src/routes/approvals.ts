@@ -20,8 +20,10 @@
 //   GET  /:id         one call: pending, or its outcome once resolved
 //   POST /:id         { decision: 'approve'|'deny', via: 'page'|'push',
 //                       snoozeMinutes? | snoozeUntilMidnight?,
-//                       snoozeScope?: tool | readonly | upstream }
-//                     approve + snooze: allow pause (ADR-0004/0019);
+//                       snoozeScope?: tool | readonly | upstream,
+//                       purpose? (≤ 200, approve + snooze only) }
+//                     approve + snooze: allow pause (ADR-0004/0019), with
+//                     the human's optional purpose (ADR-0029 amendment);
 //                     deny + snooze: deny pause, scope tool | upstream only
 //                     (ADR-0026; readonly -> 400)
 //                     -> 200 { state }, 404 unknown/foreign, 409 no longer open
@@ -34,7 +36,7 @@ import { systemClock, type Clock } from '../lib/clock.js';
 import { approvals as defaultHub, ApprovalHub, type PendingCall, type ResolvedEvent } from '../approval/pending.js';
 import { MAX_SNOOZE_MINUTES, snoozeUntil } from '../approval/budget.js';
 import { heldCoveredBy } from '../approval/snooze.js';
-import { MAX_APPROVAL_STREAMS_PER_USER } from '../lib/limits.js';
+import { MAX_APPROVAL_STREAMS_PER_USER, MAX_PAUSE_PURPOSE_CHARS } from '../lib/limits.js';
 import { faultList } from '../upstream/faults.js';
 import { auditIntentFields, include as auditInclude, serializeAuditRow } from './audit.js';
 import { auditEvents as defaultAuditEvents, type AuditEvents } from '../lib/auditEvents.js';
@@ -56,6 +58,14 @@ const decisionSchema = z
     /** What the snooze covers (TC-76): this tool (default), every read-only
      * tool of the upstream (only for a read-only tool), or every tool. */
     snoozeScope: z.enum(['tool', 'readonly', 'upstream']).optional(),
+    /** ADR-0029/0026 amendment: "Wofür?" of a new Zeitfreigabe or Sperre
+     * (with a duration only), one line, ≤ 200 chars; empty = none. */
+    purpose: z
+      .string()
+      .max(MAX_PAUSE_PURPOSE_CHARS)
+      // eslint-disable-next-line no-control-regex
+      .refine((v) => !/[\u0000-\u001f\u007f]/.test(v))
+      .optional(),
   })
   .strict();
 
@@ -80,6 +90,12 @@ export function serializePending(call: PendingCall, now: Date) {
     session: call.session ? { id: call.session.id, createdAt: call.session.createdAt.toISOString() } : null,
     /** ADR-0029: the AI check sent this paused call back (or null). */
     pauseCheck: call.pauseCheck ?? null,
+    /** ADR-0031: review hint of a new/changed tool (advisory), or null. */
+    toolReview: call.toolReview ?? null,
+    /** ADR-0030: why an AUTO call is asked (or null). */
+    autoCheck: call.autoCheck ?? null,
+    /** ADR-0026 amendment: asked because outside the Sperre's purpose (or null). */
+    sperreCheck: call.sperreCheck ?? null,
     ...intentFields(call),
   };
 }
@@ -307,6 +323,8 @@ export function makeApprovalRoutes(
       return c.json({ error: 'Neue oder geänderte Tools lassen sich nicht per Zeitfreigabe erlauben. Bitte zuerst in den Regeln ansehen.' }, 400);
     }
     if (body.snoozeScope !== undefined && !wantsSnooze) return c.json({ error: 'Ein Umfang braucht eine Dauer.' }, 400);
+    const purpose = body.purpose?.trim() || null;
+    if (purpose && !wantsSnooze) return c.json({ error: '„Wofür?“ gibt es nur mit einer Zeitfreigabe oder Sperre.' }, 400);
     if (body.snoozeScope === 'readonly' && !pending.readOnly) {
       return c.json({ error: '„Alle Lesetools“ geht nur bei einem Lesetool.' }, 400);
     }
@@ -321,8 +339,8 @@ export function makeApprovalRoutes(
     const checkedByProxy = body.decision === 'approve' && until !== null && (await gate.active(userId));
     const result =
       body.decision === 'approve'
-        ? hub.decide(userId, id, { kind: 'approve', via: body.via, snoozeUntil: until, snoozeScope })
-        : hub.decide(userId, id, { kind: 'deny', via: body.via, pauseUntil: until, pauseScope: snoozeScope === 'UPSTREAM' ? 'UPSTREAM' : 'TOOL' });
+        ? hub.decide(userId, id, { kind: 'approve', via: body.via, snoozeUntil: until, snoozeScope, purpose })
+        : hub.decide(userId, id, { kind: 'deny', via: body.via, pauseUntil: until, pauseScope: snoozeScope === 'UPSTREAM' ? 'UPSTREAM' : 'TOOL', purpose });
     // Lost the race against the deadline / another device between get and decide.
     if (result !== 'ok') return c.json(GONE, 409);
     // The pause also answers the calls already waiting that it covers

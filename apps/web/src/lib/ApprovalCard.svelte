@@ -4,7 +4,7 @@
   // and the deny pause "Ablehnen und nicht mehr fragen" (ADR-0026, TC-125).
   // Arguments come from the (untrusted) agent: shown as text, never as HTML.
   import { onDestroy, untrack } from 'svelte';
-  import { api, ApiError, messageOf, pauseCheckNote, type ApprovalDecision, type PendingApproval, type SnoozeScope } from './api';
+  import { api, ApiError, autoCheckNote, messageOf, pauseCheckNote, sperreCheckNote, type ApprovalDecision, type PendingApproval, type SnoozeScope } from './api';
   import { showToast } from './store.svelte';
   import SessionLine from './SessionLine.svelte';
   import IntentSummary from './IntentSummary.svelte';
@@ -39,14 +39,24 @@
         ? `alle Lesetools von ${approval.upstream.name}`
         : approval.tool,
   );
+  /** ADR-0029/0026 amendment: optional "Wofür?" of the Zeitfreigabe or
+   * Sperre (≤ 200). With a Sperre, Clef may ask (never allow) calls clearly
+   * outside it. */
+  let purpose = $state('');
   const snooze = (d: { snoozeMinutes?: number; snoozeUntilMidnight?: boolean }, label: string) =>
-    decide({ decision: 'approve', ...d, snoozeScope: scope }, `Erlaubt, ${label} ohne Nachfrage: ${scopeText}`);
+    decide(
+      { decision: 'approve', ...d, snoozeScope: scope, ...(purpose.trim() ? { purpose: purpose.trim() } : {}) },
+      `Erlaubt, ${label} ohne Nachfrage: ${scopeText}`,
+    );
 
   /** ADR-0026: what "Ablehnen und nicht mehr fragen" blocks. */
   let denyScope = $state<'tool' | 'upstream'>('tool');
   const denyScopeText = $derived(denyScope === 'upstream' ? `alle Tools von ${approval.upstream.name}` : approval.tool);
   const denyPause = (d: { snoozeMinutes?: number; snoozeUntilMidnight?: boolean }, label: string) =>
-    decide({ decision: 'deny', ...d, snoozeScope: denyScope }, `Abgelehnt, ${label} gesperrt: ${denyScopeText}`);
+    decide(
+      { decision: 'deny', ...d, snoozeScope: denyScope, ...(purpose.trim() ? { purpose: purpose.trim() } : {}) },
+      `Abgelehnt, ${label} gesperrt: ${denyScopeText}`,
+    );
 
   const argsText = $derived.by(() => {
     try {
@@ -105,10 +115,32 @@
       {pauseCheckNote(approval.pauseCheck)}
     </p>
   {/if}
+  {#if approval.sperreCheck}
+    <!-- ADR-0026 amendment: outside the Sperre's purpose, so asked. -->
+    <p class="pause-check-note" data-sperre-check>{sperreCheckNote(approval.sperreCheck.purpose)}</p>
+  {/if}
+  {#if approval.autoCheck}
+    <!-- ADR-0030: why an AUTO call is asked. -->
+    <p class="pause-check-note" data-auto-check={approval.autoCheck.result}>{autoCheckNote(approval.autoCheck)}</p>
+  {/if}
   {#if !approval.snoozable}
     <p class="hint approval-new">
       Neues oder geändertes Tool. Prüfe es in den <a href={`#/regeln/${approval.upstream.id}`}>Regeln</a>.
     </p>
+    {#if approval.toolReview}
+      <!-- ADR-0031: advisory review hint (as when the call was held). -->
+      <div class="tool-review" class:attention={approval.toolReview.attention} data-tool-review={approval.toolReview.attention ? 'attention' : 'ok'}>
+        {#if approval.toolReview.attention}
+          <p class="tool-review-head">Genauer ansehen</p>
+          <ul>
+            {#each approval.toolReview.reasons as reason}<li>{reason}</li>{/each}
+          </ul>
+        {:else}
+          <p class="tool-review-head ok">Unauffällig</p>
+        {/if}
+        {#if approval.toolReview.label}<p class="tool-review-label">{approval.toolReview.label}</p>{/if}
+      </div>
+    {/if}
   {/if}
 
   <IntentSummary intent={approval} />
@@ -132,6 +164,20 @@
       Erlauben
     </button>
   </div>
+  <!-- ADR-0029/0026 amendment: one optional "Wofür?" for whichever
+       Zeitfreigabe or Sperre button is tapped next. -->
+  <label class="purpose-field">
+    <span class="hint">Wofür? (optional, für Zeitfreigabe oder Sperre)</span>
+    <input
+      type="text"
+      maxlength="200"
+      bind:value={purpose}
+      disabled={busy || expired}
+      placeholder="z. B. nur Putzaufgaben anlegen"
+      enterkeyhint="done"
+      autocomplete="off"
+    />
+  </label>
   {#if approval.snoozable}
     <p class="hint snooze-label">Erlauben und für diesen Client nicht mehr fragen bei …</p>
     <div class="scope-row" role="radiogroup" aria-label="Umfang der Zeitfreigabe">
@@ -205,6 +251,52 @@
 </article>
 
 <style>
+  .purpose-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0.5rem 0;
+    min-width: 0;
+  }
+  .purpose-field input {
+    width: 100%;
+    min-width: 0;
+    font: inherit;
+    font-size: 1rem;
+    min-height: 2.75rem;
+    padding: 0.25rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--fg);
+  }
+  .tool-review {
+    margin: 0.5rem 0;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    font-size: 0.875rem;
+    overflow-wrap: anywhere;
+  }
+  .tool-review.attention {
+    border-color: var(--warn);
+    background: var(--warn-soft);
+  }
+  .tool-review-head {
+    margin: 0;
+    font-weight: 600;
+  }
+  .tool-review-head.ok {
+    color: var(--ok);
+  }
+  .tool-review ul {
+    margin: 0.25rem 0 0;
+    padding-left: 1.25rem;
+  }
+  .tool-review-label {
+    margin: 0.25rem 0 0;
+    color: var(--muted);
+  }
   .pause-check-note {
     margin: 0.5rem 0;
     padding: 0.5rem 0.75rem;

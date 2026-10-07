@@ -27,6 +27,7 @@ import { systemClock, type Clock } from '../lib/clock.js';
 import { MAX_HELD_CALLS_PER_USER } from '../lib/limits.js';
 import type { SnoozeScope } from './snooze.js';
 import type { IntentView } from '../intent/queue.js';
+import type { AutoCheckView } from '../auto/text.js';
 import type { PauseCheckView } from '../pausecheck/text.js';
 
 /** How a decision was made: in the app, from the notification, or by a
@@ -35,10 +36,10 @@ import type { PauseCheckView } from '../pausecheck/text.js';
 export type Via = 'page' | 'push' | 'pause';
 
 export type Decision =
-  | { kind: 'approve'; via: Via; at: Date; snoozeUntil: Date | null; snoozeScope?: SnoozeScope }
+  | { kind: 'approve'; via: Via; at: Date; snoozeUntil: Date | null; snoozeScope?: SnoozeScope; purpose?: string | null }
   /** `pauseUntil`/`pauseScope`: also refuse this tool/upstream for this
    * client until then (deny pause, ADR-0026). */
-  | { kind: 'deny'; via: Via; at: Date; pauseUntil?: Date | null; pauseScope?: Exclude<SnoozeScope, 'READONLY'> }
+  | { kind: 'deny'; via: Via; at: Date; pauseUntil?: Date | null; pauseScope?: Exclude<SnoozeScope, 'READONLY'>; purpose?: string | null }
   | { kind: 'timeout'; at: Date }
   | { kind: 'aborted'; at: Date }
   | { kind: 'shutdown'; at: Date }
@@ -77,6 +78,15 @@ export interface PendingCall {
   /** ADR-0029: the AI check sent this call back (mismatch: the pause ended;
    * error: Clef unreachable). Display only; absent = not checked. */
   pauseCheck?: PauseCheckView;
+  /** ADR-0030: why an AUTO call was asked (below the threshold, Clef error,
+   * Clef off, no rule). Display only; absent = not an AUTO call. */
+  autoCheck?: AutoCheckView;
+  /** ADR-0026 amendment: Clef judged the call outside the Sperre's purpose,
+   * so it is asked instead of refused. Display only. */
+  sperreCheck?: { purpose: string; score: number };
+  /** ADR-0031: the advisory review hint of a new/changed tool, as it was when
+   * the call was held. Display only; never read by a decision. */
+  toolReview?: { attention: boolean; reasons: string[]; label: string | null };
   /** The JSON-RPC request this call came in as, for the client's
    * `notifications/cancelled` (`cancelByRequest`). Never shown to a channel. */
   request?: { endpoint: string; rpcId: string | number };
@@ -163,7 +173,7 @@ export class ApprovalHub extends EventEmitter {
   decide(
     userId: number,
     id: string,
-    d: { kind: 'approve'; via: Via; snoozeUntil: Date | null; snoozeScope?: SnoozeScope } | { kind: 'deny'; via: Via; pauseUntil?: Date | null; pauseScope?: Exclude<SnoozeScope, 'READONLY'> },
+    d: { kind: 'approve'; via: Via; snoozeUntil: Date | null; snoozeScope?: SnoozeScope; purpose?: string | null } | { kind: 'deny'; via: Via; pauseUntil?: Date | null; pauseScope?: Exclude<SnoozeScope, 'READONLY'>; purpose?: string | null },
   ): DecideResult {
     const entry = this.entries.get(id);
     if (!entry || entry.call.userId !== userId) return 'not-found';
@@ -171,9 +181,9 @@ export class ApprovalHub extends EventEmitter {
     this.settle(
       id,
       d.kind === 'approve'
-        ? { kind: 'approve', via: d.via, snoozeUntil: d.snoozeUntil, snoozeScope: d.snoozeScope, at }
+        ? { kind: 'approve', via: d.via, snoozeUntil: d.snoozeUntil, snoozeScope: d.snoozeScope, purpose: d.purpose ?? null, at }
         : d.pauseUntil
-          ? { kind: 'deny', via: d.via, at, pauseUntil: d.pauseUntil, pauseScope: d.pauseScope === 'UPSTREAM' ? 'UPSTREAM' : 'TOOL' }
+          ? { kind: 'deny', via: d.via, at, pauseUntil: d.pauseUntil, pauseScope: d.pauseScope === 'UPSTREAM' ? 'UPSTREAM' : 'TOOL', purpose: d.purpose ?? null }
           : { kind: 'deny', via: d.via, at },
     );
     return 'ok';

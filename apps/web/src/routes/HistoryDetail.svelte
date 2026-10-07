@@ -5,7 +5,7 @@
   import Spinner from '../lib/Spinner.svelte';
   import SessionLine from '../lib/SessionLine.svelte';
   import IntentSummary from '../lib/IntentSummary.svelte';
-  import { api, ApiError, decisionPathText, messageOf, OUTCOME_LABEL, pauseCheckLine, POLICY_LABEL, type AuditDetail } from '../lib/api';
+  import { api, ApiError, autoLine, decisionPathText, sperreLine, messageOf, OUTCOME_LABEL, pauseCheckLine, POLICY_LABEL, type AuditDetail } from '../lib/api';
 
   let { id }: { id: number } = $props();
 
@@ -76,6 +76,16 @@
         {#if pauseCheckLine(e)}
           <!-- ADR-0029: the AI check of the Zeitfreigabe (p(gleich)). -->
           <dt>KI</dt><dd data-testid="pause-check">{pauseCheckLine(e)}</dd>
+        {/if}
+        {#if e.pausePurpose}
+          <dt>Wofür</dt><dd data-testid="pause-purpose">{e.pausePurpose}</dd>
+        {/if}
+        {#if sperreLine(e)}
+          <dt>Sperre</dt><dd data-testid="sperre-score">{sperreLine(e)}</dd>
+        {/if}
+        {#if autoLine(e)}
+          <!-- ADR-0030: the AUTO check (p(erlaubt)). -->
+          <dt>Auto</dt><dd data-testid="auto-score">{autoLine(e)}</dd>
         {/if}
         <dt>Eingegangen</dt><dd>{fmt(e.receivedAt)}</dd>
         <dt>Entschieden</dt><dd>{fmt(e.decidedAt)}</dd>

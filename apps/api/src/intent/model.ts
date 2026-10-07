@@ -36,6 +36,7 @@ import {
 } from '../lib/limits.js';
 import { outboundFetch, upstreamAllowance, type AllowEntry } from '../lib/outbound.js';
 import { blockOf, type ChatMessage } from './prompt.js';
+import { DRAFT_SYSTEM_PROMPT } from '../auto/draft.js';
 
 export { blockOf };
 
@@ -184,6 +185,14 @@ export function stubModel(opts: { log?: string } = {}): IntentModel {
     name: 'stub',
     async complete(messages, signal) {
       if (opts.log) fs.appendFileSync(opts.log, JSON.stringify({ messages }) + '\n');
+      // ADR-0030 "Vorschlag": a draft request (tests only). A tool whose
+      // description says `__stub:fail` makes it fail.
+      if (messages[0]?.content === DRAFT_SYSTEM_PROMPT) {
+        const user = messages[1]?.content ?? '';
+        if (user.includes('__stub:fail')) throw new Error('stub: fail');
+        const names = [...user.matchAll(/"tool":"([^"]+)"/g)].map((m) => m[1]).join(', ');
+        return { text: JSON.stringify({ regel: `Stub-Vorschlag: ${names} lesen ist ok.` }), model: null };
+      }
       const last = [...messages].reverse().find((m) => m.role === 'user');
       const data = last ? blockOf(last.content) : null;
       const tool = typeof data?.tool === 'string' ? data.tool : '?';

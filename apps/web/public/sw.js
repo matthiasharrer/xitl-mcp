@@ -156,7 +156,7 @@ self.addEventListener('push', (event) => {
   if (data.type === 'pausecheck') {
     event.waitUntil(
       show('KI-Prüfung nicht erreichbar', {
-        body: 'Zeitfreigaben fragen wieder nach. Tippen für Details.',
+        body: 'Zeitfreigaben und Auto-Regeln fragen wieder nach. Tippen für Details.',
         tag: 'pausecheck',
         renotify: true,
         data: { url: '/#/' },

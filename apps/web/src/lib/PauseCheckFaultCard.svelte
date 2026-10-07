@@ -1,5 +1,5 @@
 <script lang="ts">
-  // ADR-0029: the AI check of Zeitfreigaben failed. Like an upstream "Störung"
+  // ADR-0029 (and ADR-0030, same Clef): the AI check failed. Like an upstream "Störung"
   // (FaultCard, ADR-0022): not an approval, no deadline. Until the next
   // successful check, paused calls are asked again. The button turns the
   // user's check off (PATCH /api/me); the server then clears the card.
@@ -29,8 +29,9 @@
   </div>
   <p class="fault-name">KI-Prüfung nicht erreichbar – Zeitfreigaben fragen wieder nach</p>
   <p class="fault-state">
-    Aufrufe unter einer Zeitfreigabe werden bis dahin zur Freigabe vorgelegt. Ausschalten lässt die
-    Zeitfreigaben wieder ohne Prüfung gelten (auch in den Einstellungen).
+    Aufrufe unter einer Zeitfreigabe und mit Auto-Regel werden bis dahin zur Freigabe vorgelegt.
+    Ausschalten lässt die Zeitfreigaben wieder ohne Prüfung gelten; „Auto“ fragt dann wie „Fragen“
+    (auch in den Einstellungen).
   </p>
   <button type="button" class="btn wide" disabled={busy} onclick={turnOff}>
     {busy ? 'Schalte aus…' : 'KI-Prüfung ausschalten'}

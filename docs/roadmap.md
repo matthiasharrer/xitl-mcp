@@ -5,7 +5,7 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-06 (end of session: `v0.8.0` released, open list below)_
+_Last updated: 2026-10-07 (ADR-0031, ADR-0030 and the Zeitfreigabe purpose built, unreleased)_
 
 ## Next
 
@@ -100,6 +100,19 @@ GHCR), `v0.7.0` deployed and running. GitOps already has `INTENT_LLM_URL`
    auto-ack), then Clef: risk class (lesen/ändern/zerstören) and the
    injection noul on the description. Include `inputSchema` change
    detection (store it; today undetected, debt below). Small ADR first.
+   **Built 2026-10-07, unreleased:** ADR-0031 (`apps/api/src/toolhint/`,
+   `clef/` shared client, migration `20261006040000_tool_review_hint`,
+   TC-149…154). Then **ADR-0030 AUTO policy built, unreleased**
+   (`apps/api/src/auto/`, `routes/autoRule.ts`, migration
+   `20261006050000_auto_policy`, TC-155…162; env `AUTO_THRESHOLD`, default
+   0.8), and the **Zeitfreigabe purpose** ("Wofür?", ADR-0029 amendment
+   pending, migration `20261006060000_pause_purpose`, TC-163…166), extended
+   to the **Sperre** (Clef may turn a call clearly outside the Sperre's
+   purpose into ASK, never ALLOW; migration `20261006070000_sperre_purpose`,
+   TC-167…171; ADR-0026 amendment pending). Deploy
+   needs nothing new beyond `PAUSE_CHECK_URL` (one Clef for all three; the
+   switch "KI-Prüfung (Clef)" covers all). Open: MG-10/11 on the deployed
+   instance (real tools, real rules via "Mit Verlauf testen").
 1. **Deploy `v0.8.0`** (Matthias bumps the tag in GitOps).
 2. **TC-128 e2e** (a pause settles the covered held calls): hold 3 calls of
    one tool + 1 of another tool + 1 of another client, approve one with a
@@ -193,7 +206,7 @@ stay behind Authelia.
 - **Decided 2026-10-04 (Matthias), no change:** lock-screen "Erlauben" stays
   for all tools, destructive ones included (summary is agent-controlled;
   accepted).
-- `inputSchema` changes aren't detected (not stored).
+- ~~`inputSchema` changes aren't detected (not stored).~~ Done (ADR-0031): stored canonically, a change is "changed-tool".
 - Boot sweep labels an ALLOW call that crashed mid-forward `DENIED +restart`,
   though it may have reached the upstream.
 - **Unified `/mcp`:** `tools/list` fans out to every usable upstream per call

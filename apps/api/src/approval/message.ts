@@ -5,7 +5,8 @@ type ApprovalPush = Extract<PushMessage, { type: 'approval' }>;
 import { approvalSummary } from './budget.js';
 import type { PendingCall } from './pending.js';
 import { MAX_INTENT_PUSH_CHARS, MAX_INTENT_TITLE_CHARS } from '../lib/limits.js';
-import { pauseCheckNote } from '../pausecheck/text.js';
+import { pauseCheckNote, sperreCheckNote } from '../pausecheck/text.js';
+import { autoCheckNote } from '../auto/text.js';
 
 const MAX_UPSTREAM = 80;
 const MAX_TOOL = 100;
@@ -14,7 +15,7 @@ const cut = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…' 
 
 /** id, upstream name, tool, a short summary and the deadline. Nothing else:
  * no client name, no full arguments, never an upstream credential. */
-export function approvalMessage(call: Pick<PendingCall, 'id' | 'upstreamName' | 'toolName' | 'args' | 'deadline' | 'pauseCheck'>): ApprovalPush {
+export function approvalMessage(call: Pick<PendingCall, 'id' | 'upstreamName' | 'toolName' | 'args' | 'deadline' | 'pauseCheck' | 'autoCheck' | 'sperreCheck'>): ApprovalPush {
   return {
     type: 'approval',
     id: call.id,
@@ -23,7 +24,13 @@ export function approvalMessage(call: Pick<PendingCall, 'id' | 'upstreamName' | 
     summary: approvalSummary(call.toolName, call.args),
     expiresAt: call.deadline.toISOString(),
     // ADR-0029: why a paused call is asked after all (fixed text).
-    ...(call.pauseCheck ? { note: pauseCheckNote(call.pauseCheck) } : {}),
+    ...(call.pauseCheck
+      ? { note: pauseCheckNote(call.pauseCheck) }
+      : call.sperreCheck
+        ? { note: sperreCheckNote(call.sperreCheck.purpose) }
+        : call.autoCheck
+          ? { note: autoCheckNote(call.autoCheck) }
+          : {}),
   };
 }
 
@@ -31,7 +38,7 @@ export function approvalMessage(call: Pick<PendingCall, 'id' | 'upstreamName' | 
  * same notification tag): `update`, the intent (≤ 200 chars) and the shown
  * risk. null when there is no summary to show. */
 export function approvalUpdateMessage(
-  call: Pick<PendingCall, 'id' | 'upstreamName' | 'toolName' | 'args' | 'deadline' | 'intent' | 'pauseCheck'>,
+  call: Pick<PendingCall, 'id' | 'upstreamName' | 'toolName' | 'args' | 'deadline' | 'intent' | 'pauseCheck' | 'autoCheck' | 'sperreCheck'>,
 ): ApprovalPush | null {
   const i = call.intent;
   if (!i || i.status !== 'DONE' || !i.summary || !i.risk) return null;

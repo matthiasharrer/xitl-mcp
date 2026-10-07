@@ -133,6 +133,12 @@ audit.get('/:id', async (c) => {
     // ADR-0029: the AI check of an allow pause (p(gleich), verdict label).
     pauseCheckScore: a.pauseCheckScore,
     pauseCheckChoice: a.pauseCheckChoice,
+    // ADR-0029 amendment: the Zeitfreigabe's "Wofür?" it was checked against.
+    pausePurpose: a.pausePurpose,
+    // ADR-0026 amendment: p(outside) of a Sperre's purpose check.
+    sperreScore: a.sperreScore,
+    // ADR-0030: p(erlaubt) of the AUTO check.
+    autoScore: a.autoScore,
     // Per-call diagnostics (names only; ADR-0016 measurement).
     diagnostics: {
       protocolVersion: a.protocolVersion,

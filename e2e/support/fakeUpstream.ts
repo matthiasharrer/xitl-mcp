@@ -21,7 +21,7 @@
 //   Control (test-only):
 //     POST /control/t/<t>/config   { accessTtl?, rejectRefresh?, instructions?, headerSecret?,
 //                                    ...malicious modes, see `Malice` below }
-//     POST /control/t/<t>/tools    { name, description?, annotations? }: adds
+//     POST /control/t/<t>/tools    { name, description?, annotations?, inputSchema? }: adds
 //                                  a tool, or REPLACES the definition of an
 //                                  existing one (base or added) of that name
 //                                  (rug pull, TC-36)
@@ -412,7 +412,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
       const def: ToolDef = {
         name,
         description: body.description,
-        inputSchema: base?.inputSchema ?? { type: 'object', properties: {} },
+        inputSchema: body.inputSchema && typeof body.inputSchema === 'object' ? body.inputSchema : (base?.inputSchema ?? { type: 'object', properties: {} }),
         annotations: body.annotations,
       };
       const extra = t.extraTools.findIndex((x) => x.name === name);

@@ -101,6 +101,7 @@
 
   const policies: { value: Policy; label: string }[] = [
     { value: 'ALLOW', label: 'Erlauben' },
+    { value: 'AUTO', label: 'Auto' },
     { value: 'ASK', label: 'Fragen' },
     { value: 'DENY', label: 'Verbieten' },
   ];
@@ -174,7 +175,7 @@
 
       <fieldset class="field">
         <legend class="label">Standard-Regel für Tools</legend>
-        <div class="segmented">
+        <div class="segmented four">
           {#each policies as p}
             <label class:selected={defaultPolicy === p.value}>
               <input type="radio" name="policy" value={p.value} bind:group={defaultPolicy} />
@@ -182,6 +183,9 @@
             </label>
           {/each}
         </div>
+        {#if defaultPolicy === 'AUTO'}
+          <span class="hint">Auto: eine KI prüft jeden Aufruf gegen deine Auto-Regel (in den Regeln des Upstreams). Schwächer als Fragen.</span>
+        {/if}
       </fieldset>
 
       <fieldset class="field">

@@ -57,14 +57,19 @@ import { approvals, ApprovalHub, type Decision } from '../approval/pending.js';
 import { approvalDeadline, approvalTimeoutFromEnv, upstreamTimeoutMs } from '../approval/budget.js';
 import { createSnooze, heldCoveredBy, isReadOnly, livePauses, liveSnoozesFor, type MatchedAllowPause, type SnoozeScope } from '../approval/snooze.js';
 import type { PendingCall } from '../approval/pending.js';
-import { pauseGate as defaultPauseGate } from '../pausecheck/index.js';
+import { pauseGate as defaultPauseGate, sperreGate as defaultSperreGate } from '../pausecheck/index.js';
+import { relaxSperre, SperreGate, type SperreResult } from '../pausecheck/sperre.js';
 import { narrow, type GateResult, type PauseGate } from '../pausecheck/gate.js';
+import { autoGate as defaultAutoGate } from '../auto/index.js';
+import { resolveAuto, type AutoGate, type AutoResult } from '../auto/gate.js';
+import type { AutoCheckView } from '../auto/text.js';
 import type { PauseCheckView } from '../pausecheck/text.js';
 import type { Upstream } from '../generated/prisma/client.js';
 import { intents as defaultIntents } from '../intent/index.js';
 import { NO_INTENT, type IntentQueue } from '../intent/queue.js';
 import { sourceKey } from '../intent/group.js';
 import { auditEvents } from '../lib/auditEvents.js';
+import { hintOfRow, type HintRow } from '../toolhint/hint.js';
 import type { RequestDiagnostics } from './sessions.js';
 
 /** The running build (CI sets APP_VERSION: `0.3.1`, `main`); MCP serverInfo. */
@@ -177,6 +182,21 @@ function policyTool(k: { policy: string | null; acknowledgedAt: Date | null; cha
   return { policy: k.policy as Policy | null, acknowledgedAt: k.acknowledgedAt, changedAt: k.changedAt };
 }
 
+function parseAnnotations(raw: string | null): unknown {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/** ADR-0031: what the Freigaben card shows about a new/changed tool. */
+function reviewOf(row: HintRow): { attention: boolean; reasons: string[]; label: string | null } {
+  const h = hintOfRow(row);
+  return { attention: h.attention, reasons: h.reasons, label: h.label };
+}
+
 export interface ProxyDeps {
   clock?: Clock;
   hub?: ApprovalHub;
@@ -186,6 +206,17 @@ export interface ProxyDeps {
   intents?: IntentQueue;
   /** The AI check of allow pauses (ADR-0029). */
   pauseGate?: PauseGate;
+  /** The AUTO check (ADR-0030). */
+  autoGate?: AutoGate;
+  /** The purpose check of a Sperre (ADR-0026 amendment). */
+  sperreGate?: SperreGate;
+}
+
+/** What a held call shows about the AUTO check that asked it (ADR-0030). */
+function autoView(r: AutoResult | null): AutoCheckView | undefined {
+  if (r?.kind === 'below') return { result: 'below', score: r.score };
+  if (r?.kind === 'error' || r?.kind === 'off' || r?.kind === 'norule') return { result: r.kind, score: null };
+  return undefined;
 }
 
 /** What a held call shows about the AI check that sent it back (ADR-0029). */
@@ -201,6 +232,8 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
   const approvalTimeoutMs = deps.approvalTimeoutMs ?? approvalTimeoutFromEnv(process.env.APPROVAL_TIMEOUT_MS);
   const intents = deps.intents ?? defaultIntents;
   const gate = deps.pauseGate ?? defaultPauseGate;
+  const auto = deps.autoGate ?? defaultAutoGate;
+  const sperre = deps.sperreGate ?? defaultSperreGate;
 
   /** ADR-0029 §6 (TC-145): a new allow pause settles the held calls it covers
    * (TC-128) through the same AI check, in order, under the access's serial
@@ -225,7 +258,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           pause,
           call: { upstream: other.upstreamName, tool: other.toolName, args: other.args },
         });
-        const scored = r.kind === 'match' || r.kind === 'mismatch' ? { pauseCheckScore: r.score, pauseCheckChoice: r.choice } : {};
+        const scored = r.kind === 'match' || r.kind === 'mismatch' ? { pauseCheckScore: r.score, pauseCheckChoice: r.choice, pausePurpose: pause.purpose ?? null } : {};
         if (r.kind === 'blind' || r.kind === 'match') {
           await prisma.auditEntry.updateMany({ where: { id: other.auditId, userId }, data: { pauseSnoozeId: pause.id, ...scored } });
           auditEvents.emit({ userId, auditId: other.auditId });
@@ -301,7 +334,8 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         now,
       });
       if (decision.policy === 'DENY') continue;
-      listed.push(decision.policy === 'ASK' ? { ...t, description: stampedDescription(t.description, displayName) } : t);
+      // AUTO may be asked (ADR-0030): stamped like ASK. Only plain ALLOW is not.
+      listed.push(decision.policy !== 'ALLOW' ? { ...t, description: stampedDescription(t.description, displayName) } : t);
     }
     return listed;
   }
@@ -361,7 +395,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         where: { upstreamId: upstream.id, name, upstream: { userId } },
         include: { clientPolicies: { where: { mcpClientId } } },
       }),
-      prisma.upstream.findFirst({ where: { id: upstream.id, userId }, select: { defaultPolicy: true } }),
+      prisma.upstream.findFirst({ where: { id: upstream.id, userId }, select: { defaultPolicy: true, autoRule: true } }),
     ]);
     if (!current) throw new Error('upstream vanished mid-request');
     // Read-only by the STORED annotations (an unknown tool is not read-only).
@@ -380,7 +414,20 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         denyPausedUntil: pauses.denyUntil,
         now,
       });
-      return { pauses, base: decision };
+      // ADR-0026 amendment: a Sperre with a purpose may let Clef relax its
+      // refusal to ASK; for that, what the policy says WITHOUT the Sperre.
+      const withoutSperre =
+        decision.path === 'snooze-deny' && SperreGate.needsCheck(pauses.denies)
+          ? evaluatePolicy({
+              upstreamDefault: current.defaultPolicy as Policy,
+              tool: toolState,
+              clientOverride: (tool?.clientPolicies[0]?.policy as Policy | undefined) ?? null,
+              snoozedUntil: pauses.allowUntil,
+              denyPausedUntil: null,
+              now,
+            })
+          : null;
+      return { pauses, base: decision, withoutSperre };
     };
     const viaAllowPause = (d: { policy: Policy; path: string }) => d.policy === 'ALLOW' && d.path === 'snooze';
 
@@ -388,8 +435,16 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
      * audit row: ADR-0008 audit first, if this write fails nothing is
      * forwarded. ASK: the id the user decides by is written with it, so a late
      * decision can be told apart (409) from a foreign/unknown id (404). */
-    const decideAndAudit = async (ev: Awaited<ReturnType<typeof evaluate>>, check: GateResult | null) => {
-      const decision = narrow(ev.base, check);
+    const decideAndAudit = async (
+      ev: Awaited<ReturnType<typeof evaluate>>,
+      check: GateResult | null,
+      autoResult: AutoResult | null,
+      sperreResult: SperreResult | null = null,
+    ) => {
+      // ADR-0029 narrows an ALLOW via pause; ADR-0030 resolves an AUTO into
+      // ALLOW "auto" or ASK; a Sperre with a purpose may become ASK (never
+      // ALLOW). None of them can produce ALLOW from anything else.
+      const decision = relaxSperre(resolveAuto(narrow(ev.base, check), autoResult), ev.withoutSperre, sperreResult);
       const approvalId = decision.policy === 'ASK' ? ApprovalHub.newId() : null;
       // The allow pause this call goes through (ADR-0029 "calls since").
       const underPause = decision.policy === 'ALLOW' && (decision.path === 'snooze' || decision.path === 'snooze+ki') ? (ev.pauses.allow?.id ?? null) : null;
@@ -408,13 +463,31 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           approvalId,
           sessionId: call.session?.id ?? null,
           intentStatus: intents.initialStatus,
-          ...(check?.kind === 'match' || check?.kind === 'mismatch' ? { pauseCheckScore: check.score, pauseCheckChoice: check.choice } : {}),
+          ...(check?.kind === 'match' || check?.kind === 'mismatch'
+            ? { pauseCheckScore: check.score, pauseCheckChoice: check.choice, pausePurpose: ev.pauses.allow?.purpose ?? null }
+            : {}),
           pauseSnoozeId: underPause,
+          ...(autoResult?.kind === 'pass' || autoResult?.kind === 'below' ? { autoScore: autoResult.score } : {}),
+          ...(sperreResult?.kind === 'inside' || sperreResult?.kind === 'outside' ? { sperreScore: sperreResult.score, pausePurpose: sperreResult.purpose } : {}),
           ...auditDiagnostics(call.diagnostics),
         },
       });
-      return { decision, approvalId, audit, pauses: ev.pauses, check };
+      return { decision, approvalId, audit, pauses: ev.pauses, check, autoResult, sperreResult };
     };
+    /** ADR-0026 amendment: Clef on a Sperre with a purpose (null otherwise). */
+    const sperreCheck = async (ev: Awaited<ReturnType<typeof evaluate>>): Promise<SperreResult | null> =>
+      // A rule DENY under the Sperre stays DENY whatever Clef says: no request.
+      ev.withoutSperre && ev.withoutSperre.policy !== 'DENY' ? sperre.evaluate({ userId, denies: ev.pauses.denies, call: { upstream: upstream.name, tool: name, args } }) : null;
+    /** ADR-0030: the Clef check of an AUTO decision (null for anything else).
+     * The stored description/annotations of the tool, never the agent's. */
+    const autoCheck = async (ev: Awaited<ReturnType<typeof evaluate>>): Promise<AutoResult | null> =>
+      ev.base.policy === 'AUTO'
+        ? auto.evaluate({
+            userId,
+            rule: current.autoRule,
+            call: { upstream: upstream.name, tool: name, description: tool?.description ?? null, annotations: parseAnnotations(tool?.annotations ?? null), args },
+          })
+        : null;
 
     const first = await evaluate(receivedAt);
     // ADR-0029: an ALLOW that only an allow pause gave goes through the AI
@@ -431,9 +504,9 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
                 ? await gate.evaluate({ userId, mcpClientId, upstreamId: upstream.id, pause: ev.pauses.allow, call: { upstream: upstream.name, tool: name, args } })
                 : { kind: 'error' }; // no row to check against: hold (fail closed)
             }
-            return decideAndAudit(ev, check);
+            return decideAndAudit(ev, check, await autoCheck(ev), await sperreCheck(ev));
           })
-        : await decideAndAudit(first, null);
+        : await decideAndAudit(first, null, await autoCheck(first), await sperreCheck(first));
     const { decision, approvalId, audit, pauses } = decided;
     auditEvents.emit({ userId, auditId: audit.id });
     // ADR-0025: queue the advisory summary. Synchronous and never throws;
@@ -532,6 +605,14 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           request: { endpoint, rpcId },
           // ADR-0029: why a paused call is asked after all (card, push).
           ...(checkView(decided.check) ? { pauseCheck: checkView(decided.check) } : {}),
+          // ADR-0026 amendment: a Sperre's purpose check let this call be asked.
+          ...(decided.sperreResult?.kind === 'outside' && decision.path === 'snooze-deny-ki-ask'
+            ? { sperreCheck: { purpose: decided.sperreResult.purpose, score: decided.sperreResult.score } }
+            : {}),
+          // ADR-0030: why an AUTO call is asked (card, push).
+          ...(autoView(decided.autoResult) ? { autoCheck: autoView(decided.autoResult) } : {}),
+          // ADR-0031: the advisory review hint of a new/changed tool (display only).
+          ...(tool && awaitingReview(toolState) ? { toolReview: reviewOf(tool) } : {}),
         },
         approvalId,
       );
@@ -569,7 +650,8 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
             // READONLY only from a read-only tool; anything else narrows to TOOL.
             const scope = d.snoozeScope === 'UPSTREAM' || (d.snoozeScope === 'READONLY' && readOnly) ? d.snoozeScope : 'TOOL';
             // ADR-0029: this call is the pause's anchor for the AI check.
-            const pause = await createSnooze(snoozeOwner, scope, name, d.snoozeUntil, d.at, 'ALLOW', audit.id);
+            // ADR-0029 amendment: with the human's "Wofür?", if given.
+            const pause = await createSnooze(snoozeOwner, scope, name, d.snoozeUntil, d.at, 'ALLOW', audit.id, d.purpose ?? null);
             // Fire and forget: this call is forwarded meanwhile.
             if (gate.enabled) void settleCovered(held.call, scope, pause);
           } catch (e) {
@@ -592,7 +674,8 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           // Not stored: this call is denied all the same (fail closed).
           const scope = d.pauseScope === 'UPSTREAM' ? 'UPSTREAM' : 'TOOL';
           try {
-            await createSnooze(snoozeOwner, scope, name, d.pauseUntil, d.at, 'DENY');
+            // ADR-0026 amendment: anchored on this call, with the human's "Wofür?".
+            await createSnooze(snoozeOwner, scope, name, d.pauseUntil, d.at, 'DENY', audit.id, d.purpose ?? null);
             text = MSG.blocked(shownName, scope === 'UPSTREAM' ? upstream.name.slice(0, 100) : null, d.pauseUntil);
           } catch (e) {
             console.warn(`proxy: deny pause not stored: ${errorTag(e)}`);
@@ -620,8 +703,9 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
     }
 
     if (decision.policy !== 'ALLOW') {
-      // Unreachable (evaluatePolicy only returns the three Policy values);
-      // fail closed rather than forward on anything unexpected.
+      // Unreachable (resolveAuto never returns AUTO; evaluatePolicy only
+      // returns Policy values); fail closed rather than forward on anything
+      // unexpected.
       const text = MSG.denied(shownName);
       await finish({ outcome: 'DENIED', isError: true, resultText: text });
       return errorResult(text);

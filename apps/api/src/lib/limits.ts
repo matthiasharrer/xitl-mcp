@@ -139,3 +139,41 @@ export const PAUSE_CHECK_THRESHOLD_DEFAULT = 0.8;
 
 /** Bytes of one Clef response. */
 export const MAX_PAUSE_CHECK_RESPONSE_BYTES = 64 * 1024;
+
+// ---- Review hint for new and changed tools (ADR-0031) -------------------------
+
+/** Characters of a tool's canonical inputSchema JSON kept on KnownTool; over
+ * it, this many chars plus `…#sha256:<hex>` of the whole (a change past the
+ * cap still differs). */
+export const MAX_TOOL_SCHEMA_CHARS = 16_000;
+
+/** Characters of the description / parameter descriptions in a hint state. */
+export const MAX_HINT_TEXT_CHARS = 3000;
+
+/** A description counts as "grown a lot" past +50 % or +400 characters. */
+export const HINT_GROWTH_RATIO = 1.5;
+export const HINT_GROWTH_CHARS = 400;
+
+/** p(injection) at or above it is an attention reason. */
+export const HINT_INJECTION_THRESHOLD = 0.5;
+
+// ---- AUTO policy (ADR-0030) ---------------------------------------------------
+
+/** Upstream.autoRule: the prose rule, at most this many characters. */
+export const MAX_AUTO_RULE_CHARS = 1000;
+
+/** AUTO_THRESHOLD default: p(erlaubt) at or above it forwards. */
+export const AUTO_THRESHOLD_DEFAULT = 0.8;
+
+/** "Mit Verlauf testen": the user's newest N audit rows of the upstream. */
+export const AUTO_TEST_MAX_ROWS = 50;
+
+/** Characters of a tool description inside the AUTO call block. */
+export const MAX_AUTO_DESCRIPTION_CHARS = 1500;
+
+/** "Vorschlag": tools (and description chars each) sent to the draft model. */
+export const AUTO_DRAFT_MAX_TOOLS = 60;
+export const AUTO_DRAFT_DESCRIPTION_CHARS = 300;
+
+/** ADR-0029 amendment: the purpose ("Wofür?") of a Zeitfreigabe. */
+export const MAX_PAUSE_PURPOSE_CHARS = 200;

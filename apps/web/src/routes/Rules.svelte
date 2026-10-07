@@ -6,12 +6,15 @@
   // "Aktive Pausen" (ADR-0026, TC-125): live allow and deny pauses of any
   // client on this upstream; lifting is the only edit.
   import Spinner from '../lib/Spinner.svelte';
+  import ToolReview from '../lib/ToolReview.svelte';
   import {
     api,
     messageOf,
     HINT_LABEL,
     POLICY_LABEL,
+    POLICIES,
     STATUS_LABEL,
+    type Me,
     type Pause,
     type Policy,
     type ToolRow,
@@ -27,7 +30,80 @@
   let busy = $state(false);
   let refreshing = $state(false);
 
-  const POLICIES: Policy[] = ['ALLOW', 'ASK', 'DENY'];
+  // ADR-0030: the Auto-Regel of this upstream (one text, used by every AUTO
+  // rule here), "Vorschlag" and "Mit Verlauf testen" (both change nothing).
+  let me = $state<Me | null>(null);
+  api.me().then((m) => (me = m), () => undefined);
+  let ruleText = $state('');
+  let ruleLoadedFor = $state<string | null | undefined>(undefined);
+  $effect(() => {
+    const stored = view?.upstream.autoRule ?? null;
+    if (view && ruleLoadedFor !== stored) {
+      ruleText = stored ?? '';
+      ruleLoadedFor = stored;
+    }
+  });
+  const ruleDirty = $derived(view !== null && ruleText.trim() !== (view.upstream.autoRule ?? ''));
+  const usesAuto = $derived(
+    !!view &&
+      (view.upstream.defaultPolicy === 'AUTO' || view.tools.some((t) => t.policy === 'AUTO' || t.clientPolicies.some((cp) => cp.policy === 'AUTO'))),
+  );
+  let drafting = $state(false);
+
+  async function saveRule() {
+    busy = true;
+    try {
+      const u = await api.updateUpstream(upstreamId, { autoRule: ruleText.trim() || null });
+      if (view) view = { ...view, upstream: { ...view.upstream, autoRule: u.autoRule } };
+      showToast(u.autoRule ? 'Auto-Regel gespeichert' : 'Auto-Regel gelöscht');
+    } catch (e) {
+      showToast(messageOf(e), { error: true });
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function suggest() {
+    drafting = true;
+    try {
+      const { draft } = await api.draftAutoRule(upstreamId);
+      ruleText = draft;
+      showToast('Vorschlag eingefügt – prüfen und speichern');
+    } catch (e) {
+      showToast(messageOf(e), { error: true });
+    } finally {
+      drafting = false;
+    }
+  }
+
+  type TestRow = { id: number; tool: string; receivedAt: string; result: 'pass' | 'below' | 'error' | null; score: number | null };
+  let testRows = $state<TestRow[] | null>(null);
+  let testCtrl = $state<AbortController | null>(null);
+  const testDone = $derived(testRows ? testRows.filter((r) => r.result !== null).length : 0);
+
+  async function runTest() {
+    const rule = ruleText.trim();
+    if (!rule) return;
+    const ctrl = new AbortController();
+    testCtrl = ctrl;
+    try {
+      const h = await api.autoRuleHistory(upstreamId);
+      testRows = h.entries.map((e) => ({ id: e.id, tool: e.tool, receivedAt: e.receivedAt, result: null, score: null }));
+      // Sequential, one row at a time; "Abbrechen" stops after the current one.
+      for (let i = 0; i < testRows.length; i++) {
+        if (ctrl.signal.aborted) break;
+        const r = await api.testAutoRule(upstreamId, rule, testRows[i]!.id, ctrl.signal);
+        testRows[i] = { ...testRows[i]!, result: r.result, score: r.score };
+      }
+    } catch (e) {
+      if (!ctrl.signal.aborted) showToast(messageOf(e), { error: true });
+    } finally {
+      if (testCtrl === ctrl) testCtrl = null;
+    }
+  }
+  const stopTest = () => testCtrl?.abort();
+  const score2 = (n: number | null) => (n === null ? '' : n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+  const shortTime = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   const PATH_LABEL: Record<string, string> = {
     'policy:tool': 'eigene Regel',
     'new-tool': 'neues Tool',
@@ -100,6 +176,26 @@
     refreshing = false;
   }
 
+  /** ADR-0031: tools to look at first (attention), then the other new or
+   * changed ones, then the rest by name (the API's order). */
+  const rank = (t: ToolRow) => (t.review.review ? (t.review.attention ? 0 : 1) : 2);
+  const sortedTools = $derived(view ? [...view.tools].sort((a, b) => rank(a) - rank(b)) : []);
+  const unremarkableCount = $derived(view ? view.tools.filter((t) => t.review.review && !t.review.attention && !t.review.pending).length : 0);
+
+  async function acknowledgeUnremarkable() {
+    busy = true;
+    try {
+      const res = await api.acknowledgeUnremarkable(upstreamId);
+      view = res.view;
+      showToast(res.acknowledged === 1 ? '1 Tool bestätigt' : `${res.acknowledged} Tools bestätigt`);
+    } catch (e) {
+      showToast(messageOf(e), { error: true });
+      await load();
+    } finally {
+      busy = false;
+    }
+  }
+
   const setTool = (t: ToolRow, policy: Policy | null) => apply(() => api.setToolPolicy(upstreamId, t.id, policy));
   const acknowledge = (t: ToolRow) => apply(() => api.acknowledgeTool(upstreamId, t.id));
 
@@ -128,7 +224,7 @@
 
     <section aria-labelledby="default-title">
       <h3 id="default-title" class="section-title">Standard</h3>
-      <div class="segmented" role="radiogroup" aria-label="Standard-Regel">
+      <div class="segmented four" role="radiogroup" aria-label="Standard-Regel">
         {#each POLICIES as p}
           <label class:selected={u.defaultPolicy === p}>
             <input type="radio" name="default-policy" value={p} checked={u.defaultPolicy === p} disabled={busy} onchange={() => setDefault(p)} />
@@ -138,6 +234,64 @@
       </div>
       <p class="hint section-hint">Gilt für jedes Tool ohne eigene Regel. Neue Tools werden trotzdem erst gefragt, bis du sie gesehen hast.</p>
     </section>
+
+    {#if usesAuto}
+      <section aria-labelledby="auto-title" class="auto-rule">
+        <h3 id="auto-title" class="section-title">Auto-Regel</h3>
+        <p class="hint section-hint auto-note">
+          Schreib in deinen Worten, was ohne Nachfrage in Ordnung ist. Eine KI prüft jeden Aufruf mit „Auto“ dagegen; was sie
+          nicht eindeutig gedeckt sieht, wird gefragt. <strong>Auto ist schwächer als Fragen:</strong> die KI urteilt über
+          Argumente, die der Agent schickt. Für heikle Tools lieber „Fragen“.
+        </p>
+        {#if me && (!me.pauseCheckAvailable || !me.pauseCheck)}
+          <p class="hint section-hint" data-testid="auto-off">KI-Prüfung ist aus: „Auto“ fragt wie „Fragen“.</p>
+        {/if}
+        <label class="auto-label" for="auto-rule-text">Was ist ohne Nachfrage ok?</label>
+        <textarea
+          id="auto-rule-text"
+          rows="4"
+          maxlength="1000"
+          bind:value={ruleText}
+          disabled={busy}
+          placeholder="z. B. Lesen und Suchen ist ok. Neue Einträge anlegen ist ok. Löschen nur mit Rückfrage."
+        ></textarea>
+        <p class="hint auto-count">{ruleText.length}/1000{#if !view.upstream.autoRule} · noch keine Regel gespeichert: „Auto“ fragt wie „Fragen“{/if}</p>
+        <div class="auto-actions">
+          <button type="button" class="btn primary" disabled={busy || !ruleDirty} onclick={saveRule}>Speichern</button>
+          {#if me?.autoDraftAvailable}
+            <button type="button" class="btn" disabled={busy || drafting} onclick={suggest}>{drafting ? 'Schreibt…' : 'Vorschlag'}</button>
+          {/if}
+          {#if me?.pauseCheckAvailable && me.pauseCheck}
+            {#if testCtrl}
+              <button type="button" class="btn" onclick={stopTest}>Abbrechen</button>
+            {:else}
+              <button type="button" class="btn" disabled={busy || !ruleText.trim()} onclick={runTest}>Mit Verlauf testen</button>
+            {/if}
+          {/if}
+        </div>
+        {#if testRows}
+          <div class="auto-test" aria-label="Test mit dem Verlauf">
+            <p class="hint">
+              {testRows.length === 0
+                ? 'Noch keine Aufrufe im Verlauf.'
+                : `${testDone}/${testRows.length} geprüft: ${testRows.filter((r) => r.result === 'pass').length} würden durchgehen, ${testRows.filter((r) => r.result === 'below' || r.result === 'error').length} würden gefragt.`}
+              Nichts wurde geändert.
+            </p>
+            <ul class="auto-test-list">
+              {#each testRows as r (r.id)}
+                <li data-test-row={r.id} data-result={r.result ?? 'open'}>
+                  <span class="tool-name">{r.tool}</span>
+                  <span class="auto-test-time">{shortTime.format(new Date(r.receivedAt))}</span>
+                  <span class="chip auto-{r.result ?? 'open'}"
+                    >{r.result === 'pass' ? `durch ${score2(r.score)}` : r.result === 'below' ? `fragen ${score2(r.score)}` : r.result === 'error' ? 'fragen (Fehler)' : '…'}</span
+                  >
+                </li>
+              {/each}
+            </ul>
+          </div>
+        {/if}
+      </section>
+    {/if}
 
     {#if pauses.length > 0}
       <section aria-labelledby="pauses-title">
@@ -152,6 +306,7 @@
                 <span class="chip pause-{p.effect.toLowerCase()}">{p.effect === 'ALLOW' ? 'Erlaubt' : 'Gesperrt'}</span>
               </div>
               <p class="hint pause-meta">{p.clientName} · {untilText(p.until)}</p>
+              {#if p.purpose}<p class="pause-purpose" data-testid="pause-purpose">Wofür: {p.purpose}</p>{/if}
               <button type="button" class="btn" disabled={busy} onclick={() => lift(p)} aria-label={`${p.effect === 'ALLOW' ? 'Zeitfreigabe beenden' : 'Sperre aufheben'}: ${p.toolName ?? scopeText(p)}, ${p.clientName}`}>
                 Aufheben
               </button>
@@ -170,12 +325,19 @@
         </button>
       </div>
 
+      {#if unremarkableCount > 0}
+        <button type="button" class="btn wide bulk-ack" disabled={busy} onclick={acknowledgeUnremarkable}>
+          Alle unauffälligen bestätigen ({unremarkableCount})
+        </button>
+        <p class="hint section-hint">Bestätigt nur neue oder geänderte Tools ohne Auffälligkeit. „Genauer ansehen“ bestätigst du einzeln.</p>
+      {/if}
+
       {#if view.tools.length === 0}
         <p class="empty">Noch keine Tools bekannt. „Tools aktualisieren“ holt sie vom Upstream.</p>
       {:else}
         <ul class="list" aria-label="Tools">
-          {#each view.tools as t (t.id)}
-            <li class="item tool" data-tool={t.name}>
+          {#each sortedTools as t (t.id)}
+            <li class="item tool" class:attention={t.review.attention} data-tool={t.name}>
               <div class="item-head">
                 <span class="tool-name">{t.name}</span>
                 {#if t.isNew}<span class="badge new">Neu</span>{/if}
@@ -185,8 +347,9 @@
                 <span class="chip hint-{t.hint}">{HINT_LABEL[t.hint]}</span>
               </div>
               {#if t.description}<p class="tool-desc">{t.description}</p>{/if}
+              <ToolReview tool={t} />
 
-              <div class="segmented four" role="radiogroup" aria-label={`Regel für ${t.name}`}>
+              <div class="segmented five" role="radiogroup" aria-label={`Regel für ${t.name}`}>
                 <label class:selected={t.policy === null}>
                   <input type="radio" name={`tool-${t.id}`} checked={t.policy === null} disabled={busy} onchange={() => setTool(t, null)} />
                   Standard
@@ -199,9 +362,12 @@
                 {/each}
               </div>
               <p class="hint effective">Gilt: <strong>{POLICY_LABEL[t.effectivePolicy]}</strong> ({PATH_LABEL[t.path] ?? t.path})</p>
+              {#if t.policy === 'AUTO' || (t.policy === null && t.effectivePolicy === 'AUTO')}
+                <p class="hint auto-tool-note">nutzt die Auto-Regel des Upstreams</p>
+              {/if}
 
               {#if t.isChanged}
-                <p class="hint changed-note">Beschreibung oder Hinweise dieses Tools haben sich geändert. Bis du es ansiehst, wird jeder Aufruf erfragt, auch wenn eine eigene Regel „Erlauben“ sagt („Fragen“ und „Verbieten“ gelten weiter).</p>
+                <p class="hint changed-note">Beschreibung, Hinweise oder Parameter dieses Tools haben sich geändert. Bis du es ansiehst, wird jeder Aufruf erfragt, auch wenn eine eigene Regel „Erlauben“ sagt („Fragen“ und „Verbieten“ gelten weiter).</p>
               {/if}
               {#if t.isNew || t.isChanged}
                 <button type="button" class="btn wide" disabled={busy} onclick={() => acknowledge(t)}>Gesehen, Standard anwenden</button>
@@ -254,6 +420,11 @@
     margin: 0;
     overflow-wrap: anywhere;
   }
+  .pause-purpose {
+    margin: 0;
+    font-size: 0.875rem;
+    overflow-wrap: anywhere;
+  }
   .pause .btn {
     align-self: flex-start;
   }
@@ -268,6 +439,74 @@
     background: var(--warn-soft);
     font-weight: 600;
     margin-left: 0.375rem;
+  }
+  .tool.attention {
+    border-color: var(--warn);
+    box-shadow: inset 4px 0 0 var(--warn);
+  }
+  .bulk-ack {
+    margin-bottom: 0.25rem;
+  }
+  .auto-rule {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .auto-note,
+  .auto-count {
+    margin: 0;
+  }
+  .auto-label {
+    font-weight: 600;
+    font-size: 0.875rem;
+  }
+  .auto-rule textarea {
+    width: 100%;
+    min-width: 0;
+    font: inherit;
+    font-size: 1rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--fg);
+    resize: vertical;
+  }
+  .auto-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .auto-test-list {
+    list-style: none;
+    margin: 0.25rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .auto-test-list li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .auto-test-time {
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+  .chip.auto-pass {
+    color: var(--ok);
+    border-color: var(--ok);
+  }
+  .chip.auto-below,
+  .chip.auto-error {
+    color: var(--warn);
+    border-color: var(--warn);
+  }
+  .auto-tool-note {
+    margin: 0;
   }
   .chip.pause-deny {
     color: var(--danger);

@@ -8,6 +8,10 @@ import { toolHint } from '../lib/proxyText.js';
 import { UpstreamNeedsReconnect, UpstreamNotConnected } from '../upstream/connection.js';
 import { errorTag } from '../upstream/oauthClient.js';
 import { refreshToolsFromUpstream } from '../upstream/tools.js';
+import { clefConfig } from '../clef/index.js';
+import { paramList, parseJson, parseStoredSchema, versionKey } from '../toolhint/defs.js';
+import { hintOfRow, type ReviewHint } from '../toolhint/hint.js';
+import type { KnownTool } from '../generated/prisma/client.js';
 
 // /api/upstreams/:id/tools…: the policy UI's API (ADR-0004, TC-23/25/26).
 // Also /api/upstreams/:id/snoozes[/:snoozeId]: list and lift active pauses
@@ -29,8 +33,8 @@ function parseId(raw: string | undefined): number | null {
   return raw !== undefined && /^\d{1,9}$/.test(raw) ? Number(raw) : null;
 }
 
-const policyOrNull = z.object({ policy: z.enum(['ALLOW', 'ASK', 'DENY']).nullable() }, { error: 'Die Regel ist ungültig.' });
-const policyOnly = z.object({ policy: z.enum(['ALLOW', 'ASK', 'DENY']) }, { error: 'Die Regel ist ungültig.' });
+const policyOrNull = z.object({ policy: z.enum(['ALLOW', 'ASK', 'DENY', 'AUTO']).nullable() }, { error: 'Die Regel ist ungültig.' });
+const policyOnly = z.object({ policy: z.enum(['ALLOW', 'ASK', 'DENY', 'AUTO']) }, { error: 'Die Regel ist ungültig.' });
 
 /** The MCP clients (of a user, scoped by the caller) that can call this
  * upstream: OAuth clients reach all of the user's upstreams, a token either
@@ -43,7 +47,7 @@ const reachesUpstream = (upstreamId: number) => [
 
 async function ownUpstream(id: number | null, userId: number) {
   if (id === null) return null;
-  return prisma.upstream.findFirst({ where: { id, userId }, select: { id: true, name: true, defaultPolicy: true, status: true, auth: true } });
+  return prisma.upstream.findFirst({ where: { id, userId }, select: { id: true, name: true, defaultPolicy: true, status: true, auth: true, autoRule: true } });
 }
 
 async function ownTool(upstreamId: number, toolId: number | null) {
@@ -60,8 +64,34 @@ function parseAnnotations(raw: string | null): unknown {
   }
 }
 
+/** The Clef label is still to come for this definition (ADR-0031): Clef is
+ * on for this user and the stored label belongs to another version. Such a
+ * tool is not "unauffällig" yet (the bulk button skips it). */
+function labelPending(t: KnownTool, clefOn: boolean): boolean {
+  return clefOn && (t.acknowledgedAt === null || t.changedAt !== null) && t.hintFor !== versionKey(t);
+}
+
+const params = (raw: string | null) => {
+  const schema = parseStoredSchema(raw);
+  return schema === undefined ? null : paramList(schema);
+};
+
+/** ADR-0031: what the Regeln page shows about a new/changed tool. */
+function reviewView(t: KnownTool, clefOn: boolean): ReviewHint & { pending: boolean } {
+  const h = hintOfRow(t);
+  return { ...h, pending: h.review && labelPending(t, clefOn) };
+}
+
+/** The tool is new/changed and nothing marks it: the bulk button may acknowledge it. */
+export function unremarkable(t: KnownTool, clefOn: boolean): boolean {
+  const h = reviewView(t, clefOn);
+  return h.review && !h.attention && !h.pending;
+}
+
 /** The whole policy view of one upstream. */
 async function toolsView(upstreamId: number, userId: number) {
+  const owner = await prisma.user.findUnique({ where: { id: userId }, select: { pauseCheck: true } });
+  const clefOn = clefConfig !== null && owner?.pauseCheck === true;
   const upstream = await ownUpstream(upstreamId, userId);
   if (!upstream) return null;
   const [tools, clients] = await Promise.all([
@@ -80,7 +110,7 @@ async function toolsView(upstreamId: number, userId: number) {
     }),
   ]);
   return {
-    upstream: { id: upstream.id, name: upstream.name, defaultPolicy: upstream.defaultPolicy, status: upstream.status, auth: upstream.auth },
+    upstream: { id: upstream.id, name: upstream.name, defaultPolicy: upstream.defaultPolicy, status: upstream.status, auth: upstream.auth, autoRule: upstream.autoRule },
     clients: clients.map((c) => ({ id: c.id, name: c.name, paused: c.pausedAt !== null })),
     tools: tools.map((t) => {
       // Effective policy without a client override (what most clients get).
@@ -102,6 +132,15 @@ async function toolsView(upstreamId: number, userId: number) {
         isNew: t.acknowledgedAt === null && t.changedAt === null,
         isChanged: t.changedAt !== null,
         lastSeenAt: t.lastSeenAt.toISOString(),
+        // ADR-0031: review hint (advisory) and what changed.
+        review: reviewView(t, clefOn),
+        parameters: params(t.inputSchema),
+        previous:
+          t.prevDescription !== null || t.prevAnnotations !== null || t.prevInputSchema !== null
+            ? { description: t.prevDescription, annotations: parseJson(t.prevAnnotations), parameters: params(t.prevInputSchema) }
+            : null,
+        annotations: parseJson(t.annotations),
+        cosmeticAckAt: t.cosmeticAckAt?.toISOString() ?? null,
         clientPolicies: t.clientPolicies.map((cp) => ({ mcpClientId: cp.mcpClientId, policy: cp.policy })),
       };
     }),
@@ -145,9 +184,56 @@ upstreamTools.patch('/:id/tools/:toolId', async (c) => {
   if (!parsed.success) return c.json({ error: 'Die Regel ist ungültig.' }, 400);
   await prisma.knownTool.updateMany({
     where: { id: tool.id, upstreamId: upstream.id },
-    data: { policy: parsed.data.policy, acknowledgedAt: clock.now(), changedAt: null },
+    data: { policy: parsed.data.policy, ...acknowledged() },
   });
   return c.json(await toolsView(upstream.id, userId));
+});
+
+/** Acknowledging (by hand, or setting a policy): the change is seen, its
+ * diff and the cosmetic note go. The Clef label stays (it's per version). */
+const acknowledged = () => ({
+  acknowledgedAt: clock.now(),
+  changedAt: null,
+  urlChanged: false,
+  prevDescription: null,
+  prevAnnotations: null,
+  prevInputSchema: null,
+  cosmeticAckAt: null,
+});
+
+// ADR-0031 "Alle unauffälligen bestätigen": acknowledges every new/changed
+// tool of this upstream that the hint does NOT mark (no attention reason, no
+// Clef label still to come), decided here at click time, never from a list
+// the client sends. Each write is conditional on the row still holding the
+// definition that was judged. Attention tools need their own tap.
+upstreamTools.post('/:id/tools/acknowledge-unremarkable', async (c) => {
+  noStore(c);
+  const userId = c.get('user').id;
+  const upstream = await ownUpstream(parseId(c.req.param('id')), userId);
+  if (!upstream) return c.json(NOT_FOUND, 404);
+  const owner = await prisma.user.findUnique({ where: { id: userId }, select: { pauseCheck: true } });
+  const clefOn = clefConfig !== null && owner?.pauseCheck === true;
+  const rows = await prisma.knownTool.findMany({ where: { upstreamId: upstream.id, OR: [{ acknowledgedAt: null }, { changedAt: { not: null } }] } });
+  let count = 0;
+  for (const t of rows) {
+    if (!unremarkable(t, clefOn)) continue;
+    const res = await prisma.knownTool.updateMany({
+      where: {
+        id: t.id,
+        upstreamId: upstream.id,
+        description: t.description,
+        annotations: t.annotations,
+        inputSchema: t.inputSchema,
+        changedAt: t.changedAt,
+        urlChanged: t.urlChanged,
+        hintRisk: t.hintRisk,
+        hintInjection: t.hintInjection,
+      },
+      data: acknowledged(),
+    });
+    count += res.count;
+  }
+  return c.json({ acknowledged: count, view: await toolsView(upstream.id, userId) });
 });
 
 upstreamTools.post('/:id/tools/:toolId/acknowledge', async (c) => {
@@ -157,7 +243,7 @@ upstreamTools.post('/:id/tools/:toolId/acknowledge', async (c) => {
   if (!upstream) return c.json(NOT_FOUND, 404);
   const tool = await ownTool(upstream.id, parseId(c.req.param('toolId')));
   if (!tool) return c.json(NOT_FOUND, 404);
-  await prisma.knownTool.updateMany({ where: { id: tool.id, upstreamId: upstream.id }, data: { acknowledgedAt: clock.now(), changedAt: null } });
+  await prisma.knownTool.updateMany({ where: { id: tool.id, upstreamId: upstream.id }, data: acknowledged() });
   return c.json(await toolsView(upstream.id, userId));
 });
 
@@ -221,6 +307,8 @@ async function pausesView(upstreamId: number, userId: number) {
     clientName: r.mcpClient.name,
     until: r.until.toISOString(),
     createdAt: r.createdAt.toISOString(),
+    // ADR-0029/0026 amendment: the human's "Wofür?".
+    purpose: r.purpose,
   }));
 }
 

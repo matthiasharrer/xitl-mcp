@@ -1,9 +1,10 @@
 // /api/me: who is signed in (Authelia), plus the user's own settings.
 //
-//   GET   /   { id, username, displayName, pauseCheck, pauseCheckAvailable }
+//   GET   /   { id, username, displayName, pauseCheck, pauseCheckAvailable, autoDraftAvailable }
 //   PATCH /   { pauseCheck: boolean } -> the same shape
 //
-// `pauseCheck` (ADR-0029): "KI-Prüfung für Zeitfreigaben". Only meaningful when
+// `pauseCheck` (ADR-0029; since ADR-0030/0031 the switch of every Clef
+// feature, UI "KI-Prüfung (Clef)"). Only meaningful when
 // PAUSE_CHECK_URL is set (`pauseCheckAvailable`); the UI hides the switch
 // otherwise. Changeable only here, with Remote-User (identity.ts): there is no
 // MCP tool or /mcp path for it, so an agent can't turn its own check off.
@@ -14,6 +15,7 @@ import { prisma } from '../db.js';
 import type { AppEnv } from '../identity.js';
 import { pauseGate as defaultPauseGate } from '../pausecheck/index.js';
 import type { PauseGate } from '../pausecheck/gate.js';
+import { intentModel } from '../intent/index.js';
 
 const patchSchema = z.object({ pauseCheck: z.boolean() }).strict();
 
@@ -25,6 +27,8 @@ export function makeMeRoutes(gate: PauseGate = defaultPauseGate) {
     displayName: u.displayName,
     pauseCheck: u.pauseCheck,
     pauseCheckAvailable: gate.enabled,
+    /** ADR-0030: "Vorschlag" for an AUTO rule needs the intent model. */
+    autoDraftAvailable: intentModel !== null,
   });
 
   me.get('/', (c) => {

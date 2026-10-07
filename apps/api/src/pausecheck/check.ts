@@ -20,18 +20,15 @@
 // its timeout are what the e2e cases exercise. The fake's verdict marker in
 // the call arguments is read ONLY by that fake; nothing here looks at it.
 //
-// The request goes through outboundFetch (ADR-0020) with exactly the URL's
-// host:port as the one extra allowed internal address; redirects are refused
-// there. No credentials: a URL with userinfo is refused.
-import { limitResponse } from '../lib/limitedResponse.js';
-import {
-  MAX_PAUSE_CHECK_RESPONSE_BYTES,
-  PAUSE_CHECK_THRESHOLD_DEFAULT,
-  PAUSE_CHECK_TIMEOUT_DEFAULT_MS,
-  PAUSE_CHECK_TIMEOUT_MAX_MS,
-} from '../lib/limits.js';
-import { outboundFetch, upstreamAllowance, type AllowEntry } from '../lib/outbound.js';
+// Transport (outboundFetch with the host allowance, no credentials, size
+// cap) is shared with the other Clef features: clef/client.ts.
+import { PAUSE_CHECK_THRESHOLD_DEFAULT } from '../lib/limits.js';
+import type { outboundFetch } from '../lib/outbound.js';
+import { clefClient, clefEndpoint, InvalidAnswer, timeoutFromEnv } from '../clef/client.js';
 import { OPTIONS, QUESTION, requestBody, type RichtungChoice } from './prompt.js';
+
+// The transport is shared with the other Clef features (clef/client.ts).
+export { clefEndpoint, InvalidAnswer, timeoutFromEnv };
 
 /** A validated answer: every probability finite in [0, 1], `gleich` present. */
 export interface PauseCheckAnswer {
@@ -41,11 +38,7 @@ export interface PauseCheckAnswer {
 
 export interface PauseCheck {
   /** Rejects on any failure, abort or invalid answer (= "error", fail closed). */
-  check(state: string, signal: AbortSignal): Promise<PauseCheckAnswer>;
-}
-
-export class InvalidAnswer extends Error {
-  override name = 'InvalidAnswer';
+  check(state: string, signal: AbortSignal, withPurpose?: boolean): Promise<PauseCheckAnswer>;
 }
 
 const isProb = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1;
@@ -86,48 +79,12 @@ export function verdict(answer: PauseCheckAnswer, threshold: number): Verdict {
   return { kind: 'mismatch', score: isProb(score) ? score : 0, deviation: x > w ? 'ausweitung' : 'richtungswechsel' };
 }
 
-/** The systemone URL and the one internal address it may reach. */
-export function clefEndpoint(raw: string): { endpoint: URL; allowance: AllowEntry[] } {
-  const base = new URL(raw.trim());
-  if (base.protocol !== 'http:' && base.protocol !== 'https:') throw new Error('PAUSE_CHECK_URL must be http(s)');
-  if (base.username || base.password) throw new Error('PAUSE_CHECK_URL must not carry credentials');
-  const endpoint = new URL(base.href);
-  endpoint.search = '';
-  endpoint.hash = '';
-  if (!/\/v1\/systemone\/?$/.test(endpoint.pathname)) {
-    endpoint.pathname = `${endpoint.pathname.replace(/\/+$/, '')}/v1/systemone`;
-  }
-  return { endpoint, allowance: upstreamAllowance({ url: endpoint.href, allowInternal: true }) };
-}
-
 export function clefCheck(opts: { url: string; model?: string; fetch?: typeof outboundFetch }): PauseCheck {
-  const { endpoint, allowance } = clefEndpoint(opts.url);
-  const doFetch = opts.fetch ?? outboundFetch;
-  const model = opts.model?.trim().slice(0, 100) || undefined;
+  const client = clefClient(opts);
+  const questions = (withPurpose: boolean) => requestBody('', client.model, withPurpose).questions as Parameters<typeof client.ask>[1];
   return {
-    async check(state, signal) {
-      const res = await doFetch(
-        endpoint,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          signal,
-          body: JSON.stringify(requestBody(state, model)),
-        },
-        { alsoAllow: allowance },
-      );
-      const limited = await limitResponse(res, MAX_PAUSE_CHECK_RESPONSE_BYTES);
-      if (!res.ok) {
-        await limited.body?.cancel().catch(() => {});
-        throw new Error(`pause check answered HTTP ${res.status}`);
-      }
-      let body: unknown;
-      try {
-        body = JSON.parse(await limited.text());
-      } catch {
-        throw new InvalidAnswer('not JSON');
-      }
-      return parseAnswer(body);
+    async check(state, signal, withPurpose = false) {
+      return parseAnswer(await client.ask(state, questions(withPurpose), signal));
     },
   };
 }
@@ -149,12 +106,6 @@ export function thresholdFromEnv(raw: string | undefined, warn: (l: string) => v
     return PAUSE_CHECK_THRESHOLD_DEFAULT;
   }
   return n;
-}
-
-/** PAUSE_CHECK_TIMEOUT_MS: an integer 1 … 60 000; anything else the default. */
-export function timeoutFromEnv(raw: string | undefined): number {
-  const n = Number(raw);
-  return raw !== undefined && raw.trim() !== '' && Number.isInteger(n) && n >= 1 && n <= PAUSE_CHECK_TIMEOUT_MAX_MS ? n : PAUSE_CHECK_TIMEOUT_DEFAULT_MS;
 }
 
 /** The configured check, or null (feature off). Logs which, never the path. */

@@ -53,7 +53,7 @@
     checkBusy = true;
     try {
       me = await api.setPauseCheck(on);
-      showToast(on ? 'KI-Prüfung für Zeitfreigaben eingeschaltet' : 'KI-Prüfung für Zeitfreigaben ausgeschaltet');
+      showToast(on ? 'KI-Prüfung eingeschaltet' : 'KI-Prüfung ausgeschaltet');
     } catch (e) {
       showToast(messageOf(e), { error: true });
     } finally {
@@ -311,7 +311,7 @@
 
   {#if me?.pauseCheckAvailable}
     <section aria-labelledby="pausecheck-title">
-      <h2 id="pausecheck-title">Zeitfreigaben</h2>
+      <h2 id="pausecheck-title">KI-Prüfung</h2>
       <div class="card">
         <label class="switch-row">
           <input
@@ -320,12 +320,12 @@
             disabled={checkBusy}
             onchange={(e) => togglePauseCheck(e.currentTarget.checked)}
           />
-          <span>KI-Prüfung für Zeitfreigaben</span>
+          <span>KI-Prüfung (Clef)</span>
         </label>
         <p class="hint">
-          Während einer Zeitfreigabe prüft eine KI jeden Aufruf: Passt er zu dem, was du freigegeben
-          hast? Weicht er ab, endet die Zeitfreigabe und der Aufruf wird dir vorgelegt. Ausgeschaltet
-          gelten Zeitfreigaben ohne Prüfung.
+          Prüft Aufrufe unter Zeitfreigaben und mit Auto-Regel und schätzt neue oder geänderte Tools ein.
+          Ausgeschaltet gelten Zeitfreigaben ohne Prüfung, Auto-Regeln fragen nach und Tools bekommen
+          keine KI-Einschätzung.
         </p>
       </div>
     </section>

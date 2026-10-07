@@ -180,7 +180,7 @@ test('TC-07 Keine Credentials in Antworten (Liste, Einzel, Anlegen, Ändern), au
 
   // only the whitelisted keys are present
   expect(Object.keys(JSON.parse(await patched.text())).sort()).toEqual(
-    ['allowInternal', 'auth', 'createdAt', 'defaultPolicy', 'description', 'hasHeaderValue', 'headerName', 'id', 'lastFailureAt', 'name', 'slug', 'status', 'updatedAt', 'url'],
+    ['allowInternal', 'auth', 'autoRule', 'createdAt', 'defaultPolicy', 'description', 'hasHeaderValue', 'headerName', 'id', 'lastFailureAt', 'name', 'slug', 'status', 'updatedAt', 'url'],
   );
 
   // switching away from HEADER clears the stored value

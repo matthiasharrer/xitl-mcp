@@ -26,7 +26,7 @@ import { PAUSE_CHECK_MAX_SINCE } from '../lib/limits.js';
 import type { DecisionPath, PolicyDecision } from '../lib/policy.js';
 import type { MatchedAllowPause } from '../approval/snooze.js';
 import { verdict, type Deviation, type PauseCheckConfig } from './check.js';
-import { buildState, type CheckCall } from './prompt.js';
+import { buildState, purposeText, type CheckCall } from './prompt.js';
 import { PauseCheckOutage } from './outage.js';
 
 export type GateResult =
@@ -141,7 +141,9 @@ export class PauseGate {
       take: PAUSE_CHECK_MAX_SINCE,
       select: { toolName: true, arguments: true, upstream: { select: { name: true } } },
     });
+    const purpose = input.pause.purpose ?? null;
     const state = buildState({
+      purpose,
       anchor: { upstream: anchor.upstream?.name ?? input.call.upstream, tool: anchor.toolName, args: parseArgs(anchor.arguments) },
       anchorSummary: anchor.intentStatus === 'DONE' ? anchor.intentSummary : null,
       since: sinceRows.reverse().map((r) => ({ upstream: r.upstream?.name ?? input.call.upstream, tool: r.toolName, args: parseArgs(r.arguments) })),
@@ -154,7 +156,7 @@ export class PauseGate {
     const started = this.clock.now().getTime();
     let result: GateResult;
     try {
-      const answer = await config.check.check(state, ctrl.signal);
+      const answer = await config.check.check(state, ctrl.signal, purposeText(purpose) !== null);
       const v = verdict(answer, config.threshold);
       result = v.kind === 'match' ? { kind: 'match', score: v.score, choice: 'gleich' } : { kind: 'mismatch', score: v.score, choice: v.deviation };
     } catch (e) {
