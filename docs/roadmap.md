@@ -58,6 +58,19 @@ chips, "Läuft gerade" overview). Deployed: whatever Matthias last bumped
   overflow menu, destructive set apart), and show Matthias 2–3 options as
   phone screenshots before building.
 
+- **Resume a Zeitfreigabe ended by the KI-Prüfung** (Matthias, 2026-10-07).
+  Today a mismatch (ADR-0029) ends the pause, and its "Wofür?" purpose,
+  scope and remaining time are gone. Approving the held call means typing
+  everything again. Idea: the card of a mismatch-held call offers
+  "Erlauben und Zeitfreigabe fortsetzen". It approves the call and creates a
+  new pause with the same scope, purpose (+ source) and the original `until`
+  (never longer). The approved call becomes the new anchor, so Clef judges
+  later calls against what the user just accepted. Also offer it in the
+  Verlauf detail of the call that ended the pause? Needs: keep the ended
+  pause's fields (it's deleted today, or mark it `endedAt` + reason), and an
+  amendment to ADR-0029. Confirm with Matthias that "intent" meant the
+  purpose plus the pause itself (not the ADR-0025 intent summary).
+
 **To prioritize (Matthias, 2026-10-06, not ordered yet):**
 
 - **Per-client default per upstream: ADR-0032 accepted (2026-10-07), being
