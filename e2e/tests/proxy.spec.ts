@@ -175,9 +175,9 @@ test.describe('im Browser', () => {
     const clientA = dbAll('select name from McpClient where clientId = ?', a.clientId)[0].name as string;
 
     await page.goto('/#/einstellungen');
-    await page.locator('li.item', { hasText: name }).getByRole('link', { name: /Regeln/ }).click();
+    await page.locator('li.item', { hasText: name }).getByRole('link', { name: `${name} öffnen` }).click();
     await expect(page).toHaveURL(new RegExp(`#/regeln/${up.id}$`));
-    await expect(page.getByRole('heading', { name: `Regeln für „${name}“` })).toBeVisible();
+    await expect(page.getByRole('heading', { name })).toBeVisible();
     await expect(page.getByText('Noch keine Tools bekannt.')).toBeVisible();
     await page.getByRole('button', { name: 'Tools aktualisieren' }).click();
 

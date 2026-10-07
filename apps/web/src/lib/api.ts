@@ -488,6 +488,7 @@ export const api = {
   /** ADR-0029: the user's "KI-Prüfung für Zeitfreigaben" switch. */
   setPauseCheck: (on: boolean) => request<Me>('PATCH', '/api/me', { pauseCheck: on }),
   listUpstreams: () => request<Upstream[]>('GET', '/api/upstreams'),
+  getUpstream: (id: number) => request<Upstream>('GET', `/api/upstreams/${id}`),
   createUpstream: (input: UpstreamInput) => request<Upstream>('POST', '/api/upstreams', input),
   updateUpstream: (id: number, patch: Partial<UpstreamInput>) =>
     request<Upstream>('PATCH', `/api/upstreams/${id}`, patch),

@@ -65,7 +65,9 @@ test.describe('im Browser', () => {
 
     const row = page.getByRole('list', { name: 'MCP-Clients' }).locator('li.item', { hasText: name });
     await expect(row).toContainText('Token für alle Upstreams');
-    await expect(row.getByTestId('token-prefix')).toHaveText(`${token.slice(0, 12)}…`);
+    expect(await page.content()).not.toContain(token);
+    await row.getByRole('link', { name: `${name} öffnen` }).click();
+    await expect(page.getByTestId('token-prefix')).toHaveText(`${token.slice(0, 12)}…`);
     expect(await page.content()).not.toContain(token);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
 

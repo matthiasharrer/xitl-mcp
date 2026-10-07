@@ -3,7 +3,17 @@
 Shipped roadmap entries, newest first. The reasoning is in `decisions/`, the
 test evidence in `testing.md`'s run log.
 
-## 2026-10-07 (unreleased)
+## 2026-10-07 (`v0.13.0`)
+
+- **Einstellungen rework** (Matthias picked it from mock screenshots).
+  Upstream rows: an "Aktiv" switch (pause), the name, a badge only for a
+  problem and one button only for its fix. The upstream's own page
+  (`#/regeln/<id>`) has everything general on top (switch, fix, MCP address,
+  Neu verbinden, Token, Bearbeiten, Löschen), the rules right below.
+  Clients the same way: switch in the list, `#/client/<id>` for the rest.
+  "Alle Upstreams" is one compact card. TC-207…210.
+
+## 2026-10-07 (`v0.12.0`)
 
 - **ADR-0032: a default per client and upstream.** Voreinst. / Erlauben /
   Auto / Fragen / Verbieten per (client, upstream); Verbieten hides the

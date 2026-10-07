@@ -11,6 +11,10 @@
   // API computes it (`forClient`, never recomputed here); the row control
   // edits that client's tool rule. The choice lives in the URL hash
   // (`#/regeln/<id>?client=<id>`), so it survives a reload.
+  // Since the Einstellungen rework (2026-10-07) this is the upstream's own
+  // page: a card on top holds everything general (Aktiv switch = pause,
+  // the fix for a broken connection, MCP address, Neu verbinden, Token,
+  // Bearbeiten, Löschen); the rules follow right below.
   // ADR-0033 (TC-200): the header shows a paused upstream ("pausiert") with
   // "Pausieren" / "Fortsetzen"; its rules stay editable and shown as they
   // apply once resumed. ADR-0034 (TC-206): the page listens on the approval
@@ -20,6 +24,11 @@
   import { onDestroy } from 'svelte';
   import Spinner from '../lib/Spinner.svelte';
   import ToolReview from '../lib/ToolReview.svelte';
+  import Switch from '../lib/Switch.svelte';
+  import ConfirmDialog from '../lib/ConfirmDialog.svelte';
+  import UpstreamSheet from '../lib/UpstreamSheet.svelte';
+  import TokenSheet from '../lib/TokenSheet.svelte';
+  import { copyText } from '../lib/clipboard';
   import {
     api,
     ApiError,
@@ -33,6 +42,8 @@
     type Policy,
     type ToolRow,
     type ToolsView,
+    type Upstream,
+    type UpstreamInput,
   } from '../lib/api';
   import { showToast } from '../lib/store.svelte';
   import { scopeText, untilText } from '../lib/pauses';
@@ -171,15 +182,22 @@
     }
   }
 
+  /** The whole upstream row (address, auth, failure state) for the card on top. */
+  let upstream = $state<Upstream | null>(null);
+  /** Whether the server has MCP_TOKEN set (no address or tokens otherwise). */
+  let mcpConfigured = $state(true);
+  api.getMcpConfig().then((c) => (mcpConfigured = c.configured), () => undefined);
+
   async function load() {
     try {
-      [view, pauses] = await Promise.all([fetchView(), api.listPauses(upstreamId)]);
+      [view, pauses, upstream] = await Promise.all([fetchView(), api.listPauses(upstreamId), api.getUpstream(upstreamId)]);
       loadError = null;
     } catch (e) {
       loadError = messageOf(e);
     }
   }
   load();
+  const reloadUpstream = () => api.getUpstream(upstreamId).then((u) => (upstream = u), () => undefined);
 
   // ADR-0034: re-read on changes made elsewhere; a re-read in flight is not
   // stacked (one more after it, at most).
@@ -191,10 +209,11 @@
       return;
     }
     // A failed background re-read keeps what is shown (no error page).
-    reloading = Promise.all([fetchView(), api.listPauses(upstreamId)])
-      .then(([v, p]) => {
+    reloading = Promise.all([fetchView(), api.listPauses(upstreamId), api.getUpstream(upstreamId)])
+      .then(([v, p, u]) => {
         view = v;
         pauses = p;
+        upstream = u;
       })
       .catch(() => undefined)
       .finally(() => {
@@ -216,11 +235,90 @@
     try {
       await api.setUpstreamPaused(upstreamId, paused);
       view = await fetchView();
+      await reloadUpstream();
       showToast(paused ? `„${name}“ pausiert` : `„${name}“ fortgesetzt`);
     } catch (e) {
       showToast(messageOf(e), { error: true });
     } finally {
       busy = false;
+    }
+  }
+
+  /** ADR-0022: connected, but the last contact failed. */
+  const unreachable = (u: Upstream) => u.status === 'CONNECTED' && u.lastFailureAt !== null;
+  /** The one action that fixes the connection, if any (none while paused). */
+  const fix = $derived.by((): 'connect' | 'recheck' | null => {
+    const u = upstream;
+    if (!u || u.pausedAt) return null;
+    if (u.auth === 'OAUTH' && u.status !== 'CONNECTED') return 'connect';
+    return unreachable(u) ? 'recheck' : null;
+  });
+  const when = (iso: string) =>
+    new Date(iso).toLocaleString('de-DE', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' Uhr';
+
+  let connecting = $state(false);
+  async function connect() {
+    connecting = true;
+    try {
+      const { authorizationUrl } = await api.connectUpstream(upstreamId);
+      // The upstream's login page sends the browser back to Einstellungen.
+      location.assign(authorizationUrl);
+    } catch (e) {
+      connecting = false;
+      showToast(messageOf(e), { error: true });
+    }
+  }
+
+  let rechecking = $state(false);
+  /** Re-lists the tools: a contact that sets or clears the failure state. */
+  async function recheck() {
+    if (!upstream) return;
+    const name = upstream.name;
+    rechecking = true;
+    try {
+      view = await api.refreshTools(upstreamId);
+      if (scope !== null) view = await fetchView();
+      showToast(`„${name}“ ist wieder erreichbar`);
+    } catch (e) {
+      showToast(messageOf(e), { error: true });
+    } finally {
+      rechecking = false;
+      await reloadUpstream();
+    }
+  }
+
+  const endpoint = $derived(upstream ? `${location.origin}/mcp/${upstream.slug}` : '');
+  let copied = $state(false);
+  let endpointInput = $state<HTMLInputElement>();
+  async function copyEndpoint() {
+    if (await copyText(endpoint)) {
+      copied = true;
+      setTimeout(() => (copied = false), 2000);
+    } else {
+      endpointInput?.select(); // clipboard unavailable: leave it selected for a manual copy
+    }
+  }
+
+  let editing = $state(false);
+  let tokenOpen = $state(false);
+  let deleting = $state(false);
+
+  async function saveEdit(input: UpstreamInput) {
+    await api.updateUpstream(upstreamId, input);
+    editing = false;
+    showToast('Gespeichert');
+    await load();
+  }
+
+  async function remove() {
+    const name = upstream?.name ?? 'Upstream';
+    deleting = false;
+    try {
+      await api.deleteUpstream(upstreamId);
+      showToast(`„${name}“ gelöscht`);
+      location.hash = '#/einstellungen';
+    } catch (e) {
+      showToast(messageOf(e), { error: true });
     }
   }
 
@@ -344,20 +442,87 @@
     <Spinner />
   {:else}
     {@const u = view.upstream}
-    <h2 class="rules-title">
-      Regeln für „{u.name}“{#if u.pausedAt}<span class="chip paused" data-testid="rules-paused">pausiert</span>{/if}
-    </h2>
-    <div class="pause-row">
+    <div class="detail-head">
+      <h2 class="rules-title">{u.name}</h2>
+      {#if upstream?.allowInternal}<span class="badge internal" title="Interne Adresse, von dir erlaubt">intern</span>{/if}
       {#if u.pausedAt}
-        <p class="hint pause-note">Kein Client sieht diesen Upstream, xitl ruft ihn nicht auf. Die Regeln gelten wieder, sobald er fortgesetzt ist.</p>
+        <span class="chip paused" data-testid="rules-paused">pausiert</span>
+      {:else if upstream && unreachable(upstream)}
+        <span class="badge status-unreachable">Nicht erreichbar</span>
+      {:else}
+        <span class="badge status-{u.status.toLowerCase()}">{STATUS_LABEL[u.status]}</span>
       {/if}
-      <button type="button" class="btn" class:primary={u.pausedAt !== null} disabled={busy} onclick={() => setPaused(u.pausedAt === null)}>
-        {u.pausedAt === null ? 'Pausieren' : 'Fortsetzen'}
-      </button>
     </div>
-    {#if u.status !== 'CONNECTED'}
-      <p class="hint">Status: {STATUS_LABEL[u.status]}. Verbinde den Upstream in den Einstellungen, um seine Tools zu laden.</p>
+
+    {#if upstream}
+      <p class="detail-sub" data-testid="upstream-address">{upstream.slug} · <span class="url">{upstream.url}</span></p>
     {/if}
+
+    <div class="card general" data-testid="upstream-general">
+      <div class="active-row">
+        <span class="active-text">
+          <span class="active-title">Aktiv</span>
+          <span class="hint" data-testid="active-note">
+            {#if u.pausedAt}
+              Pausiert seit {when(u.pausedAt)}: Kein Client sieht seine Tools, xitl ruft ihn nicht auf. Regeln und Verbindung bleiben.
+            {:else}
+              Clients sehen seine Tools.
+            {/if}
+          </span>
+        </span>
+        <Switch checked={u.pausedAt === null} label={`Aktiv: ${u.name}`} disabled={busy} onchange={(on) => setPaused(!on)} />
+      </div>
+      {#if fix === 'connect'}
+        <p class="hint">
+          {u.status === 'NOT_CONNECTED'
+            ? 'Noch nicht verbunden. Claude erreicht diesen Upstream erst danach.'
+            : 'Die Anmeldung ist abgelaufen. Claude erreicht diesen Upstream erst wieder nach „Neu verbinden“.'}
+        </p>
+        <button type="button" class="btn primary wide" disabled={connecting} onclick={connect}>
+          {connecting ? 'Verbinde…' : u.status === 'NOT_CONNECTED' ? 'Verbinden' : 'Neu verbinden'}
+        </button>
+      {:else if fix === 'recheck' && upstream?.lastFailureAt}
+        <p class="hint">Zuletzt nicht erreichbar ({when(upstream.lastFailureAt)}). Claude sieht seine Tools gerade nicht.</p>
+        <button type="button" class="btn primary wide" disabled={rechecking} onclick={recheck}>
+          {rechecking ? 'Prüfe…' : 'Erneut prüfen'}
+        </button>
+      {/if}
+      {#if upstream}
+        <div class="sep"></div>
+        {#if mcpConfigured}
+          <span class="label">MCP-Adresse</span>
+          <div class="endpoint address">
+            <input
+              type="text"
+              readonly
+              value={endpoint}
+              aria-label={`MCP-Adresse von ${upstream.name}`}
+              onfocus={(e) => e.currentTarget.select()}
+              bind:this={endpointInput}
+            />
+            <button type="button" class="btn" aria-label={`Adresse von ${upstream.name} kopieren`} onclick={copyEndpoint}>
+              {copied ? 'Kopiert' : 'Kopieren'}
+            </button>
+          </div>
+        {/if}
+        {#if (upstream.auth === 'OAUTH' && fix === null && !u.pausedAt) || mcpConfigured}
+          <div class="item-actions">
+            {#if upstream.auth === 'OAUTH' && fix === null && !u.pausedAt}
+              <button type="button" class="btn" disabled={connecting} onclick={connect}>{connecting ? 'Verbinde…' : 'Neu verbinden'}</button>
+            {/if}
+            {#if mcpConfigured}
+              <button type="button" class="btn" aria-label={`Token für ${upstream.name} erstellen`} onclick={() => (tokenOpen = true)}>
+                Token erstellen
+              </button>
+            {/if}
+          </div>
+        {/if}
+        <div class="item-actions">
+          <button type="button" class="btn" onclick={() => (editing = true)}>Bearbeiten</button>
+          <button type="button" class="btn danger-outline" onclick={() => (deleting = true)}>Löschen</button>
+        </div>
+      {/if}
+    </div>
 
     {#if view.clients.length > 0}
       <section aria-labelledby="scope-title">
@@ -614,19 +779,73 @@
   {/if}
 </div>
 
+{#if editing && upstream}
+  <UpstreamSheet upstream={upstream} onclose={() => (editing = false)} onsave={saveEdit} />
+{/if}
+
+{#if tokenOpen && upstream}
+  <TokenSheet upstream={upstream} onclose={() => (tokenOpen = false)} oncreated={() => load()} />
+{/if}
+
+{#if deleting && upstream}
+  <ConfirmDialog
+    title={`„${upstream.name}“ löschen?`}
+    message="Der Upstream und seine Verbindung werden entfernt. Das lässt sich nicht rückgängig machen."
+    confirmLabel="Löschen"
+    onconfirm={remove}
+    oncancel={() => (deleting = false)}
+  />
+{/if}
+
 <style>
-  /* ADR-0033: pause/resume under the title. */
-  .pause-row {
+  /* The upstream's general card on top (Einstellungen rework, 2026-10-07). */
+  .detail-head {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    justify-content: flex-end;
-    gap: 0.5rem;
-    margin: 0 0 0.75rem;
+    gap: 0.25rem 0.5rem;
   }
-  .pause-note {
-    flex: 1 1 12rem;
+  .detail-head .rules-title {
     margin: 0;
+  }
+  .detail-sub {
+    margin: 0.125rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .general {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 0.75rem 0 1.25rem;
+  }
+  .general p {
+    margin: 0;
+  }
+  .general .item-actions {
+    margin-top: 0;
+  }
+  .active-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .active-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .active-title {
+    font-weight: 600;
+  }
+  .sep {
+    margin: 0.25rem calc(-1 * var(--gutter));
+    border-top: 1px solid var(--border);
+  }
+  .endpoint.address {
+    margin-top: 0;
   }
   /* ADR-0032 "Gilt für": wrapping pills, each a full touch target. */
   .scope-switch {

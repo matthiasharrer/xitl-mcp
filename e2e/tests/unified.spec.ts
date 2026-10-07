@@ -303,8 +303,7 @@ test.describe('Sitzungen und Einstellungen im Browser', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/#/einstellungen');
 
-    const box = page.getByRole('textbox', { name: 'MCP-Adresse für alle Upstreams' });
-    await expect(box).toHaveValue(`${BASE_URL}/mcp`);
+    // the address itself shows only when the clipboard is unavailable
     const copy = page.getByRole('button', { name: 'Adresse für alle Upstreams kopieren' });
     await expect(copy).toBeVisible();
     expect((await copy.boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -312,7 +311,7 @@ test.describe('Sitzungen und Einstellungen im Browser', () => {
     // above the upstream list
     const item = page.locator(`li.item[data-slug="${ua.slug}"]`);
     await expect(item).toBeVisible();
-    expect((await box.boundingBox())!.y).toBeLessThan((await item.boundingBox())!.y);
+    expect((await copy.boundingBox())!.y).toBeLessThan((await item.boundingBox())!.y);
 
     // the note: all upstreams, Claude login (OAuth), not per-upstream tokens
     const card = page.locator('.unified');

@@ -5,11 +5,11 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-07 (`v0.12.0` released)_
+_Last updated: 2026-10-07 (`v0.13.0` released)_
 
 ## Next
 
-State 2026-10-07: **`v0.12.0` released** (per-client default per upstream ADR-0032, pause an upstream ADR-0033, tool freshness on call ADR-0034; `v0.10.0`: live Verlauf ADR-0028,
+State 2026-10-07: **`v0.13.0` released** (Einstellungen rework: switches, own upstream and client pages; `v0.12.0`: per-client default per upstream ADR-0032, pause an upstream ADR-0033, tool freshness on call ADR-0034; `v0.10.0`: live Verlauf ADR-0028,
 Zeitfreigabe / Sperre wording, Zeitfreigabe AI check ADR-0029, tool review
 hint ADR-0031, AUTO ADR-0030, purpose line; `v0.11.0`: purpose suggestion
 chips, "Läuft gerade" overview). Deployed: whatever Matthias last bumped
@@ -18,7 +18,7 @@ chips, "Läuft gerade" overview). Deployed: whatever Matthias last bumped
 
 **Open, in order:**
 
-0. **Deploy `v0.12.0`** (Matthias bumps the tag; GitOps already has
+0. **Deploy `v0.13.0`** (Matthias bumps the tag; GitOps already has
    `PAUSE_CHECK_URL` and the NetworkPolicy to llama-cpp-clef, 2026-10-07).
    Then the manual gates MG-09…11: Zeitfreigabe AI check on the phone (incl.
    "Wofür?"), Sperre with purpose, AUTO with a real rule + "Mit Verlauf
@@ -49,14 +49,6 @@ chips, "Läuft gerade" overview). Deployed: whatever Matthias last bumped
 8. MG-05 (Tina), whenever convenient.
 
 **Next, after ADR-0032…0034 (Matthias, 2026-10-07):**
-
-- **Rework the Einstellungen page, the upstream part first.** An upstream has
-  more and more buttons, and they're hard to tell apart visually. Start by
-  listing every action per upstream (inventory). Then group them (everyday:
-  pause/resume, Regeln; occasional: connect, edit, token; rare/destructive:
-  delete), give them a clear visual hierarchy (primary / secondary /
-  overflow menu, destructive set apart), and show Matthias 2–3 options as
-  phone screenshots before building.
 
 - **Resume a Zeitfreigabe ended by the KI-Prüfung** (Matthias, 2026-10-07).
   Today a mismatch (ADR-0029) ends the pause, and its "Wofür?" purpose,
@@ -145,8 +137,8 @@ stay behind Authelia.
   cleared by the first successful contact after reconnecting). A tool call
   timing out (120 s) counts as a failure. No background probing: a failure is
   only noticed at the next contact. Push cooldown is in memory (a restart
-  can push again). "Neu verbinden" from a Freigaben card returns to
-  Einstellungen, not Freigaben.
+  can push again). "Neu verbinden" from a Freigaben card or the upstream's
+  page returns to Einstellungen, not where it was tapped.
 - **CORS (ADR-0023):** the preflight is unauthenticated and does one DB query
   (narrowed `contains`); fine at household scale. The 403
   `origin_not_allowed` carries no CORS headers, so the page sees a CORS

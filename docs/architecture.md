@@ -136,11 +136,17 @@ apps/web/   Svelte 5 SPA (Vite), German UI, mobile-first, installable PWA
             Freigaben (#/, live list of held calls; Verlauf and its detail
             are live too, ADR-0028, lib/historyLive.ts; #/freigabe/<id> one call,
             the push deep link), Verlauf (#/verlauf, #/verlauf/<id>),
-            Einstellungen (#/einstellungen: Benachrichtigungen, upstreams with
-            status, Verbinden/Neu verbinden, Regeln link, endpoint URL + copy,
-            "Alle Upstreams" card with the /mcp URL;
-            MCP clients; "Sitzungen ansehen" -> #/sitzungen, #/sitzungen/<id>)
-            and Regeln (#/regeln/<id>, routes/Rules.svelte).
+            Einstellungen (#/einstellungen: Benachrichtigungen, KI-Prüfung,
+            "Alle Upstreams" card (copy /mcp, token for all); upstream rows =
+            "Aktiv" switch (pause) + name + problem badge + one fix button
+            only when needed (Verbinden/Neu verbinden/Erneut prüfen), tap ->
+            the upstream page; client rows = "Aktiv" switch + name, tap ->
+            #/client/<id> (routes/Client.svelte: facts, Sieht, Umbenennen,
+            Web-Adressen, Trennen); "Sitzungen ansehen" -> #/sitzungen,
+            #/sitzungen/<id>). The upstream page is #/regeln/<id>
+            (routes/Rules.svelte): a card on top with the Aktiv switch, the
+            fix, MCP address + copy, Neu verbinden, Token, Bearbeiten,
+            Löschen; the rules below (Einstellungen rework 2026-10-07).
             "#/einstellungen?verbunden=<id>" / "?verbindung=…" carry the OAuth
             callback's result once (toast, then dropped from the URL).
 e2e/        Playwright against the built server on :3202 with .e2e/e2e.db
@@ -255,7 +261,7 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   "Trotzdem erlauben", which re-submits with `allowInternal: true`. The stored
   flag is `allowInternal === true && checkUrlHost(url) === 'blocked'`, so a
   public URL never carries it. A PATCH that changes the URL recomputes it; one
-  that doesn't keeps it. Settings shows a flagged upstream as "intern".
+  that doesn't keeps it. The upstream list and page show a flagged upstream as "intern".
   Enforcement: `upstreamAllowance(row)` = `[{host, port}]` of the row's current
   URL (default port filled in; `[]` unflagged), passed as `alsoAllow` to
   `outboundFetch` in `withUpstream` and in every OAuth call for that row
@@ -318,7 +324,7 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   Freigaben renders them as `FaultCard` ("Störung": Erneut prüfen = tools
   refresh / Neu verbinden = OAuth connect, which returns to Einstellungen).
   Settings shows such a CONNECTED row as "Nicht erreichbar" + "Erneut
-  prüfen". It stores the upstream's instructions in
+  prüfen" (the note with the time is on the upstream page). It stores the upstream's instructions in
   `Upstream.instructions` when they change, scrubbed of our own credentials
   first (they are handed to agents, TC-48).
 - `initialize`: instructions = prefix line ("Über xitl vermittelt … / Proxied
@@ -571,8 +577,8 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   `OPTIONS` with 204 `Allow: GET, HEAD` (`static.ts`; `serveStatic` skips
   OPTIONS, which it otherwise treats like HEAD: length, no body, hang).
   `/api/`, `/oauth/`, `/.well-known/` keep their 404.
-- UI: TokenSheet field "Erlaubte Web-Adressen (Browser-Clients)", Settings
-  token rows show "Im Browser erlaubt: …" + "Web-Adressen bearbeiten"
+- UI: TokenSheet field "Erlaubte Web-Adressen (Browser-Clients)"; a token's
+  client page shows "Im Browser erlaubt: …" + "Web-Adressen bearbeiten"
   (`OriginsSheet`).
 
 ### Pausing an access (ADR-0024, TC-102…105)
@@ -1109,8 +1115,8 @@ SameSite cookie is the first line; this covers body-less POSTs like
 - OAuth paths ignore TOKEN rows: `/oauth/authorize` (GET/POST, incl. the binding
   UPDATE), both grants of `/mcp/token` and the OAuth verifier all filter
   `kind = OAUTH`; DCR sets `kind: 'OAUTH'` explicitly and reads no other field.
-- UI: `Settings.svelte` "Token erstellen" per upstream and on the "Alle
-  Upstreams" card -> `lib/TokenSheet.svelte` (`upstream` null = all)
+- UI: "Token erstellen" on the upstream page (`Rules.svelte`) and on the
+  "Alle Upstreams" card in `Settings.svelte` -> `lib/TokenSheet.svelte` (`upstream` null = all)
   (name, then the token once with copy buttons and a `claude mcp add` example).
 
 ### Fake upstream (e2e)

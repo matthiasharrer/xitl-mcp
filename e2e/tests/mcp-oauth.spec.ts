@@ -342,14 +342,16 @@ test.describe('Einstellungen im Browser', () => {
     const m = await runOAuthFlow(request, mine, MATTHIAS);
     await runOAuthFlow(request, theirs, ANNA);
 
+    // /mcp/<slug> with a copy button on the upstream's own page
     await page.goto('/#/einstellungen');
     const item = page.locator('li.item[data-slug]', { hasText: 'Haushalt TC14' });
     await expect(item).toBeVisible();
-
-    // both endpoints: /mcp/<slug> per upstream with a copy button, /mcp for all (TC-68)
-    await expect(item.getByRole('textbox', { name: /MCP-Adresse von Haushalt TC14/ })).toHaveValue(`${BASE_URL}/mcp/${slug}`);
-    await expect(item.getByRole('button', { name: /kopieren/ })).toBeVisible();
-    await expect(page.getByRole('textbox', { name: 'MCP-Adresse für alle Upstreams' })).toHaveValue(`${BASE_URL}/mcp`);
+    await item.getByRole('link', { name: 'Haushalt TC14 öffnen' }).click();
+    await expect(page.getByRole('textbox', { name: /MCP-Adresse von Haushalt TC14/ })).toHaveValue(`${BASE_URL}/mcp/${slug}`);
+    await expect(page.getByRole('button', { name: 'Adresse von Haushalt TC14 kopieren' })).toBeVisible();
+    // /mcp for all (TC-68): a copy button above the list
+    await page.goto('/#/einstellungen');
+    await expect(page.getByRole('button', { name: 'Adresse für alle Upstreams kopieren' })).toBeVisible();
 
     // only the user's own clients
     const clients = page.getByRole('list', { name: 'MCP-Clients' });
@@ -359,25 +361,27 @@ test.describe('Einstellungen im Browser', () => {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
     expect(overflow).toBe(false);
 
-    // rename
+    // rename, on the client's own page
     const row = clients.locator('li.item', { hasText: mine });
-    await row.getByRole('button', { name: 'Umbenennen' }).click();
+    await row.getByRole('link', { name: `${mine} öffnen` }).click();
+    await page.getByRole('button', { name: 'Umbenennen' }).click();
     await page.getByRole('textbox', { name: 'Name des Clients' }).fill(mine + ' neu');
     await page.getByRole('button', { name: 'Speichern' }).click();
-    await expect(clients.getByText(mine + ' neu')).toBeVisible();
+    await expect(page.getByRole('heading', { name: mine + ' neu' })).toBeVisible();
 
     // revoke asks first; cancel keeps the client working, confirm cuts it off
-    const renamed = clients.locator('li.item', { hasText: mine + ' neu' });
-    await renamed.getByRole('button', { name: 'Trennen' }).click();
+    const revokeBtn = page.getByTestId('client-general').getByRole('button', { name: 'Trennen' });
+    await revokeBtn.click();
     const confirm = page.getByRole('dialog', { name: /trennen\?/ });
     await expect(confirm).toBeVisible();
     await confirm.getByRole('button', { name: 'Abbrechen' }).click();
     await expect(confirm).toBeHidden();
-    await expect(renamed).toBeVisible();
+    await expect(page.getByRole('heading', { name: mine + ' neu' })).toBeVisible();
     expect((await postMcp(request, slug, m.accessToken, LIST)).status()).toBe(200);
 
-    await renamed.getByRole('button', { name: 'Trennen' }).click();
+    await revokeBtn.click();
     await confirm.getByRole('button', { name: 'Trennen' }).click();
+    await expect(page).toHaveURL(/#\/einstellungen$/);
     await expect(clients.getByText(mine + ' neu')).toHaveCount(0); // (the toast names it too, so scope to the list)
     expect((await postMcp(request, slug, m.accessToken, LIST)).status()).toBe(401);
   });

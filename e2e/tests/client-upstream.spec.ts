@@ -532,12 +532,14 @@ test.describe('TC-193 Zeile auf der Client-Seite', () => {
     expect(((await (await request.get('/api/mcp/clients', { headers: stranger })).json()) as any[]).find((c) => c.id === ctx.A.id)).toBeUndefined();
 
     await page.setExtraHTTPHeaders(ctx.user);
-    await page.goto('/#/einstellungen');
-    const lineA = page.locator('[data-testid="client-sees"]', { hasText: `Verborgen: ${ctx.up.name}` });
-    await expect(lineA).toHaveText(`Sieht: ${other.name} · Verborgen: ${ctx.up.name}`);
-    // B: nothing hidden, no "Verborgen" part
-    await expect(page.locator('[data-testid="client-sees"]').filter({ hasNotText: 'Verborgen' }).first()).toBeVisible();
+    // on each client's own page
+    await page.goto(`/#/client/${ctx.A.id}`);
+    await expect(page.getByTestId('client-sees')).toHaveText(`Sieht: ${other.name} · Verborgen: ${ctx.up.name}`);
     expect(await noHScroll(page)).toBe(false);
-    await page.screenshot({ path: test.info().outputPath('tc193-einstellungen.png'), fullPage: true });
+    await page.screenshot({ path: test.info().outputPath('tc193-client.png'), fullPage: true });
+    // B: nothing hidden, no "Verborgen" part
+    await page.goto(`/#/client/${ctx.B.id}`);
+    await expect(page.getByTestId('client-sees')).toBeVisible();
+    await expect(page.getByTestId('client-sees')).not.toContainText('Verborgen');
   });
 });

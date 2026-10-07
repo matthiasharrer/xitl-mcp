@@ -349,28 +349,30 @@ test.describe('TC-200 UI', () => {
     await page.setExtraHTTPHeaders(ctx.user);
     const item = () => page.locator(`li.item[data-slug="${ctx.up.slug}"]`);
 
-    // Einstellungen: Pausieren → chip + note; button ≥ 44 px.
+    // Einstellungen: switch "Aktiv" off → chip, no fix button; tap target ≥ 44 px.
     await page.goto('/#/einstellungen');
-    const btn = item().getByRole('button', { name: `Pausieren: ${ctx.up.name}` });
-    await expect(btn).toBeVisible();
-    expect((await btn.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-    await btn.click();
+    const sw = item().getByRole('switch', { name: `Aktiv: ${ctx.up.name}` });
+    await expect(sw).toBeChecked();
+    expect((await sw.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await sw.click();
     await expect(item().getByTestId('upstream-paused')).toHaveText('pausiert');
-    await expect(item().locator('.paused-note')).toContainText('Kein Client sieht seine Tools');
+    await expect(sw).not.toBeChecked();
     expect(pausedAt(ctx.up.id)).not.toBeNull();
     expect(await noHScroll(page)).toBe(false);
     await page.screenshot({ path: test.info().outputPath('tc200-einstellungen.png'), fullPage: true });
-    await item().getByRole('button', { name: `Fortsetzen: ${ctx.up.name}` }).click();
+    await sw.click();
     await expect(item().getByTestId('upstream-paused')).toHaveCount(0);
+    await expect(sw).toBeChecked();
     expect(pausedAt(ctx.up.id)).toBeNull();
 
-    // Regeln header.
+    // The upstream's page: the same switch in the card on top, with the note.
     await page.goto(`/#/regeln/${ctx.up.id}`);
-    await page.getByRole('button', { name: 'Pausieren' }).click();
+    const dsw = page.getByRole('switch', { name: `Aktiv: ${ctx.up.name}` });
+    await dsw.click();
     await expect(page.getByTestId('rules-paused')).toHaveText('pausiert');
+    await expect(page.getByTestId('active-note')).toContainText('Kein Client sieht seine Tools');
     expect(pausedAt(ctx.up.id)).not.toBeNull();
-    const resume = page.getByRole('button', { name: 'Fortsetzen' });
-    expect((await resume.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect((await dsw.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     expect(await noHScroll(page)).toBe(false);
     await page.screenshot({ path: test.info().outputPath('tc200-regeln.png'), fullPage: true });
 

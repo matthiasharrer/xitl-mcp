@@ -32,9 +32,9 @@ test.describe('im Browser', () => {
     const { up } = await askUpstream(request, 'tc50', { name: uniq('Haushalt TC50') });
     const name = uniq('Claude Code Laptop');
 
-    await page.goto('/#/einstellungen');
-    const card = page.locator(`li.item[data-slug="${up.slug}"]`);
-    await card.getByRole('button', { name: `Token für ${up.name} erstellen` }).click();
+    // the token button lives on the upstream's own page (Einstellungen rework)
+    await page.goto(`/#/regeln/${up.id}`);
+    await page.getByRole('button', { name: `Token für ${up.name} erstellen` }).click();
     const sheet = page.locator('dialog.sheet');
     await expect(sheet.getByRole('heading', { name: 'Token erstellen' })).toBeVisible();
     await expect(sheet.getByRole('button', { name: 'Erstellen' })).toBeDisabled(); // a name is required
@@ -55,25 +55,31 @@ test.describe('im Browser', () => {
     await expect(sheet.getByRole('button', { name: 'Kopiert' })).toBeVisible();
     await sheet.getByRole('button', { name: 'Fertig' }).click();
     await expect(sheet).toHaveCount(0);
+    await page.goto('/#/einstellungen');
 
-    // the list: name, upstream, prefix, "noch nie benutzt" - never the token
+    // the list: name, upstream, "noch nie benutzt" - never the token
     const clients = page.getByRole('list', { name: 'MCP-Clients' });
     const row = clients.locator('li.item', { hasText: name });
     await expect(row).toContainText(`Token für ${up.name}`);
-    await expect(row.getByTestId('token-prefix')).toHaveText(`${token.slice(0, 12)}…`);
     await expect(row).toContainText('noch nie benutzt');
     expect(await page.locator('body').innerText()).not.toContain(token);
+    expect(await page.content()).not.toContain(token);
+    // the client's page: the prefix, never the token
+    await row.getByRole('link', { name: `${name} öffnen` }).click();
+    await expect(page.getByTestId('token-prefix')).toHaveText(`${token.slice(0, 12)}…`);
     expect(await page.content()).not.toContain(token);
 
     // used once -> "zuletzt benutzt"
     expect((await postMcp(request, up.slug, token, LIST)).status()).toBe(200);
     await page.reload();
-    await expect(clients.locator('li.item', { hasText: name })).toContainText('zuletzt benutzt');
+    await expect(page.getByTestId('client-general')).toContainText('zuletzt benutzt');
     expect(await page.content()).not.toContain(token);
 
-    // reopening the list never offers the token again, revoke asks first
-    await clients.locator('li.item', { hasText: name }).getByRole('button', { name: 'Trennen' }).click();
+    // reopening never offers the token again, revoke asks first and returns to Einstellungen
+    await page.getByRole('button', { name: 'Trennen' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Trennen' }).click();
+    await expect(page).toHaveURL(/#\/einstellungen$/);
+    await expect(page.getByRole('heading', { name: 'Upstreams' })).toBeVisible();
     await expect(clients.locator('li.item', { hasText: name })).toHaveCount(0);
     expect((await postMcp(request, up.slug, token, LIST)).status()).toBe(401);
   });

@@ -240,8 +240,8 @@ test.describe('im Browser', () => {
     const noScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/#/einstellungen');
-    await page.locator(`li.item[data-slug="${up.slug}"]`).getByRole('button', { name: `Token für ${up.name} erstellen` }).click();
+    await page.goto(`/#/regeln/${up.id}`);
+    await page.getByRole('button', { name: `Token für ${up.name} erstellen` }).click();
     const sheet = page.locator('dialog.sheet');
     const field = sheet.getByLabel('Erlaubte Web-Adressen (Browser-Clients)');
     await expect(field).toBeVisible();
@@ -256,9 +256,11 @@ test.describe('im Browser', () => {
     await sheet.getByRole('button', { name: 'Erstellen' }).click();
     await expect(sheet.getByText('Wird nur jetzt angezeigt.')).toBeVisible();
     await sheet.getByRole('button', { name: 'Fertig' }).click();
+    await page.goto('/#/einstellungen');
 
     const list = page.getByRole('list', { name: 'MCP-Clients' });
-    const row = list.locator('li.item', { hasText: name });
+    await list.locator('li.item', { hasText: name }).getByRole('link', { name: `${name} öffnen` }).click();
+    const row = page.getByTestId('client-general');
     await expect(row.getByTestId('token-origins')).toHaveText('Im Browser erlaubt: http://localhost:8080');
     await row.getByRole('button', { name: 'Web-Adressen bearbeiten' }).click();
     const edit = page.locator('dialog.sheet');
@@ -274,10 +276,12 @@ test.describe('im Browser', () => {
     await expect(row.getByTestId('token-origins')).toHaveText('Im Browser erlaubt: http://localhost:8080, https://ui.example');
     expect(await noScroll()).toBe(true);
 
-    // OAuth rows have no such action
-    const oauthRow = list.locator('li.item', { hasText: 'OAuth tc99' });
-    await expect(oauthRow).toBeVisible();
-    await expect(oauthRow.getByRole('button', { name: 'Web-Adressen bearbeiten' })).toHaveCount(0);
+    // OAuth clients have no such action
+    await page.goto('/#/einstellungen');
+    await list.locator('li.item', { hasText: 'OAuth tc99' }).getByRole('link', { name: /^OAuth tc99.* öffnen$/ }).click();
+    await expect(page.getByTestId('client-general')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Web-Adressen bearbeiten' })).toHaveCount(0);
+    await page.goto('/#/einstellungen');
 
     // the "Alle Upstreams" token sheet has the field too
     await page.getByRole('button', { name: 'Token für alle Upstreams erstellen' }).click();

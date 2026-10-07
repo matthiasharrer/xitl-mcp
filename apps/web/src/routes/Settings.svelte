@@ -1,9 +1,10 @@
 <script lang="ts">
   import Spinner from '../lib/Spinner.svelte';
-  import ConfirmDialog from '../lib/ConfirmDialog.svelte';
   import UpstreamSheet from '../lib/UpstreamSheet.svelte';
   import TokenSheet from '../lib/TokenSheet.svelte';
-  import OriginsSheet from '../lib/OriginsSheet.svelte';
+  import { clientKind } from '../lib/clients';
+  import Switch from '../lib/Switch.svelte';
+  import { copyText } from '../lib/clipboard';
   import { api, ApiError, messageOf, STATUS_LABEL, type McpClient, type Me, type Upstream, type UpstreamInput } from '../lib/api';
   import { showToast } from '../lib/store.svelte';
   import {
@@ -22,25 +23,17 @@
   let loaded = $state(false);
   let loadError = $state<string | null>(null);
 
-  let renamingId = $state<number | null>(null);
-  let draft = $state('');
-  let revoking = $state<McpClient | null>(null);
-  let copiedSlug = $state<string | null>(null);
-  let endpointInputs: Record<string, HTMLInputElement | undefined> = $state({});
+  let unifiedCopied = $state(false);
+  let unifiedShown = $state(false);
 
-  /** The MCP URL of one upstream (ADR-0014). */
-  const endpointOf = (u: Upstream) => `${location.origin}/mcp/${u.slug}`;
-  /** All upstreams in one (ADR-0017). `*` is never a slug. */
-  const UNIFIED = '*';
+  /** All upstreams in one (ADR-0017). A single upstream's address, token,
+   * editing and deleting live on its own page (Rules.svelte). */
   const unifiedEndpoint = `${location.origin}/mcp`;
 
-  // `null` = closed, 'new' = adding, an Upstream = editing it.
-  let sheet = $state<Upstream | 'new' | null>(null);
-  let deleting = $state<Upstream | null>(null);
-  /** Token dialog: for one upstream, for all (`'all'`), or closed (null). */
-  let tokenFor = $state<Upstream | 'all' | null>(null);
-  /** ADR-0023: the token whose browser origins are being edited. */
-  let originsFor = $state<McpClient | null>(null);
+  // `null` = closed, 'new' = adding (editing lives on the upstream's page).
+  let sheet = $state<'new' | null>(null);
+  /** Token dialog for all upstreams (`'all'`), or closed (null). */
+  let tokenFor = $state<'all' | null>(null);
   /** The running build (APP_VERSION from CI: `0.3.1`, `main`, or `dev`). */
   let version = $state<string | null>(null);
   api.getHealth().then((h) => (version = h.version), () => undefined);
@@ -114,8 +107,13 @@
 
   /** ADR-0022: connected, but the last contact failed. */
   const unreachable = (u: Upstream) => u.status === 'CONNECTED' && u.lastFailureAt !== null;
-  const failedAt = (u: Upstream) =>
-    new Date(u.lastFailureAt!).toLocaleString('de-DE', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' Uhr';
+  /** The one action a row offers, only when something needs doing (a paused
+   * upstream has none: its switch is the way back). */
+  function fixOf(u: Upstream): 'connect' | 'recheck' | null {
+    if (u.pausedAt) return null;
+    if (u.auth === 'OAUTH' && u.status !== 'CONNECTED') return 'connect';
+    return unreachable(u) ? 'recheck' : null;
+  }
 
   let rechecking = $state<number | null>(null);
 
@@ -134,45 +132,19 @@
   }
 
   async function save(input: UpstreamInput) {
-    if (sheet === 'new') {
-      await api.createUpstream(input);
-      showToast(`„${input.name}“ hinzugefügt`);
-    } else if (sheet) {
-      await api.updateUpstream(sheet.id, input);
-      showToast('Gespeichert');
-    }
+    await api.createUpstream(input);
+    showToast(`„${input.name}“ hinzugefügt`);
     sheet = null;
     await load();
   }
 
-  /** Copies an endpoint URL; `key` is the upstream slug, or UNIFIED. */
-  async function copy(key: string, url: string, input: HTMLInputElement | undefined) {
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      input?.select(); // clipboard unavailable: leave it selected for a manual copy
-      return;
+  async function copyUnified() {
+    if (await copyText(unifiedEndpoint)) {
+      unifiedCopied = true;
+      setTimeout(() => (unifiedCopied = false), 2000);
+    } else {
+      unifiedShown = true; // clipboard unavailable: show it for a manual copy
     }
-    copiedSlug = key;
-    setTimeout(() => (copiedSlug = null), 2000);
-  }
-
-  function startRename(c: McpClient) {
-    renamingId = c.id;
-    draft = c.name;
-  }
-
-  async function saveRename(c: McpClient) {
-    const name = draft.trim();
-    if (renamingId !== c.id) return;
-    renamingId = null;
-    if (name === '' || name === c.name) return;
-    try {
-      await api.renameMcpClient(c.id, name);
-    } catch (e) {
-      showToast(messageOf(e), { error: true });
-    }
-    await load();
   }
 
   /** ADR-0033: the upstream whose pause/resume request is in flight. */
@@ -207,17 +179,6 @@
       showToast(gone ? `„${c.name}“ gibt es nicht mehr.` : messageOf(e), { error: true });
     } finally {
       pausingId = null;
-    }
-    await load();
-  }
-
-  async function revoke(c: McpClient) {
-    revoking = null;
-    try {
-      await api.revokeMcpClient(c.id);
-      showToast(`„${c.name}“ getrennt`);
-    } catch (e) {
-      showToast(messageOf(e), { error: true });
     }
     await load();
   }
@@ -273,19 +234,8 @@
     }
   }
 
-  const date = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium' });
   const dateTime = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
 
-  async function remove(u: Upstream) {
-    deleting = null;
-    try {
-      await api.deleteUpstream(u.id);
-      showToast(`„${u.name}“ gelöscht`);
-    } catch (e) {
-      showToast(messageOf(e), { error: true });
-    }
-    await load();
-  }
 </script>
 
 <div class="settings">
@@ -361,145 +311,85 @@
       {:else}
         {#if mcpConfigured}
           <ul class="list unified" aria-label="Alle Upstreams">
-          <li class="item">
-            <div class="item-head">
-              <span class="item-name">Alle Upstreams</span>
-            </div>
-            <div class="endpoint">
-              <input
-                type="text"
-                readonly
-                value={unifiedEndpoint}
-                aria-label="MCP-Adresse für alle Upstreams"
-                onfocus={(e) => e.currentTarget.select()}
-                bind:this={endpointInputs[UNIFIED]}
-              />
-              <button
-                type="button"
-                class="btn"
-                aria-label="Adresse für alle Upstreams kopieren"
-                onclick={() => copy(UNIFIED, unifiedEndpoint, endpointInputs[UNIFIED])}
-              >
-                {copiedSlug === UNIFIED ? 'Kopiert' : 'Kopieren'}
-              </button>
-            </div>
-            <p class="hint">
-              Ein Konnektor für alle Upstreams; Tool-Namen beginnen mit dem Kürzel (z. B.
-              <code>{upstreams[0]!.slug}_…</code>). Funktioniert mit der Claude-Anmeldung oder einem
-              Token für alle Upstreams, nicht mit dem Token eines einzelnen Upstreams.
-            </p>
-            <div class="item-actions">
-              <button type="button" class="btn" aria-label="Token für alle Upstreams erstellen" onclick={() => (tokenFor = 'all')}>
-                Token erstellen
-              </button>
-            </div>
-          </li>
+            <li class="item">
+              <div class="item-head">
+                <span class="item-name">Alle Upstreams</span>
+              </div>
+              <p class="hint unified-hint">
+                Ein Konnektor für alle; Tool-Namen beginnen mit dem Kürzel (z. B. <code>{upstreams[0]!.slug}_…</code>).
+                Mit der Claude-Anmeldung oder einem Token für alle Upstreams, nicht mit dem Token eines einzelnen Upstreams.
+              </p>
+              {#if unifiedShown}
+                <div class="endpoint">
+                <input
+                  type="text"
+                  readonly
+                  value={unifiedEndpoint}
+                  aria-label="MCP-Adresse für alle Upstreams"
+                  onfocus={(e) => e.currentTarget.select()}
+                />
+                </div>
+              {/if}
+              <div class="item-actions">
+                <button type="button" class="btn" aria-label="Adresse für alle Upstreams kopieren" onclick={copyUnified}>
+                  {unifiedCopied ? 'Kopiert' : 'Adresse kopieren'}
+                </button>
+                <button type="button" class="btn" aria-label="Token für alle Upstreams erstellen" onclick={() => (tokenFor = 'all')}>
+                  Token erstellen
+                </button>
+              </div>
+            </li>
           </ul>
         {/if}
         <ul class="list" aria-label="Upstreams">
           {#each upstreams as u (u.id)}
-            <li class="item" data-slug={u.slug}>
-              <div class="item-head">
-                <span class="item-name">{u.name}</span>
-                {#if u.pausedAt}<span class="chip paused" data-testid="upstream-paused">pausiert</span>{/if}
-                {#if u.allowInternal}<span class="badge internal" title="Interne Adresse, von dir erlaubt">intern</span>{/if}
-                {#if unreachable(u)}
-                  <span class="badge status-unreachable">Nicht erreichbar</span>
-                {:else}
-                  <span class="badge status-{u.status.toLowerCase()}">{STATUS_LABEL[u.status]}</span>
-                {/if}
-              </div>
-              <div class="sub">
-                <span>{u.slug}</span>
-                <span class="url">{u.url}</span>
-              </div>
-              {#if mcpConfigured}
-                <div class="endpoint">
-                  <input
-                    type="text"
-                    readonly
-                    value={endpointOf(u)}
-                    aria-label={`MCP-Adresse von ${u.name}`}
-                    onfocus={(e) => e.currentTarget.select()}
-                    bind:this={endpointInputs[u.slug]}
-                  />
-                  <button
-                    type="button"
-                    class="btn"
-                    aria-label={`Adresse von ${u.name} kopieren`}
-                    onclick={() => copy(u.slug, endpointOf(u), endpointInputs[u.slug])}
-                  >
-                    {copiedSlug === u.slug ? 'Kopiert' : 'Kopieren'}
-                  </button>
-                </div>
-              {/if}
-              {#if u.pausedAt}
-                <!-- ADR-0033: hidden from every client, never contacted. -->
-                <p class="hint paused-note">
-                  Pausiert seit {dateTime.format(new Date(u.pausedAt))}: Kein Client sieht seine Tools, xitl ruft ihn nicht auf. Regeln
-                  und Verbindung bleiben.
-                </p>
-              {:else if u.status === 'NEEDS_RECONNECT'}
-                <p class="hint reconnect-note">Die Anmeldung ist abgelaufen. Claude erreicht diesen Upstream erst wieder nach „Neu verbinden“.</p>
-              {/if}
-              {#if unreachable(u) && !u.pausedAt}
-                <p class="hint unreachable-note">
-                  Zuletzt nicht erreichbar ({failedAt(u)}). Claude sieht seine Tools gerade nicht.
-                </p>
-              {/if}
-              <div class="item-actions">
-                {#if unreachable(u) && !u.pausedAt}
-                  <button type="button" class="btn primary" disabled={rechecking !== null} onclick={() => recheck(u)}>
-                    {rechecking === u.id ? 'Prüfe…' : 'Erneut prüfen'}
-                  </button>
-                {/if}
-                {#if u.auth === 'OAUTH' && !u.pausedAt}
-                  <button
-                    type="button"
-                    class="btn"
-                    class:primary={u.status !== 'CONNECTED'}
-                    disabled={connectingId !== null}
-                    onclick={() => connect(u)}
-                  >
-                    {connectingId === u.id ? 'Verbinde…' : u.status === 'NOT_CONNECTED' ? 'Verbinden' : 'Neu verbinden'}
-                  </button>
-                {/if}
-                <a class="btn" href={`#/regeln/${u.id}`} aria-label={`Regeln für ${u.name}`}>Regeln</a>
-              </div>
-              {#if mcpConfigured}
-                <div class="item-actions">
-                  <button type="button" class="btn" aria-label={`Token für ${u.name} erstellen`} onclick={() => (tokenFor = u)}>
-                    Token erstellen
-                  </button>
-                </div>
-              {/if}
-              <div class="item-actions client-actions">
-                <button
-                  type="button"
-                  class="btn"
-                  class:primary={u.pausedAt !== null}
+            {@const fix = fixOf(u)}
+            <li class="item upstream-row" data-slug={u.slug}>
+              <div class="row">
+                <!-- ADR-0033: switch off = paused (hidden from every client, never contacted). -->
+                <Switch
+                  checked={u.pausedAt === null}
+                  label={`Aktiv: ${u.name}`}
                   disabled={pausingUpstreamId === u.id}
-                  aria-label={`${u.pausedAt === null ? 'Pausieren' : 'Fortsetzen'}: ${u.name}`}
-                  onclick={() => setUpstreamPaused(u, u.pausedAt === null)}
-                >
-                  {u.pausedAt === null ? 'Pausieren' : 'Fortsetzen'}
-                </button>
-                <button type="button" class="btn" onclick={() => (sheet = u)}>Bearbeiten</button>
-                <button type="button" class="btn danger-outline" onclick={() => (deleting = u)}>Löschen</button>
+                  onchange={(on) => setUpstreamPaused(u, !on)}
+                />
+                <a class="row-link" href={`#/regeln/${u.id}`} aria-label={`${u.name} öffnen`}>
+                  <span class="row-text">
+                    <span class="row-head">
+                      <span class="item-name" class:dim={u.pausedAt !== null}>{u.name}</span>
+                      {#if u.pausedAt}
+                        <span class="chip paused" data-testid="upstream-paused">pausiert</span>
+                      {:else if unreachable(u)}
+                        <span class="badge status-unreachable">Nicht erreichbar</span>
+                      {:else if u.status !== 'CONNECTED'}
+                        <span class="badge status-{u.status.toLowerCase()}">{STATUS_LABEL[u.status]}</span>
+                      {/if}
+                    </span>
+                    <span class="row-sub">{u.slug}{u.allowInternal ? ' · intern' : ''}</span>
+                  </span>
+                  <span class="chev" aria-hidden="true">›</span>
+                </a>
               </div>
+              {#if fix === 'recheck'}
+                <button type="button" class="btn primary wide fix" disabled={rechecking !== null} onclick={() => recheck(u)}>
+                  {rechecking === u.id ? 'Prüfe…' : 'Erneut prüfen'}
+                </button>
+              {:else if fix === 'connect'}
+                <button type="button" class="btn primary wide fix" disabled={connectingId !== null} onclick={() => connect(u)}>
+                  {connectingId === u.id ? 'Verbinde…' : u.status === 'NOT_CONNECTED' ? 'Verbinden' : 'Neu verbinden'}
+                </button>
+              {/if}
             </li>
           {/each}
         </ul>
+        <p class="hint endpoint-note">
+          Schalter aus = pausiert: kein Client sieht den Upstream. Tippen öffnet Adresse, Token, Bearbeiten und die Regeln.
+        </p>
       {/if}
       <button type="button" class="btn primary wide add-upstream" onclick={() => (sheet = 'new')}>
         Upstream hinzufügen
       </button>
-      {#if mcpConfigured}
-        <p class="hint endpoint-note">
-          Jeder Upstream hat eine eigene Adresse für Claude; „Alle Upstreams“ bündelt sie in einem
-          Konnektor. Regeln und Freigaben gelten für beide gleich.
-        </p>
-      {:else}
+      {#if !mcpConfigured}
         <p class="hint endpoint-note">
           Die Claude-Anbindung ist auf diesem Server nicht eingerichtet. Sie wird aktiv, sobald die
           Umgebungsvariable <code>MCP_TOKEN</code> gesetzt ist.
@@ -516,81 +406,32 @@
       {:else}
         <ul class="list" aria-label="MCP-Clients">
           {#each clients as c (c.id)}
-            <li class="item">
-              {#if renamingId === c.id}
-                <form
-                  class="rename-row"
-                  onsubmit={(e) => {
-                    e.preventDefault();
-                    saveRename(c);
-                  }}
-                >
-                  <!-- svelte-ignore a11y_autofocus -->
-                  <input
-                    type="text"
-                    aria-label="Name des Clients"
-                    maxlength="100"
-                    bind:value={draft}
-                    autofocus
-                    onkeydown={(e) => e.key === 'Escape' && (renamingId = null)}
-                  />
-                  <button type="submit" class="btn primary">Speichern</button>
-                </form>
-              {:else}
-                <div class="item-head">
-                  <span class="item-name">{c.name}</span>
-                  <span class="client-badges">
-                    {#if c.pausedAt}
-                      <span class="chip paused" data-testid="client-paused">pausiert</span>
-                    {/if}
-                    <span class="badge" class:kind-token={c.kind === 'TOKEN'}>
-                      {c.kind === 'TOKEN' ? (c.allUpstreams ? 'Token für alle Upstreams' : `Token für ${c.upstream?.name ?? 'Upstream'}`) : 'OAuth'}
+            <li class="item client-row" data-client={c.id}>
+              <div class="row">
+                <!-- ADR-0024: switch off = paused (requests refused). -->
+                <Switch
+                  checked={c.pausedAt === null}
+                  label={`Aktiv: ${c.name}`}
+                  disabled={pausingId === c.id}
+                  onchange={(on) => setPaused(c, !on)}
+                />
+                <a class="row-link" href={`#/client/${c.id}`} aria-label={`${c.name} öffnen`}>
+                  <span class="row-text">
+                    <span class="row-head">
+                      <span class="item-name" class:dim={c.pausedAt !== null}>{c.name}</span>
+                      {#if c.pausedAt}<span class="chip paused" data-testid="client-paused">pausiert</span>{/if}
+                    </span>
+                    <span class="row-sub">
+                      {clientKind(c)} · {c.lastUsedAt ? `zuletzt ${dateTime.format(new Date(c.lastUsedAt))}` : 'noch nie benutzt'}
                     </span>
                   </span>
-                </div>
-                <div class="sub">
-                  {#if c.kind === 'TOKEN' && c.tokenPrefix}
-                    <span class="url" data-testid="token-prefix">{c.tokenPrefix}…</span>
-                  {/if}
-                  <span>{c.kind === 'TOKEN' ? 'erstellt' : 'verbunden seit'} {date.format(new Date(c.createdAt))}</span>
-                  <span>
-                    {c.lastUsedAt
-                      ? `zuletzt benutzt ${dateTime.format(new Date(c.lastUsedAt))}`
-                      : 'noch nie benutzt'}
-                  </span>
-                  {#if c.pausedAt}
-                    <span>pausiert seit {dateTime.format(new Date(c.pausedAt))}, Anfragen werden abgewiesen</span>
-                  {/if}
-                  {#if c.sees && c.hidden && c.sees.length + c.hidden.length > 0}
-                    <!-- ADR-0032: what this client sees; hidden = Voreinstellung "Verbieten" in Regeln. -->
-                    <span data-testid="client-sees"
-                      >Sieht: {c.sees.length > 0 ? c.sees.join(', ') : 'nichts'}{#if c.hidden.length > 0}{' '}· Verborgen: {c.hidden.join(', ')}{/if}</span
-                    >
-                  {/if}
-                  {#if c.kind === 'TOKEN' && c.allowedOrigins.length > 0}
-                    <span data-testid="token-origins">Im Browser erlaubt: {c.allowedOrigins.join(', ')}</span>
-                  {/if}
-                </div>
-                <div class="item-actions client-actions">
-                  <button type="button" class="btn" onclick={() => startRename(c)}>Umbenennen</button>
-                  <button
-                    type="button"
-                    class="btn"
-                    class:primary={c.pausedAt !== null}
-                    disabled={pausingId === c.id}
-                    onclick={() => setPaused(c, c.pausedAt === null)}
-                  >
-                    {c.pausedAt === null ? 'Pausieren' : 'Fortsetzen'}
-                  </button>
-                  <button type="button" class="btn danger-outline" onclick={() => (revoking = c)}>Trennen</button>
-                </div>
-                {#if c.kind === 'TOKEN'}
-                  <button type="button" class="btn wide origins-btn" onclick={() => (originsFor = c)}>Web-Adressen bearbeiten</button>
-                {/if}
-              {/if}
+                  <span class="chev" aria-hidden="true">›</span>
+                </a>
+              </div>
             </li>
           {/each}
         </ul>
+        <p class="hint endpoint-note">Schalter aus = pausiert: Anfragen werden abgewiesen. Tippen öffnet Umbenennen, Web-Adressen und Trennen.</p>
       {/if}
     </section>
 
@@ -607,24 +448,58 @@
 </div>
 
 <style>
-  .client-badges {
-    display: flex;
-    flex: none;
-    gap: 0.25rem;
-    align-items: center;
-  }
-  /* three buttons in a 390 px row: let them shrink instead of overflowing */
-  .client-actions .btn {
-    min-width: 0;
-    padding: 0 0.5rem;
-  }
   .chip.paused {
     color: var(--warn);
     border-color: var(--warn);
     background: var(--warn-soft);
     font-weight: 600;
   }
-  .origins-btn {
+  .unified-hint {
+    margin: 0.25rem 0 0;
+  }
+  .upstream-row .row,
+  .client-row .row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .row-link {
+    flex: 1;
+    min-width: 0;
+    min-height: var(--tap);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: inherit;
+    text-decoration: none;
+  }
+  .row-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .row-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.5rem;
+  }
+  .row-sub {
+    font-size: 0.8125rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .dim {
+    color: var(--muted);
+  }
+  .chev {
+    flex: none;
+    color: var(--muted);
+    font-size: 1.5rem;
+    line-height: 1;
+  }
+  .fix {
     margin-top: 0.5rem;
   }
   .app-version {
@@ -635,46 +510,12 @@
   }
 </style>
 
-{#if revoking}
-  {@const target = revoking}
-  <ConfirmDialog
-    title={`„${target.name}“ trennen?`}
-    message={target.kind === 'TOKEN'
-      ? 'Dieses Token funktioniert sofort nicht mehr. Wartende Freigaben werden abgelehnt. Das lässt sich nicht rückgängig machen.'
-      : 'Dieser Client verliert sofort den Zugriff. Er kann sich jederzeit neu verbinden.'}
-    confirmLabel="Trennen"
-    onconfirm={() => revoke(target)}
-    oncancel={() => (revoking = null)}
-  />
-{/if}
-
 {#if sheet}
-  <UpstreamSheet upstream={sheet === 'new' ? undefined : sheet} onclose={() => (sheet = null)} onsave={save} />
+  <UpstreamSheet onclose={() => (sheet = null)} onsave={save} />
 {/if}
 
 {#if tokenFor}
-  <TokenSheet upstream={tokenFor === 'all' ? null : tokenFor} onclose={() => (tokenFor = null)} oncreated={load} />
+  <TokenSheet upstream={null} onclose={() => (tokenFor = null)} oncreated={load} />
 {/if}
 
-{#if originsFor}
-  <OriginsSheet
-    client={originsFor}
-    onclose={() => (originsFor = null)}
-    onsaved={async () => {
-      originsFor = null;
-      showToast('Web-Adressen gespeichert');
-      await load();
-    }}
-  />
-{/if}
 
-{#if deleting}
-  {@const target = deleting}
-  <ConfirmDialog
-    title={`„${target.name}“ löschen?`}
-    message="Der Upstream und seine Verbindung werden entfernt. Das lässt sich nicht rückgängig machen."
-    confirmLabel="Löschen"
-    onconfirm={() => remove(target)}
-    oncancel={() => (deleting = null)}
-  />
-{/if}

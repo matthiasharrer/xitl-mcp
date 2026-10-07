@@ -327,7 +327,11 @@ test('TC-84 Formular am Handy: interne Adresse -> Hinweis + "Trotzdem erlauben" 
   await expect(sheet).toBeHidden();
   const item = page.locator('li.item[data-slug]', { hasText: name });
   await expect(item).toBeVisible();
-  await expect(item.locator('.badge', { hasText: 'intern' })).toBeVisible();
+  await expect(item).toContainText('· intern');
+  await item.getByRole('link', { name: `${name} öffnen` }).click();
+  await expect(page.locator('.detail-head .badge', { hasText: 'intern' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+  await page.goto('/#/einstellungen');
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
 
   const saved = dbAll('select id, allowInternal from Upstream where name = ?', name);

@@ -3,6 +3,23 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-07 — Einstellungen rework, released as `v0.13.0` (lead)
+
+- Inventory: up to eight equal-looking buttons per upstream. Three mock
+  variants (list + page / card + ⋯ sheet / switch + disclosure) as phone
+  screenshots from a throwaway `mock.html` (deleted); the first attempt to
+  show them failed for Matthias (images not visible), an Artifact page with
+  the screenshots embedded worked. He chose a mix: C's list (switch, at most
+  one button, no disclosure), A's page with the rules right below, clients
+  the same way, Löschen in the top card.
+- Built directly (UI only): `lib/Switch.svelte` (checkbox `role="switch"`,
+  stays put until the parent reloads), `routes/Client.svelte` (no single
+  GET for clients: it reads the list, which carries `sees`/`hidden`),
+  `Rules.svelte` gained the upstream card (`api.getUpstream`).
+- The OAuth callback still lands on Einstellungen, also when "Neu verbinden"
+  was tapped on the upstream page (known, roadmap debt list).
+- Matthias said "release dann wenn du fertig bist": tagged `v0.13.0`.
+
 ## 2026-10-07 — ADR-0033 upstream pause, ADR-0034 tool freshness (lead + implementer)
 
 - Lead wrote both ADRs with defaults (Matthias may veto 0033) and TC-194…206;

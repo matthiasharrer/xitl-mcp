@@ -37,8 +37,8 @@ test('TC-08 Einstellungen: Upstream hinzufügen, bearbeiten, löschen (mit Best�
   const item = page.locator('li.item[data-slug]', { hasText: name });
   await expect(item).toBeVisible();
   await expect(item).toContainText(slug);
-  await expect(item).toContainText('https://haushalt.example/mcp');
   await expect(item).toContainText('Nicht verbunden');
+  await expect(item.getByRole('button', { name: 'Verbinden' })).toBeVisible();
   await noHorizontalScroll(page);
 
   // a duplicate slug is refused with the server's German message, sheet stays open
@@ -51,8 +51,11 @@ test('TC-08 Einstellungen: Upstream hinzufügen, bearbeiten, löschen (mit Best�
   await sheet.getByRole('button', { name: 'Schließen' }).click();
   await expect(sheet).toBeHidden();
 
-  // edit the description
-  await item.getByRole('button', { name: 'Bearbeiten' }).click();
+  // edit the description (on the upstream's page, which shows its address)
+  await item.getByRole('link', { name: `${name} öffnen` }).click();
+  await expect(page.getByTestId('upstream-address')).toContainText('https://haushalt.example/mcp');
+  await noHorizontalScroll(page);
+  await page.getByRole('button', { name: 'Bearbeiten' }).click();
   const edit = page.getByRole('dialog', { name: 'Upstream bearbeiten' });
   await expect(edit.getByLabel('Beschreibung')).toHaveValue('Aufgaben im Haushalt');
   await edit.getByLabel('Beschreibung').fill('Neue Beschreibung');
@@ -64,15 +67,19 @@ test('TC-08 Einstellungen: Upstream hinzufügen, bearbeiten, löschen (mit Best�
   expect(row.defaultPolicy).toBe('ALLOW');
 
   // delete: cancel keeps it, confirm removes it
-  await item.getByRole('button', { name: 'Löschen' }).click();
+  const del = page.getByTestId('upstream-general').getByRole('button', { name: 'Löschen' });
+  await del.click();
   const confirm = page.getByRole('dialog', { name: new RegExp(`„${name}“ löschen\\?`) });
   await expect(confirm).toBeVisible();
   await confirm.getByRole('button', { name: 'Abbrechen' }).click();
   await expect(confirm).toBeHidden();
-  await expect(item).toBeVisible();
+  await expect(page.getByRole('heading', { name })).toBeVisible();
 
-  await item.getByRole('button', { name: 'Löschen' }).click();
+  await del.click();
   await confirm.getByRole('button', { name: 'Löschen' }).click();
+  // back on Einstellungen, gone from the list
+  await expect(page).toHaveURL(/#\/einstellungen$/);
+  await expect(page.getByRole('heading', { name: 'Upstreams' })).toBeVisible();
   await expect(page.locator('li.item[data-slug]', { hasText: name })).toHaveCount(0);
   await noHorizontalScroll(page);
 });

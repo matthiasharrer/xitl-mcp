@@ -45,11 +45,15 @@ test.describe('im Browser', () => {
     await expect(item.getByText('Nicht verbunden')).toBeVisible();
     await item.getByRole('button', { name: 'Verbinden' }).click();
 
-    // fake AS auto-approves -> callback -> back on Einstellungen
+    // fake AS auto-approves -> callback -> back on Einstellungen; a healthy row has no badge or button
     await expect(page).toHaveURL(/#\/einstellungen$/);
-    await expect(item.getByText('Verbunden', { exact: true })).toBeVisible();
     await expect(page.getByRole('status')).toContainText('verbunden');
-    await expect(item.getByRole('button', { name: 'Neu verbinden' })).toBeVisible();
+    await expect(item.getByText('Nicht verbunden')).toHaveCount(0);
+    await expect(item.getByRole('button', { name: /verbinden/i })).toHaveCount(0);
+    // the upstream's page: "Verbunden", "Neu verbinden" as a plain button
+    await item.getByRole('link', { name: `${name} öffnen` }).click();
+    await expect(page.locator('.detail-head').getByText('Verbunden', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Neu verbinden' })).toBeVisible();
 
     const row = dbAll('select status, accessToken, refreshToken, tokenExpiresAt, pendingAuth, oauthClient from Upstream where id = ?', up.id)[0];
     expect(row.status).toBe('CONNECTED');
@@ -95,12 +99,13 @@ test.describe('im Browser', () => {
     const back = await request.patch(`/api/upstreams/${sw.id}`, { headers: MATTHIAS, data: { auth: 'OAUTH' } });
     expect((await back.json()).status).toBe('NOT_CONNECTED');
 
-    await page.goto('/#/einstellungen');
     for (const n of [headerName, noneName]) {
+      await page.goto('/#/einstellungen');
       const item = page.locator('li.item', { hasText: n });
-      await expect(item.getByText('Verbunden', { exact: true })).toBeVisible();
       await expect(item.getByRole('button', { name: /Verbinden/ })).toHaveCount(0);
-      await expect(item.getByRole('link', { name: /Regeln/ })).toBeVisible();
+      await item.getByRole('link', { name: `${n} öffnen` }).click();
+      await expect(page.locator('.detail-head').getByText('Verbunden', { exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: /Verbinden/ })).toHaveCount(0);
     }
 
     // the proxy injects the header credential (the fake only answers with it)
@@ -225,7 +230,9 @@ test.describe('Ablauf und Neu verbinden', () => {
     const item = page.locator('li.item', { hasText: name });
     await expect(item.getByText('Neu verbinden nötig')).toBeVisible();
     await item.getByRole('button', { name: 'Neu verbinden' }).click();
-    await expect(item.getByText('Verbunden', { exact: true })).toBeVisible();
+    await expect(page.getByRole('status')).toContainText('verbunden');
+    await expect(item.getByText('Neu verbinden nötig')).toHaveCount(0);
+    await expect(item.getByRole('button', { name: /verbinden/i })).toHaveCount(0);
     const r3 = await callTool(request, up.slug, m.accessToken, 'list_items');
     expect(r3.isError).toBeFalsy();
   });

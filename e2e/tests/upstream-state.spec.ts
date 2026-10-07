@@ -230,8 +230,12 @@ test.describe('im Browser', () => {
     await page.goto('/#/einstellungen');
     const item = page.locator('li.item', { hasText: up.name });
     await expect(item.locator('.badge.status-unreachable')).toHaveText('Nicht erreichbar');
-    await expect(item).toContainText('Claude sieht seine Tools gerade nicht');
-    await expect(item.locator('.badge.status-connected')).toHaveCount(0);
+    await expect(item.getByRole('button', { name: 'Erneut prüfen' })).toBeVisible();
+    // the note sits on the upstream's page, with the same button
+    await item.getByRole('link', { name: `${up.name} öffnen` }).click();
+    await expect(page.getByTestId('upstream-general')).toContainText('Claude sieht seine Tools gerade nicht');
+    await expect(page.getByTestId('upstream-general').getByRole('button', { name: 'Erneut prüfen' })).toBeVisible();
+    await page.goto('/#/einstellungen');
     const noScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
     expect(await noScroll()).toBe(true);
 
@@ -240,11 +244,10 @@ test.describe('im Browser', () => {
     await expect(page.getByText('Der Upstream ist gerade nicht erreichbar.')).toBeVisible();
     await expect(item.locator('.badge.status-unreachable')).toBeVisible();
 
-    // healed: badge back, hint and button gone
+    // healed: badge and button gone (a healthy row shows neither)
     await fakeMalice(request, up.tenant, { failMcp: false });
     await item.getByRole('button', { name: 'Erneut prüfen' }).click();
-    await expect(item.locator('.badge.status-connected')).toHaveText('Verbunden');
-    await expect(item).not.toContainText('Claude sieht seine Tools gerade nicht');
+    await expect(item.locator('.badge')).toHaveCount(0);
     await expect(item.getByRole('button', { name: 'Erneut prüfen' })).toHaveCount(0);
     expect(await noScroll()).toBe(true);
   });

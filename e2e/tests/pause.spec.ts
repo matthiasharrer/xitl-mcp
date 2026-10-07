@@ -305,14 +305,16 @@ test.describe('im Browser', () => {
     const list = page.getByRole('list', { name: 'MCP-Clients' });
     const toast = page.locator('.toast');
 
+    const sw = (name: string) => list.locator('li.item', { hasText: name }).getByRole('switch', { name: `Aktiv: ${name}` });
     for (const name of [tok.client.name, oauthName]) {
       const row = list.locator('li.item', { hasText: name });
-      await expect(row.getByRole('button', { name: 'Pausieren' })).toBeVisible();
+      await expect(sw(name)).toBeChecked();
+      expect((await sw(name).boundingBox())!.height).toBeGreaterThanOrEqual(44);
       await expect(row.getByTestId('client-paused')).toHaveCount(0);
-      await row.getByRole('button', { name: 'Pausieren' }).click();
+      await sw(name).click();
       await expect(toast).toContainText(`„${name}“ pausiert`);
       await expect(row.getByTestId('client-paused')).toHaveText('pausiert');
-      await expect(row.getByRole('button', { name: 'Fortsetzen' })).toBeVisible();
+      await expect(sw(name)).not.toBeChecked();
       expect(await noScroll()).toBe(true);
     }
     // survives a reload
@@ -320,23 +322,31 @@ test.describe('im Browser', () => {
     for (const name of [tok.client.name, oauthName]) {
       const row = list.locator('li.item', { hasText: name });
       await expect(row.getByTestId('client-paused')).toHaveText('pausiert');
-      await expect(row.getByRole('button', { name: 'Fortsetzen' })).toBeVisible();
+      await expect(sw(name)).not.toBeChecked();
     }
     expect(await noScroll()).toBe(true);
     await page.screenshot({ path: test.info().outputPath('tc105-paused.png') });
 
     // resume removes the chip
     const tokRow = list.locator('li.item', { hasText: tok.client.name });
-    await tokRow.getByRole('button', { name: 'Fortsetzen' }).click();
+    await sw(tok.client.name).click();
     await expect(toast).toContainText(`„${tok.client.name}“ fortgesetzt`);
     await expect(tokRow.getByTestId('client-paused')).toHaveCount(0);
-    await expect(tokRow.getByRole('button', { name: 'Pausieren' })).toBeVisible();
+    await expect(sw(tok.client.name)).toBeChecked();
+
+    // the client's page has the same switch
+    await tokRow.getByRole('link', { name: `${tok.client.name} öffnen` }).click();
+    const dsw = page.getByRole('switch', { name: `Aktiv: ${tok.client.name}` });
+    await dsw.click();
+    await expect(page.getByTestId('client-paused')).toHaveText('pausiert');
+    await dsw.click();
+    await expect(page.getByTestId('client-paused')).toHaveCount(0);
+    await page.goto('/#/einstellungen');
 
     // a failure: a German error toast (the client was revoked meanwhile)
-    const oauthRow = list.locator('li.item', { hasText: oauthName });
     const oauthId = (await clients(request, PA_UI)).find((c) => c.name === oauthName)!.id;
     expect((await request.delete(`/api/mcp/clients/${oauthId}`, { headers: PA_UI })).status()).toBe(204);
-    await oauthRow.getByRole('button', { name: 'Fortsetzen' }).click();
+    await sw(oauthName).click();
     await expect(page.locator('.toast.toast-error')).toHaveText(`„${oauthName}“ gibt es nicht mehr.`);
     expect(await noScroll()).toBe(true);
   });

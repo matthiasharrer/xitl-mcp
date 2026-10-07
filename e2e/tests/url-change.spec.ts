@@ -199,9 +199,8 @@ test('TC-87 UI: a new address for a HEADER upstream asks for the header value ag
   const up = await createUpstream(request, MATTHIAS, { name, url: fakeMcpUrl(tenant), ...HEADER });
   const next = newTenant('tc87n');
 
-  await page.goto('/#/einstellungen');
-  const item = page.locator('li.item[data-slug]', { hasText: name });
-  await item.getByRole('button', { name: 'Bearbeiten' }).click();
+  await page.goto(`/#/regeln/${up.id}`);
+  await page.getByRole('button', { name: 'Bearbeiten' }).click();
   const sheet = page.getByRole('dialog', { name: 'Upstream bearbeiten' });
   const save = sheet.getByRole('button', { name: 'Speichern' });
   const value = sheet.getByLabel('Header-Wert');
@@ -231,6 +230,7 @@ test('TC-87 UI: a new address for a HEADER upstream asks for the header value ag
   await save.click();
   await expect(sheet).toBeHidden();
   expect(upstreamRow(up.id)).toMatchObject({ url: fakeMcpUrl(next), headerValue: 'ein-neuer-wert' });
-  await expect(page.locator('li.item[data-slug]', { hasText: `${name} B` })).toBeVisible();
+  await expect(page.getByRole('heading', { name: `${name} B` })).toBeVisible();
+  await expect(page.getByTestId('upstream-address')).toContainText(fakeMcpUrl(next));
   await noHorizontalScroll(page);
 });
