@@ -57,7 +57,7 @@
     busy = true;
     try {
       pauses = await api.liftPause(upstreamId, p.id);
-      showToast('Pause aufgehoben');
+      showToast(p.effect === 'ALLOW' ? 'Zeitfreigabe beendet' : 'Sperre aufgehoben');
     } catch (e) {
       showToast(messageOf(e), { error: true });
       pauses = await api.listPauses(upstreamId).catch(() => pauses);
@@ -141,8 +141,8 @@
 
     {#if pauses.length > 0}
       <section aria-labelledby="pauses-title">
-        <h3 id="pauses-title" class="section-title">Aktive Pausen</h3>
-        <ul class="list" aria-label="Aktive Pausen">
+        <h3 id="pauses-title" class="section-title">Aktive Zeitfreigaben und Sperren</h3>
+        <ul class="list" aria-label="Aktive Zeitfreigaben und Sperren">
           {#each pauses as p (p.id)}
             <li class="item pause" data-pause={p.id}>
               <div class="item-head">
@@ -152,7 +152,7 @@
                 <span class="chip pause-{p.effect.toLowerCase()}">{p.effect === 'ALLOW' ? 'Erlaubt' : 'Gesperrt'}</span>
               </div>
               <p class="hint pause-meta">{p.clientName} · {untilText(p.until)}</p>
-              <button type="button" class="btn" disabled={busy} onclick={() => lift(p)} aria-label={`Pause aufheben: ${p.toolName ?? scopeText(p)}, ${p.clientName}`}>
+              <button type="button" class="btn" disabled={busy} onclick={() => lift(p)} aria-label={`${p.effect === 'ALLOW' ? 'Zeitfreigabe beenden' : 'Sperre aufheben'}: ${p.toolName ?? scopeText(p)}, ${p.clientName}`}>
                 Aufheben
               </button>
             </li>

@@ -277,9 +277,9 @@ export function makeApprovalRoutes(
       return c.json({ error: '„Alle Lesetools“ geht nur beim Erlauben. Wähle dieses Tool oder den ganzen Upstream.' }, 400);
     }
     if (body.decision === 'approve' && wantsSnooze && !pending.snoozable) {
-      return c.json({ error: 'Neue oder geänderte Tools lassen sich nicht pausieren. Bitte zuerst in den Regeln ansehen.' }, 400);
+      return c.json({ error: 'Neue oder geänderte Tools lassen sich nicht per Zeitfreigabe erlauben. Bitte zuerst in den Regeln ansehen.' }, 400);
     }
-    if (body.snoozeScope !== undefined && !wantsSnooze) return c.json({ error: 'Ein Umfang braucht eine Pausendauer.' }, 400);
+    if (body.snoozeScope !== undefined && !wantsSnooze) return c.json({ error: 'Ein Umfang braucht eine Dauer.' }, 400);
     if (body.snoozeScope === 'readonly' && !pending.readOnly) {
       return c.json({ error: '„Alle Lesetools“ geht nur bei einem Lesetool.' }, 400);
     }

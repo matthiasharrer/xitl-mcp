@@ -712,10 +712,10 @@ a.btn {
   margin-top: 0.25rem;
 }
 .snooze-row {
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr;
 }
 .snooze-row .btn {
-  padding: 0 0.25rem;
+  padding: 0.25rem 0.5rem;
 }
 .scope-row {
   display: grid;

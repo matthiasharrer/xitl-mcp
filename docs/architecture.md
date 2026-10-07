@@ -684,7 +684,7 @@ review). Expired rows are pruned when a new one is written.
 caller's live rows of that upstream, both effects (`{id, effect, scope,
 toolName, mcpClientId, clientName, until, createdAt}`, sorted by `until`),
 `DELETE …/snoozes/:snoozeId` lifts one (the only edit; foreign upstream or
-row -> 404) and answers the fresh list. Regeln shows them as "Aktive Pausen"
+row -> 404) and answers the fresh list. Regeln shows them as "Aktive Zeitfreigaben und Sperren"
 (chip Erlaubt/Gesperrt, scope, client, until, "Aufheben") when any exist.
 
 ### Grouping (ADR-0019, TC-75)

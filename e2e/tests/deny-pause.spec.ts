@@ -242,7 +242,7 @@ test.describe('TC-124 Pausen ansehen und aufheben', () => {
 });
 
 test.describe('TC-125 UI bei 390×844', () => {
-  test('Karte und Detail: "Ablehnen und nicht mehr fragen bei …" mit Umfang und Dauer, Toast; Regeln: Aktive Pausen mit Chip, Umfang, Client, bis, Aufheben', async ({ page, request }) => {
+  test('Karte und Detail: "Ablehnen und nicht mehr fragen bei …" mit Umfang und Dauer, Toast; Regeln: Aktive Zeitfreigaben und Sperren mit Chip, Umfang, Client, bis, Aufheben', async ({ page, request }) => {
     const ctx = await setup(request, 'dp125');
     await page.context().setExtraHTTPHeaders(ctx.user);
     await page.goto('/');
@@ -258,10 +258,10 @@ test.describe('TC-125 UI bei 390×844', () => {
     await expect(scope.getByLabel('dieses Tool')).toBeChecked();
     await expect(scope.getByLabel(`ganz ${ctx.up.name}`)).toBeVisible();
     const row = card.getByRole('group', { name: 'Ablehnen und sperren' });
-    for (const n of ['15 Min.', '1 Std.', 'Heute']) await expect(row.getByText(n, { exact: true })).toBeVisible();
+    for (const n of ['Ablehnen · 15 Min. sperren', 'Ablehnen · 1 Std. sperren', 'Ablehnen · bis Mitternacht sperren']) await expect(row.getByRole('button', { name: n })).toBeVisible();
     expect(await noHScroll(page)).toBe(false);
     await page.screenshot({ path: test.info().outputPath('tc125-card.png'), fullPage: true });
-    await row.getByRole('button', { name: 'Ablehnen, 15 Minuten sperren' }).click();
+    await row.getByRole('button', { name: 'Ablehnen · 15 Min. sperren' }).click();
     await expect(page.getByText('Abgelehnt, 15 Minuten gesperrt: add_item')).toBeVisible();
     expect((await h1).isError).toBe(true);
     await expect(card).toHaveCount(0);
@@ -274,7 +274,7 @@ test.describe('TC-125 UI bei 390×844', () => {
     const detail = page.locator('article.approval');
     await detail.getByRole('radiogroup', { name: 'Umfang der Sperre' }).getByLabel(`ganz ${ctx.up.name}`).check();
     expect(await noHScroll(page)).toBe(false);
-    await detail.getByRole('button', { name: 'Ablehnen, heute sperren' }).click();
+    await detail.getByRole('button', { name: 'Ablehnen · bis Mitternacht sperren' }).click();
     await expect(page.getByText(`Abgelehnt, heute gesperrt: alle Tools von ${ctx.up.name}`)).toBeVisible();
     expect((await h2).isError).toBe(true);
 
@@ -284,9 +284,9 @@ test.describe('TC-125 UI bei 390×844', () => {
     expect((await decide(request, p3.id, { decision: 'approve', snoozeMinutes: 60, snoozeScope: 'tool' }, ctx.user)).status()).toBe(200);
     await h3;
 
-    // Regeln: Aktive Pausen.
+    // Regeln: Aktive Zeitfreigaben und Sperren.
     await page.goto(`/#/regeln/${ctx.up.id}`);
-    const section = page.getByRole('list', { name: 'Aktive Pausen' });
+    const section = page.getByRole('list', { name: 'Aktive Zeitfreigaben und Sperren' });
     await expect(section.locator('li')).toHaveCount(3);
     const toolDeny = section.locator('li', { hasText: ctx.A.name }).filter({ hasText: 'Gesperrt' });
     await expect(toolDeny).toContainText('add_item');
@@ -298,8 +298,8 @@ test.describe('TC-125 UI bei 390×844', () => {
     expect(await noHScroll(page)).toBe(false);
     await page.screenshot({ path: test.info().outputPath('tc125-rules.png'), fullPage: true });
 
-    await toolDeny.getByRole('button', { name: /^Pause aufheben/ }).click();
-    await expect(page.getByText('Pause aufgehoben')).toBeVisible();
+    await toolDeny.getByRole('button', { name: /^Sperre aufheben/ }).click();
+    await expect(page.getByText('Sperre aufgehoben')).toBeVisible();
     await expect(section.locator('li')).toHaveCount(2);
     // A asks again for add_item.
     await expectAsks(request, ctx, ctx.A.token, 'add_item');

@@ -161,7 +161,7 @@ test('TC-27/29 erste Entscheidung gewinnt; ungültige Eingaben -> 400', async ({
   expect((await decide(request, 'A'.repeat(22), { decision: 'approve' })).status()).toBe(404);
 });
 
-test('TC-30 Erlauben mit Pause: gleicher Client + Tool ohne Nachfrage (snooze), anderer Client fragt; nach Ablauf fragt es wieder', async ({ request }) => {
+test('TC-30 Erlauben mit Zeitfreigabe: gleicher Client + Tool ohne Nachfrage (snooze), anderer Client fragt; nach Ablauf fragt es wieder', async ({ request }) => {
   const { up, token, clientId } = await askUpstream(request, 'tc30');
   const other = await runOAuthFlow(request, uniq('tc30 other'), MATTHIAS);
 
@@ -205,7 +205,7 @@ test('TC-30 Erlauben mit Pause: gleicher Client + Tool ohne Nachfrage (snooze), 
   expect(new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit' }).format(new Date(heute))).toBe('00:00');
 });
 
-test('TC-30 neue/geänderte Tools lassen sich nicht pausieren (400), nur einmal erlauben', async ({ request }) => {
+test('TC-30 neue/geänderte Tools lassen sich nicht per Zeitfreigabe erlauben (400), nur einmal erlauben', async ({ request }) => {
   const { up, token } = await askUpstream(request, 'tc30n', { defaultPolicy: 'ALLOW' });
   await fakeControl(request, up.tenant, 'tools', { name: 'brand_new', description: 'New.' });
   await listTools(request, up.slug, token);

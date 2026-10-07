@@ -273,7 +273,7 @@ test.describe('TC-76 Pause-Umfang', () => {
     await h2;
   });
 
-  test('Karte bei 390×844: drei Optionen bei Lesetool, zwei bei Schreibtool; "allen Tools von …" + "15 Min." pausiert den Upstream', async ({ page, request }) => {
+  test('Karte bei 390×844: drei Optionen bei Lesetool, zwei bei Schreibtool; "allen Tools von …" + "Erlauben · 15 Min. nicht mehr fragen" gibt den Upstream frei', async ({ page, request }) => {
     const ctx = await setup(request, 'scui');
     await page.context().setExtraHTTPHeaders(ctx.user);
     await page.goto('/');
@@ -283,12 +283,12 @@ test.describe('TC-76 Pause-Umfang', () => {
     const h1 = startCall(request, ctx.up.slug, ctx.A.token, 'list_items');
     const card1 = page.locator('article.approval');
     await expect(card1).toHaveCount(1);
-    const group1 = card1.getByRole('radiogroup', { name: 'Umfang der Pause' });
+    const group1 = card1.getByRole('radiogroup', { name: 'Umfang der Zeitfreigabe' });
     await expect(group1.getByRole('radio')).toHaveCount(3);
     await expect(group1.getByLabel('nur diesem Tool')).toBeChecked();
     await expect(group1.getByLabel(`allen Lesetools von ${ctx.up.name}`)).toBeVisible();
     await expect(group1.getByLabel(`allen Tools von ${ctx.up.name}`)).toBeVisible();
-    for (const n of ['15 Min.', '1 Std.', 'Heute']) await expect(card1.getByRole('group', { name: 'Erlauben und pausieren' }).getByText(n, { exact: true })).toBeVisible();
+    for (const n of ['Erlauben · 15 Min. nicht mehr fragen', 'Erlauben · 1 Std. nicht mehr fragen', 'Erlauben · bis Mitternacht nicht mehr fragen']) await expect(card1.getByRole('group', { name: 'Erlauben mit Zeitfreigabe' }).getByRole('button', { name: n })).toBeVisible();
     expect(await noHScroll(page)).toBe(false);
     await card1.getByRole('button', { name: 'Ablehnen', exact: true }).click();
     expect((await h1).isError).toBe(true);
@@ -298,12 +298,12 @@ test.describe('TC-76 Pause-Umfang', () => {
     const h2 = startCall(request, ctx.up.slug, ctx.A.token, 'add_item', { item: 'x' });
     const card2 = page.locator('article.approval');
     await expect(card2).toHaveCount(1);
-    const group2 = card2.getByRole('radiogroup', { name: 'Umfang der Pause' });
+    const group2 = card2.getByRole('radiogroup', { name: 'Umfang der Zeitfreigabe' });
     await expect(group2.getByRole('radio')).toHaveCount(2);
     await expect(card2.getByText('Lesetools')).toHaveCount(0);
     expect(await noHScroll(page)).toBe(false);
     await group2.getByLabel(`allen Tools von ${ctx.up.name}`).check();
-    await card2.getByRole('group', { name: 'Erlauben und pausieren' }).getByText('15 Min.', { exact: true }).click();
+    await card2.getByRole('group', { name: 'Erlauben mit Zeitfreigabe' }).getByRole('button', { name: 'Erlauben · 15 Min. nicht mehr fragen' }).click();
     expect((await h2).isError).toBeFalsy();
     await expect(card2).toHaveCount(0);
 

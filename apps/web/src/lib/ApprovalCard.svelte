@@ -128,7 +128,7 @@
   </div>
   {#if approval.snoozable}
     <p class="hint snooze-label">Erlauben und für diesen Client nicht mehr fragen bei …</p>
-    <div class="scope-row" role="radiogroup" aria-label="Umfang der Pause">
+    <div class="scope-row" role="radiogroup" aria-label="Umfang der Zeitfreigabe">
       <label class="scope-option">
         <input type="radio" name={`scope-${approval.id}`} value="tool" bind:group={scope} />
         <span>nur diesem Tool</span>
@@ -144,27 +144,24 @@
         <span>allen Tools von {approval.upstream.name}</span>
       </label>
     </div>
-    <div class="snooze-row" role="group" aria-label="Erlauben und pausieren">
+    <div class="snooze-row" role="group" aria-label="Erlauben mit Zeitfreigabe">
       <button
         type="button"
         class="btn"
-        aria-label="Erlauben, 15 Minuten nicht mehr fragen"
         disabled={busy || expired}
-        onclick={() => snooze({ snoozeMinutes: 15 }, '15 Minuten')}>15 Min.</button
+        onclick={() => snooze({ snoozeMinutes: 15 }, '15 Minuten')}>Erlauben · 15 Min. nicht mehr fragen</button
       >
       <button
         type="button"
         class="btn"
-        aria-label="Erlauben, 1 Stunde nicht mehr fragen"
         disabled={busy || expired}
-        onclick={() => snooze({ snoozeMinutes: 60 }, '1 Stunde')}>1 Std.</button
+        onclick={() => snooze({ snoozeMinutes: 60 }, '1 Stunde')}>Erlauben · 1 Std. nicht mehr fragen</button
       >
       <button
         type="button"
         class="btn"
-        aria-label="Erlauben, heute nicht mehr fragen"
         disabled={busy || expired}
-        onclick={() => snooze({ snoozeUntilMidnight: true }, 'heute')}>Heute</button
+        onclick={() => snooze({ snoozeUntilMidnight: true }, 'heute')}>Erlauben · bis Mitternacht nicht mehr fragen</button
       >
     </div>
   {/if}
@@ -183,23 +180,20 @@
     <button
       type="button"
       class="btn danger-outline"
-      aria-label="Ablehnen, 15 Minuten sperren"
       disabled={busy || expired}
-      onclick={() => denyPause({ snoozeMinutes: 15 }, '15 Minuten')}>15 Min.</button
+      onclick={() => denyPause({ snoozeMinutes: 15 }, '15 Minuten')}>Ablehnen · 15 Min. sperren</button
     >
     <button
       type="button"
       class="btn danger-outline"
-      aria-label="Ablehnen, 1 Stunde sperren"
       disabled={busy || expired}
-      onclick={() => denyPause({ snoozeMinutes: 60 }, '1 Stunde')}>1 Std.</button
+      onclick={() => denyPause({ snoozeMinutes: 60 }, '1 Stunde')}>Ablehnen · 1 Std. sperren</button
     >
     <button
       type="button"
       class="btn danger-outline"
-      aria-label="Ablehnen, heute sperren"
       disabled={busy || expired}
-      onclick={() => denyPause({ snoozeUntilMidnight: true }, 'heute')}>Heute</button
+      onclick={() => denyPause({ snoozeUntilMidnight: true }, 'heute')}>Ablehnen · bis Mitternacht sperren</button
     >
   </div>
 </article>
