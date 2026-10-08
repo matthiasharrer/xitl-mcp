@@ -543,6 +543,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 36 | 2026-10-08 | unit 569 (api 538 + web 31), e2e 262, tsc + svelte-check (in-range dependency refresh: MCP SDK 2.3, Playwright 1.64) | all passed (lead). |
 | 35 | 2026-10-07 | e2e 262 (TC-211 tab bar over switches) | all passed; TC-211 fails without the fix (tap stays on Einstellungen). |
 | 34 | 2026-10-07 | TC-01…210, unit 569 (api 538 + web 31), e2e 261 (Einstellungen rework, TC-207…210 via the rewritten UI cases) | all passed (lead built it directly). UI only, no API or policy code touched. 18 UI tests rewritten to the switch / own pages (first full run: 14 failed on the old buttons, as expected). Screenshots 390×844 checked: list with paused / unreachable / not connected rows, upstream page in each state, client list + page. |
 | 33 | 2026-10-07 | TC-01…206, unit 569 (api 538 + web 31), e2e 261 (ADR-0033 upstream pause TC-194…200, ADR-0034 tool freshness TC-201…206) | all passed (implementer, then lead independently). Mutations: paused check removed from listFor → TC-196 fails; pause ignored in callTool → TC-197 fails; failed re-list falls through → TC-203 fails (call forwarded). The e2e server runs with TOOLS_FRESH_MS=3000. TC-07's key list gains `pausedAt`/`toolsSyncedAt`. Not covered: a hanging tools/list in TC-203 (30 s timeout). Screenshots 390×844 checked; lead fix: the client page's "Sieht" names a paused upstream "<Name> (pausiert)". |

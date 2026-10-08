@@ -3,6 +3,17 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-08 — Dependency refresh (in-range)
+
+- `npm update` across all workspaces, in-range only (sibling repos the same day).
+  Notable: Playwright 1.63 → 1.64, which wants headless shell **1248**
+  (installed into `~/.cache/ms-playwright`). Also MCP SDK 2.2 → 2.3 (client, core, server), vite, svelte.
+- Majors deliberately not taken: TypeScript 7 (svelte-check still lacks
+  support), Prisma 8 (RC), dotenv 18, @types/node 26 (we run Node 22), undici 8.
+- `npm audit`: 4 high, all inside the Prisma **CLI** (`deepmerge-ts` via
+  `@prisma/config`, `mysql2`). Not in the runtime path (SQLite). npm's only fix
+  is a downgrade to Prisma 6, so they stay until Prisma bumps them.
+
 ## 2026-10-07 — Einstellungen rework, released as `v0.13.0` (lead)
 
 - Inventory: up to eight equal-looking buttons per upstream. Three mock
