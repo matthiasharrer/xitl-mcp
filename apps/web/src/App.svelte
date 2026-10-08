@@ -2,6 +2,7 @@
   import { api, type Me } from './lib/api';
   import Icon from './lib/Icon.svelte';
   import Toast from './lib/Toast.svelte';
+  import UpdateBanner from './lib/UpdateBanner.svelte';
   import Settings from './routes/Settings.svelte';
   import Rules from './routes/Rules.svelte';
   import Approvals from './routes/Approvals.svelte';
@@ -86,6 +87,7 @@
   </main>
 
   <Toast />
+  <UpdateBanner />
   <nav class="tab-bar" aria-label="Ansicht">
     <a href="#/" aria-current={tab === 'approvals' ? 'page' : undefined}>
       <Icon name="inbox" /><span>Freigaben</span>

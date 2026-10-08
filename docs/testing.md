@@ -4,7 +4,7 @@
 > every time. **This process is binding.** Cases are written from what a
 > feature *should* do; a script is one way of running a case.
 >
-> _Last updated: 2026-10-07 (review hint TC-149…154, AUTO TC-155…162, Zeitfreigabe purpose TC-163…166, purpose suggestions TC-172…177, "Läuft gerade" TC-178…183)_
+> _Last updated: 2026-10-08 (new-version banner TC-212…216, review hint TC-149…154, AUTO TC-155…162, Zeitfreigabe purpose TC-163…166, purpose suggestions TC-172…177, "Läuft gerade" TC-178…183)_
 
 ## Running
 
@@ -517,6 +517,18 @@ cases above were rewritten for it, plus:
 | TC-211 | ⚡ Regression (Matthias, 2026-10-07: tapping "Freigaben" paused an upstream): a switch scrolled under the tab bar never gets the tap; the tap navigates, `pausedAt` stays null. Fails with the old CSS (switch input `z-index: 1`, tab bar without z-index). | e2e |
 | TC-210 | ⚡ Client row: switch + name + kind · last use; tap → `#/client/<id>` with facts (prefix, dates, Sieht, origins), Umbenennen, Trennen (confirm → back to Einstellungen), Web-Adressen only for tokens; an unknown/revoked id says "Diesen Client gibt es nicht mehr." | e2e (TC-14, TC-50, TC-69, TC-99, TC-105, TC-193) |
 
+### New-version banner (ADR-0035): `e2e/tests/app-update.spec.ts`, `apps/web/src/lib/appUpdate.test.ts`
+
+**Seam:** "foreground" is `document.dispatchEvent(new Event('visibilitychange'))`; the check (`/?build-check=…`) is intercepted with `page.route`. Unit: `entryScript` on a real Vite snippet (→ `/assets/index-AbC123.js`), an absolute URL (→ its pathname), the dev html (→ null) and a login page without assets (→ null).
+
+| ID    | Case | How |
+| ----- | ---- | --- |
+| TC-212 | **Same build:** after the foreground check (a real `GET /?build-check=…` answered 200 with the hashed entry script) there is no banner. | e2e |
+| TC-213 | ⚡ **New build:** the check returns html with `/assets/index-NEUERBUILD.js` → a `status` „Neue Version verfügbar“ with „Neu laden“ (≥ 44 px) appears, no horizontal scroll. Tapping it reloads the page; afterwards the banner is gone, and a further foreground check against the real server shows none. | e2e + eyes |
+| TC-214 | **Check fails** (request aborted): no banner, no page error, no console error from the app. | e2e |
+| TC-215 | **Login redirect** (`302` to another origin, as with an expired Authelia session): no banner. | e2e |
+| TC-216 | `entryScript`: Vite snippet, absolute URL, dev html, login page (see seam). | unit |
+
 ## Manual gates
 
 Things no script can prove. Run on the deployed instance before calling
@@ -543,6 +555,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 37 | 2026-10-08 | TC-212…216 (new, ADR-0035 new-version banner) + full suite | all passed (lead): **unit 573 (api 538 + web 35)**, **e2e 266/266** (1.8 min), tsc + svelte-check clean. Eyes at 390×844 on the built server (entry script forced to differ): banner under the safe-area top over the app bar, light and dark, no horizontal scroll. |
 | 36 | 2026-10-08 | unit 569 (api 538 + web 31), e2e 262, tsc + svelte-check (in-range dependency refresh: MCP SDK 2.3, Playwright 1.64) | all passed (lead). |
 | 35 | 2026-10-07 | e2e 262 (TC-211 tab bar over switches) | all passed; TC-211 fails without the fix (tap stays on Einstellungen). |
 | 34 | 2026-10-07 | TC-01…210, unit 569 (api 538 + web 31), e2e 261 (Einstellungen rework, TC-207…210 via the rewritten UI cases) | all passed (lead built it directly). UI only, no API or policy code touched. 18 UI tests rewritten to the switch / own pages (first full run: 14 failed on the old buttons, as expected). Screenshots 390×844 checked: list with paused / unreachable / not connected rows, upstream page in each state, client list + page. |

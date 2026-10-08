@@ -3,6 +3,14 @@
 Shipped roadmap entries, newest first. The reasoning is in `decisions/`, the
 test evidence in `testing.md`'s run log.
 
+## 2026-10-08 (unreleased)
+
+- **„Neue Version verfügbar“ banner (ADR-0035).** An app left open in the
+  background kept the old bundle for days (seen in Haushalt; xitl is the same
+  stack). When the page returns to the foreground it compares the hashed entry
+  script of a fresh `index.html` with its own and offers „Neu laden“. No
+  auto-reload, no backend change. TC-212…216.
+
 ## 2026-10-07 (`v0.13.1`)
 
 - **Fix:** a tap on the tab bar toggled a switch scrolled under it (Matthias

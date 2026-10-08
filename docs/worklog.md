@@ -3,6 +3,20 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-08 — „Neue Version verfügbar“ banner (ADR-0035)
+
+- Port of the Haushalt feature (its ADR-0012): after a deploy a phone kept
+  running the old bundle for days. On `visibilitychange`, fetch
+  `/?build-check=…`, compare the hashed entry script, show a banner with „Neu
+  laden“. No auto-reload, 60 s throttle, `redirect: 'error'` (Authelia login
+  redirect ≠ new version).
+- `lib/appUpdate.svelte.ts` copied verbatim from Haushalt, `UpdateBanner.svelte`
+  (toast tokens) in `App.svelte`, `watchForUpdates()` in `main.ts`. TC-212…216.
+- Gotcha: never shows on the Vite dev server (no hashed bundle); check against
+  the built server. Vitest compiles the `.svelte.ts` module via the Svelte
+  plugin, so the unit test imports it directly. In e2e, `page.unroute` needs the
+  same function reference as `page.route`.
+
 ## 2026-10-08 — Dependency refresh (in-range)
 
 - `npm update` across all workspaces, in-range only (sibling repos the same day).

@@ -132,7 +132,10 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
   lib/externalOrigin.ts  the one definition of "our public origin"
   lib/slugs.ts           slug pattern + reserved words (register, token)
 apps/web/   Svelte 5 SPA (Vite), German UI, mobile-first, installable PWA
-            (manifest + icons + public/sw.js, push only). Tab bar:
+            (manifest + icons + public/sw.js, push only; `main.ts` also calls
+            `watchForUpdates()`: on returning to the foreground it compares the
+            hashed entry script of a fresh `/` with its own and shows
+            `UpdateBanner` „Neue Version verfügbar“ / „Neu laden“, ADR-0035). Tab bar:
             Freigaben (#/, live list of held calls; Verlauf and its detail
             are live too, ADR-0028, lib/historyLive.ts; #/freigabe/<id> one call,
             the push deep link), Verlauf (#/verlauf, #/verlauf/<id>),
