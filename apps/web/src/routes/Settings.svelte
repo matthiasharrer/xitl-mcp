@@ -406,7 +406,7 @@
       {:else}
         <ul class="list" aria-label="MCP-Clients">
           {#each clients as c (c.id)}
-            <li class="item client-row" data-client={c.id}>
+            <li class="item mcp-client-row" data-client={c.id}>
               <div class="row">
                 <!-- ADR-0024: switch off = paused (requests refused). -->
                 <Switch
@@ -458,7 +458,7 @@
     margin: 0.25rem 0 0;
   }
   .upstream-row .row,
-  .client-row .row {
+  .mcp-client-row .row {
     display: flex;
     align-items: center;
     gap: 0.75rem;
