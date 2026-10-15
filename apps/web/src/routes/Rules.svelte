@@ -655,7 +655,7 @@
                 <span class="pause-what">
                   {#if scopeText(p)}{scopeText(p)}{:else}<span class="tool-name">{p.toolName}</span>{/if}
                 </span>
-                <span class="chip pause-{p.effect.toLowerCase()}">{p.effect === 'ALLOW' ? 'Erlaubt' : 'Gesperrt'}</span>
+                <span class="chip pause-{p.effect.toLowerCase()}">{p.effect === 'ALLOW' ? 'Erlaubt' : 'Gesperrt'}</span>{#if p.suspendedAt}{' '}<span class="chip pause-suspended" data-testid="pause-suspended">unterbrochen</span>{/if}
               </div>
               <p class="hint pause-meta">{p.clientName} · {untilText(p.until)}</p>
               {#if p.purpose}<p class="pause-purpose" data-testid="pause-purpose">Wofür: {p.purpose}{#if p.purposeSource === 'suggested'}{' '}<span data-testid="pause-purpose-suggested">(Vorschlag)</span>{/if}</p>{/if}
@@ -1029,5 +1029,10 @@
   .chip.pause-deny {
     color: var(--danger);
     border-color: var(--danger);
+  }
+  .chip.pause-suspended {
+    color: var(--warn);
+    border-color: var(--warn);
+    background: var(--warn-soft);
   }
 </style>

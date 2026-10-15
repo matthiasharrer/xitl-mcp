@@ -156,9 +156,12 @@ export interface PauseState {
   denyScope: SnoozeScope | null;
 }
 
+/** The ONE loader of live pauses for decisions (policy, tools/list stamp,
+ * Sperre lookup). ADR-0029 amendment: an interrupted row (`suspendedAt` set)
+ * is not live; it lets nothing through until the human resumes it. */
 async function liveRows(owner: SnoozeOwner, now: Date): Promise<EffectRow[]> {
   return prisma.snooze.findMany({
-    where: { userId: owner.userId, upstreamId: owner.upstreamId, mcpClientId: owner.mcpClientId, until: { gt: now } },
+    where: { userId: owner.userId, upstreamId: owner.upstreamId, mcpClientId: owner.mcpClientId, until: { gt: now }, suspendedAt: null },
     select: { id: true, scope: true, toolName: true, until: true, effect: true, anchorAuditId: true, purpose: true, purposeSource: true },
   });
 }
@@ -241,4 +244,50 @@ export async function createSnooze(
   // "Läuft gerade" (TC-181): the new entry appears live.
   pauseEvents.emit({ userId: owner.userId });
   return row;
+}
+
+/** ADR-0029 amendment: a mismatch interrupts every live, active ALLOW pause of
+ * this access on this upstream (not only the matched row: another covering
+ * one would let the next call through). Sperren stay. Returns the ids, which
+ * the held call keeps (server-side) for "Erlauben & fortsetzen". */
+export async function suspendAllowPauses(owner: SnoozeOwner, now: Date): Promise<number[]> {
+  const where = { userId: owner.userId, upstreamId: owner.upstreamId, mcpClientId: owner.mcpClientId, effect: 'ALLOW', suspendedAt: null, until: { gt: now } };
+  const rows = await prisma.snooze.findMany({ where, select: { id: true } });
+  if (rows.length === 0) return [];
+  const ids = rows.map((r) => r.id);
+  await prisma.snooze.updateMany({ where: { ...where, id: { in: ids } }, data: { suspendedAt: now } });
+  pauseEvents.emit({ userId: owner.userId });
+  return ids;
+}
+
+/** ADR-0029 amendment: the human resumes interrupted ALLOW pauses (only via
+ * /api). Only rows of `userId` that are still interrupted and live; `until`
+ * never moves. `anchorAuditId` given: the approved call becomes the new
+ * anchor ("Erlauben & fortsetzen"); omitted: the anchor stays ("Fortsetzen"
+ * in Läuft gerade). Returns the resumed rows (empty: nothing to resume). */
+export async function resumeAllowPauses(userId: number, ids: number[], now: Date, anchorAuditId?: number): Promise<{ pause: MatchedAllowPause; scope: SnoozeScope }[]> {
+  if (ids.length === 0) return [];
+  const where = { userId, id: { in: ids }, effect: 'ALLOW', suspendedAt: { not: null }, until: { gt: now } };
+  const rows = await prisma.snooze.findMany({ where, select: { id: true } });
+  if (rows.length === 0) return [];
+  const live = rows.map((r) => r.id);
+  await prisma.snooze.updateMany({
+    where: { ...where, id: { in: live } },
+    data: { suspendedAt: null, ...(anchorAuditId !== undefined ? { anchorAuditId } : {}) },
+  });
+  pauseEvents.emit({ userId });
+  const resumed = await prisma.snooze.findMany({
+    where: { userId, id: { in: live }, suspendedAt: null },
+    select: { id: true, scope: true, until: true, anchorAuditId: true, purpose: true, purposeSource: true },
+    orderBy: [{ until: 'desc' }, { id: 'desc' }],
+  });
+  return resumed.map((r) => ({
+    scope: r.scope,
+    pause: {
+      id: r.id,
+      until: r.until,
+      anchorAuditId: r.anchorAuditId,
+      ...(r.purpose ? { purpose: r.purpose, purposeSource: r.purposeSource === 'suggested' ? ('suggested' as const) : ('typed' as const) } : {}),
+    },
+  }));
 }

@@ -80,6 +80,21 @@
     }
   }
 
+  /** ADR-0029 amendment: "Fortsetzen" of a Zeitfreigabe the KI-Prüfung
+   * interrupted (same end, same anchor; held calls stay held). */
+  async function resumePause(p: RunningPause) {
+    busy = true;
+    try {
+      await api.resumePause(p.id);
+      showToast('Zeitfreigabe läuft weiter');
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 404)) showToast(messageOf(e), { error: true });
+    } finally {
+      busy = false;
+      await load();
+    }
+  }
+
   async function resume(c: { id: number; name: string }) {
     busy = true;
     try {
@@ -131,10 +146,11 @@
     {#if open}
       <ul class="running-list" aria-label="Aktive Zeitfreigaben, Sperren, pausierte Zugänge und Upstreams">
         {#each live as p (p.id)}
-          <li class="running-row" data-running-pause={p.id} data-effect={p.effect}>
+          <li class="running-row" data-running-pause={p.id} data-effect={p.effect} data-suspended={p.suspendedAt ? 'true' : undefined}>
             <div class="running-main">
               <p class="running-line">
                 <span class="chip pause-{p.effect.toLowerCase()}">{kindText(p)}</span>
+                {#if p.suspendedAt}<span class="chip pause-suspended">unterbrochen</span>{/if}
                 <span class="running-what">{pauseWhat(p, p.upstream.name)}</span>
               </p>
               <p class="hint running-meta">{p.client.name} · {remainingText(p.until, now)}</p>
@@ -142,14 +158,25 @@
                 <p class="hint running-purpose">Wofür: {p.purpose}{#if p.purposeSource === 'suggested'}{' '}(Vorschlag){/if}</p>
               {/if}
             </div>
-            <button
-              type="button"
-              class="btn"
-              disabled={busy}
-              onclick={() => end(p)}
-              aria-label={`${p.effect === 'ALLOW' ? 'Zeitfreigabe beenden' : 'Sperre aufheben'}: ${pauseWhat(p, p.upstream.name)}, ${p.client.name}`}
-              >{p.effect === 'ALLOW' ? 'Beenden' : 'Aufheben'}</button
-            >
+            <div class="running-actions">
+              {#if p.suspendedAt && p.effect === 'ALLOW'}
+                <button
+                  type="button"
+                  class="btn"
+                  disabled={busy}
+                  onclick={() => resumePause(p)}
+                  aria-label={`Zeitfreigabe fortsetzen: ${pauseWhat(p, p.upstream.name)}, ${p.client.name}`}>Fortsetzen</button
+                >
+              {/if}
+              <button
+                type="button"
+                class="btn"
+                disabled={busy}
+                onclick={() => end(p)}
+                aria-label={`${p.effect === 'ALLOW' ? 'Zeitfreigabe beenden' : 'Sperre aufheben'}: ${pauseWhat(p, p.upstream.name)}, ${p.client.name}`}
+                >{p.effect === 'ALLOW' ? 'Beenden' : 'Aufheben'}</button
+              >
+            </div>
           </li>
         {/each}
         {#each paused as c (c.id)}
@@ -285,5 +312,16 @@
   }
   .running-row .btn {
     flex: none;
+  }
+  .running-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    flex: none;
+  }
+  .chip.pause-suspended {
+    color: var(--warn);
+    border-color: var(--warn);
+    background: var(--warn-soft);
   }
 </style>

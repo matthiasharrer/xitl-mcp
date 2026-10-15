@@ -7,6 +7,11 @@ export interface PauseCheckView {
   choice: 'richtungswechsel' | 'ausweitung' | null;
   /** p(gleich) (mismatch only). */
   score: number | null;
+  /** ADR-0029 amendment: the Zeitfreigabe this mismatch interrupted (the
+   * latest-ending one), for "Erlauben & fortsetzen". Display only; the ids
+   * stay server-side (PendingCall.interruptedPauseIds). Absent: nothing was
+   * interrupted (check error, or no live pause any more). */
+  interrupted?: { until: string; purpose: string | null };
 }
 
 export const DEVIATION_LABEL = { richtungswechsel: 'Richtungswechsel', ausweitung: 'Ausweitung' } as const;
@@ -14,7 +19,7 @@ export const DEVIATION_LABEL = { richtungswechsel: 'Richtungswechsel', ausweitun
 export function pauseCheckNote(v: PauseCheckView): string {
   if (v.result === 'mismatch') {
     const label = v.choice ? DEVIATION_LABEL[v.choice] : null;
-    return `KI-Prüfung: weicht ab${label ? ` (${label})` : ''} – Zeitfreigabe beendet`;
+    return `KI-Prüfung: weicht ab${label ? ` (${label})` : ''} – Zeitfreigabe unterbrochen`;
   }
   return 'KI-Prüfung nicht erreichbar';
 }

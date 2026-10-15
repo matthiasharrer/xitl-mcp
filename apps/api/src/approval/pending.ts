@@ -46,7 +46,9 @@ type DenyOnlyVia = 'client-hidden' | 'upstream-paused';
 export type PurposeSource = 'typed' | 'suggested';
 
 export type Decision =
-  | { kind: 'approve'; via: Exclude<Via, DenyOnlyVia>; at: Date; snoozeUntil: Date | null; snoozeScope?: SnoozeScope; purpose?: string | null; purposeSource?: PurposeSource | null }
+  /** `resume`: ADR-0029 amendment, also resume the Zeitfreigaben this
+   * call's mismatch interrupted, anchored on this call (never with a snooze). */
+  | { kind: 'approve'; via: Exclude<Via, DenyOnlyVia>; at: Date; snoozeUntil: Date | null; snoozeScope?: SnoozeScope; purpose?: string | null; purposeSource?: PurposeSource | null; resume?: number[] }
   /** `pauseUntil`/`pauseScope`: also refuse this tool/upstream for this
    * client until then (deny pause, ADR-0026). */
   | { kind: 'deny'; via: Via; at: Date; pauseUntil?: Date | null; pauseScope?: Exclude<SnoozeScope, 'READONLY'>; purpose?: string | null }
@@ -88,6 +90,10 @@ export interface PendingCall {
   /** ADR-0029: the AI check sent this call back (mismatch: the pause ended;
    * error: Clef unreachable). Display only; absent = not checked. */
   pauseCheck?: PauseCheckView;
+  /** ADR-0029 amendment: the Snooze ids this call's mismatch interrupted, for
+   * "Erlauben & fortsetzen". Server-side only: never serialized to a channel
+   * (serializePending picks its fields). */
+  interruptedPauseIds?: number[];
   /** ADR-0030: why an AUTO call was asked (below the threshold, Clef error,
    * Clef off, no rule). Display only; absent = not an AUTO call. */
   autoCheck?: AutoCheckView;
@@ -184,7 +190,7 @@ export class ApprovalHub extends EventEmitter {
     userId: number,
     id: string,
     d:
-      | { kind: 'approve'; via: Exclude<Via, DenyOnlyVia>; snoozeUntil: Date | null; snoozeScope?: SnoozeScope; purpose?: string | null; purposeSource?: PurposeSource | null }
+      | { kind: 'approve'; via: Exclude<Via, DenyOnlyVia>; snoozeUntil: Date | null; snoozeScope?: SnoozeScope; purpose?: string | null; purposeSource?: PurposeSource | null; resume?: boolean }
       | { kind: 'deny'; via: Via; pauseUntil?: Date | null; pauseScope?: Exclude<SnoozeScope, 'READONLY'>; purpose?: string | null },
   ): DecideResult {
     const entry = this.entries.get(id);
@@ -201,6 +207,9 @@ export class ApprovalHub extends EventEmitter {
             purpose: d.purpose ?? null,
             // No purpose, no source.
             purposeSource: d.purpose ? (d.purposeSource === 'suggested' ? 'suggested' : 'typed') : null,
+            // The ids come from the held call itself (set by the proxy),
+            // never from the request; never together with a new snooze.
+            ...(d.resume && !d.snoozeUntil && entry.call.interruptedPauseIds?.length ? { resume: [...entry.call.interruptedPauseIds] } : {}),
             at,
           }
         : d.pauseUntil
@@ -223,10 +232,11 @@ export class ApprovalHub extends EventEmitter {
 
   /** ADR-0029: a held call the AI check sent back on the settle path (a new
    * pause did not take it). Display only, like setIntent: emits 'checked'. */
-  setPauseCheck(userId: number, id: string, view: PauseCheckView): boolean {
+  setPauseCheck(userId: number, id: string, view: PauseCheckView, interruptedPauseIds?: number[]): boolean {
     const entry = this.entries.get(id);
     if (!entry || entry.call.userId !== userId) return false;
     entry.call.pauseCheck = { ...view };
+    if (interruptedPauseIds?.length) entry.call.interruptedPauseIds = [...interruptedPauseIds];
     this.safeEmit('checked', entry.call);
     return true;
   }

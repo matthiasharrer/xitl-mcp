@@ -45,6 +45,8 @@ async function clefLog(request: APIRequestContext, ctx: Ctx) {
   return all.filter((r) => r.blocks.some((b) => b.upstream === ctx.up.name));
 }
 const snoozes = (ctx: Ctx) => dbAll('select * from Snooze where upstreamId = ? order by id', ctx.up.id);
+/** ADR-0029 amendment: a mismatch interrupts (suspendedAt) instead of deleting. */
+const activeSnoozes = (ctx: Ctx) => snoozes(ctx).filter((s) => s.suspendedAt === null);
 const upstreamCalls = async (request: APIRequestContext, ctx: Ctx, tool: string) => (await fakeState(request, ctx.up.tenant)).calls[tool] ?? 0;
 const auditOf = (approvalId: string) => dbAll('select * from AuditEntry where approvalId = ?', approvalId)[0];
 
@@ -108,7 +110,7 @@ test.describe('TC-137 Treffer', () => {
 });
 
 test.describe('TC-138 Abweichung', () => {
-  test('beendet die Zeitfreigabe, hält den Aufruf (Karte + Push mit Grund); danach normales Fragen; neue Zeitfreigabe mit B als Anker', async ({ request }) => {
+  test('unterbricht die Zeitfreigabe, hält den Aufruf (Karte + Push mit Grund); danach normales Fragen; neue Zeitfreigabe mit B als Anker', async ({ request }) => {
     const ctx = await setup(request, 'kc138');
     const endpoint = await subscribe(request, ctx.user);
     await grant(request, ctx);
@@ -119,10 +121,11 @@ test.describe('TC-138 Abweichung', () => {
     expect(pb.pauseCheck).toMatchObject({ result: 'mismatch', choice: 'richtungswechsel' });
     expect(auditOf(pb.id)).toMatchObject({ policy: 'ASK', decisionPath: 'snooze-ki-mismatch', outcome: 'PENDING', pauseCheckChoice: 'richtungswechsel' });
     expect(auditOf(pb.id).pauseCheckScore).toBeCloseTo(0.05, 5);
-    expect(snoozes(ctx)).toEqual([]);
+    expect(activeSnoozes(ctx)).toEqual([]);
+    expect(snoozes(ctx)).toHaveLength(1);
     await expect.poll(() => firstPushes(endpoint).filter((e) => e.payload.type === 'approval' && e.payload.id === pb.id).length).toBe(1);
     const push = firstPushes(endpoint).find((e) => e.payload.id === pb.id)!;
-    expect(push.payload.note).toBe('KI-Prüfung: weicht ab (Richtungswechsel) – Zeitfreigabe beendet');
+    expect(push.payload.note).toBe('KI-Prüfung: weicht ab (Richtungswechsel) – Zeitfreigabe unterbrochen');
 
     // C: no pause any more -> plain ASK, Clef not asked.
     const clefBefore = (await clefLog(request, ctx)).length;
@@ -138,13 +141,13 @@ test.describe('TC-138 Abweichung', () => {
     expect((await decide(request, pb.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: 'tool' }, ctx.user)).status()).toBe(200);
     expect((await b).isError).toBeFalsy();
     expect(auditOf(pb.id)).toMatchObject({ decisionPath: 'snooze-ki-mismatch+approved:page', outcome: 'FORWARDED' });
-    expect(snoozes(ctx)).toEqual([expect.objectContaining({ anchorAuditId: auditOf(pb.id).id })]);
+    expect(activeSnoozes(ctx)).toEqual([expect.objectContaining({ anchorAuditId: auditOf(pb.id).id })]);
     expect(await upstreamCalls(request, ctx, 'add_item')).toBe(before + 1);
   });
 });
 
-test.describe('TC-138 Abweichung beendet alle Zeitfreigaben des Zugangs', () => {
-  test('zwei Zeitfreigaben von A (Tool + Upstream) enden beide; die von Client B und Sperren bleiben', async ({ request }) => {
+test.describe('TC-138 Abweichung unterbricht alle Zeitfreigaben des Zugangs', () => {
+  test('zwei Zeitfreigaben von A (Tool + Upstream) werden beide unterbrochen; die von Client B und Sperren bleiben', async ({ request }) => {
     const ctx = await setup(request, 'kc138b');
     const B = await newClient(request, ctx.user, 'kc138b B');
     await grant(request, ctx); // A: TOOL add_item (anchor)
@@ -154,8 +157,9 @@ test.describe('TC-138 Abweichung beendet alle Zeitfreigaben des Zugangs', () => 
     const b = startCall(request, ctx.up.slug, ctx.A.token, 'add_item', { item: 'weg', __check: 'wechsel:0.9' });
     const pb = await waitHeld(request, ctx);
     expect(pb.rulePath).toBe('snooze-ki-mismatch');
-    // Only B's Zeitfreigabe is left.
-    expect(snoozes(ctx)).toEqual([expect.objectContaining({ mcpClientId: B.id, effect: 'ALLOW' })]);
+    // Only B's Zeitfreigabe is still active; A's two are interrupted.
+    expect(activeSnoozes(ctx)).toEqual([expect.objectContaining({ mcpClientId: B.id, effect: 'ALLOW' })]);
+    expect(snoozes(ctx).filter((s) => s.suspendedAt !== null).map((s) => s.mcpClientId)).toEqual([ctx.A.id, ctx.A.id]);
     // A's next call, even one the upstream-wide pause covered, is a plain question now.
     const c = startCall(request, ctx.up.slug, ctx.A.token, 'list_items', { __check: 'gleich:0.99' });
     const pc = await waitHeld(request, ctx, [pb.id]);
@@ -176,7 +180,7 @@ test.describe('TC-139 Schwelle', () => {
     const held = startCall(request, ctx.up.slug, ctx.A.token, 'add_item', { item: 'y', __check: 'gleich:0.7999' });
     const p = await waitHeld(request, ctx);
     expect(p.rulePath).toBe('snooze-ki-mismatch');
-    expect(snoozes(ctx)).toEqual([]);
+    expect(activeSnoozes(ctx)).toEqual([]);
     await denyHeld(request, ctx, p.id);
     await held;
   });
@@ -372,7 +376,7 @@ test.describe('TC-144 Aufrufe seither und Trennung', () => {
     const h = startCall(request, ctx.up.slug, ctx.A.token, 'add_item', { item: 'A-weg', __check: 'ausweitung:0.9' });
     const p = await waitHeld(request, ctx);
     expect(p.pauseCheck).toMatchObject({ result: 'mismatch', choice: 'ausweitung' });
-    expect(snoozes(ctx).map((s) => s.mcpClientId)).toEqual([B.id]);
+    expect(activeSnoozes(ctx).map((s) => s.mcpClientId)).toEqual([B.id]);
     expect((await callTool(request, ctx.up.slug, B.token, 'add_item', { item: 'X3' })).isError).toBeFalsy();
     expect(lastAudit(ctx.up.id)).toMatchObject({ decisionPath: 'snooze+ki', mcpClientId: B.id });
     log = await clefLog(request, ctx);
@@ -400,11 +404,11 @@ test.describe('TC-145 Wartende Aufrufe beim Erteilen (TC-128-Pfad)', () => {
     expect((await h1).isError).toBeFalsy();
     expect((await h2).isError).toBeFalsy();
     expect(auditOf(p2.id)).toMatchObject({ outcome: 'FORWARDED', decisionPath: 'policy:upstream-default+approved:pause', pauseCheckScore: 0.95, pauseCheckChoice: 'gleich' });
-    // H3 stays held with the reason; the pause is gone.
+    // H3 stays held with the reason; the pause is interrupted.
     await expect
       .poll(async () => ((await pendingList(request, ctx.user)) as Checked[]).find((p) => p.id === p3.id)?.pauseCheck?.result)
       .toBe('mismatch');
-    expect(snoozes(ctx)).toEqual([]);
+    expect(activeSnoozes(ctx)).toEqual([]);
     expect(auditOf(p3.id)).toMatchObject({ outcome: 'PENDING', pauseCheckChoice: 'richtungswechsel' });
     // Clef saw H2 with anchor H1 and no calls since; H3 with H2 as call since.
     const log = await clefLog(request, ctx);
@@ -442,7 +446,7 @@ test.describe('TC-148 UI', () => {
     await page.setExtraHTTPHeaders(ctx.user);
     await page.goto('/');
     const card = page.locator(`[data-approval="${p.id}"]`);
-    await expect(card.locator('[data-pause-check="mismatch"]')).toHaveText('KI-Prüfung: weicht ab (Richtungswechsel) – Zeitfreigabe beendet');
+    await expect(card.locator('[data-pause-check="mismatch"]')).toHaveText('KI-Prüfung: weicht ab (Richtungswechsel) – Zeitfreigabe unterbrochen');
     expect(await noHScroll(page)).toBe(false);
     await page.screenshot({ path: test.info().outputPath('karte-weicht-ab.png'), fullPage: true });
     await denyHeld(request, ctx, p.id);
@@ -452,8 +456,8 @@ test.describe('TC-148 UI', () => {
     expect(await noHScroll(page)).toBe(false);
     await page.screenshot({ path: test.info().outputPath('verlauf-passt.png'), fullPage: true });
     await page.goto(`/#/verlauf/${auditOf(p.id).id}`);
-    await expect(page.getByTestId('pause-check')).toHaveText('KI-Prüfung: weicht ab (Richtungswechsel, 0,05) – Zeitfreigabe beendet');
-    await expect(page.getByText('Zeitfreigabe, KI-Prüfung: weicht ab – Zeitfreigabe beendet → abgelehnt in der App')).toBeVisible();
+    await expect(page.getByTestId('pause-check')).toHaveText('KI-Prüfung: weicht ab (Richtungswechsel, 0,05) – Zeitfreigabe unterbrochen');
+    await expect(page.getByText('Zeitfreigabe, KI-Prüfung: weicht ab – Zeitfreigabe unterbrochen → abgelehnt in der App')).toBeVisible();
     expect(await noHScroll(page)).toBe(false);
   });
 });

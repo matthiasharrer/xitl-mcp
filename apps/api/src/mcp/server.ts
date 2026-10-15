@@ -89,7 +89,7 @@ import { SingleFlight, toolsFreshFromEnv, toolsStale, vanished } from '../upstre
 import { errorTag } from '../upstream/oauthClient.js';
 import { approvals, ApprovalHub, type Decision } from '../approval/pending.js';
 import { approvalDeadline, approvalTimeoutFromEnv, upstreamTimeoutMs } from '../approval/budget.js';
-import { createSnooze, heldCoveredBy, isReadOnly, livePauses, liveSnoozesFor, type MatchedAllowPause, type SnoozeScope } from '../approval/snooze.js';
+import { createSnooze, heldCoveredBy, isReadOnly, livePauses, liveSnoozesFor, resumeAllowPauses, type MatchedAllowPause, type SnoozeScope } from '../approval/snooze.js';
 import type { PendingCall } from '../approval/pending.js';
 import { pauseGate as defaultPauseGate, sperreGate as defaultSperreGate } from '../pausecheck/index.js';
 import { relaxSperre, SperreGate, type SperreResult } from '../pausecheck/sperre.js';
@@ -268,7 +268,13 @@ function autoView(r: AutoResult | null): AutoCheckView | undefined {
 
 /** What a held call shows about the AI check that sent it back (ADR-0029). */
 function checkView(r: GateResult | null): PauseCheckView | undefined {
-  if (r?.kind === 'mismatch') return { result: 'mismatch', choice: r.choice, score: r.score };
+  if (r?.kind === 'mismatch')
+    return {
+      result: 'mismatch',
+      choice: r.choice,
+      score: r.score,
+      ...(r.interrupted ? { interrupted: { until: r.interrupted.until.toISOString(), purpose: r.interrupted.purpose } } : {}),
+    };
   if (r?.kind === 'error') return { result: 'error', choice: null, score: null };
   return undefined;
 }
@@ -299,8 +305,9 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
     await gate.serial(userId, mcpClientId, async () => {
       for (const other of covered) {
         if (!hub.get(userId, other.id)) continue;
-        const live = await prisma.snooze.findFirst({ where: { id: pause.id, userId, until: { gt: clock.now() } }, select: { id: true } });
-        if (!live) return; // ended meanwhile: the rest stay held
+        // Interrupted (ADR-0029 amendment) counts as ended here.
+        const live = await prisma.snooze.findFirst({ where: { id: pause.id, userId, until: { gt: clock.now() }, suspendedAt: null }, select: { id: true } });
+        if (!live) return; // ended or interrupted meanwhile: the rest stay held
         const r = await gate.evaluate({
           userId,
           mcpClientId,
@@ -319,7 +326,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           await prisma.auditEntry.updateMany({ where: { id: other.auditId, userId }, data: scored });
           auditEvents.emit({ userId, auditId: other.auditId });
         }
-        hub.setPauseCheck(userId, other.id, checkView(r)!);
+        hub.setPauseCheck(userId, other.id, checkView(r)!, r.kind === 'mismatch' ? r.interrupted?.ids : undefined);
         return;
       }
     }).catch((e) => console.warn(`proxy: settling held calls by pause failed: ${errorTag(e)}`));
@@ -763,6 +770,8 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           request: { endpoint, rpcId },
           // ADR-0029: why a paused call is asked after all (card, push).
           ...(checkView(decided.check) ? { pauseCheck: checkView(decided.check) } : {}),
+          // ADR-0029 amendment: what "Erlauben & fortsetzen" resumes (server-side only).
+          ...(decided.check?.kind === 'mismatch' && decided.check.interrupted ? { interruptedPauseIds: decided.check.interrupted.ids } : {}),
           // ADR-0026 amendment: a Sperre's purpose check let this call be asked.
           ...(decided.sperreResult?.kind === 'outside' && decision.path === 'snooze-deny-ki-ask'
             ? { sperreCheck: { purpose: decided.sperreResult.purpose, score: decided.sperreResult.score } }
@@ -828,6 +837,19 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
             if (gate.enabled) void settleCovered(held.call, scope, pause);
           } catch (e) {
             console.warn(`proxy: snooze not stored: ${errorTag(e)}`);
+          }
+        } else if (d.resume?.length) {
+          // ADR-0029 amendment: "Erlauben & fortsetzen". Only the rows this
+          // call's mismatch interrupted (ids from the held call, never from
+          // the request), still interrupted and live; this call becomes the
+          // anchor. Then, like a new grant, they settle the covered held
+          // calls through the check. A failure leaves them interrupted (fail
+          // closed); this call is forwarded all the same (it was approved).
+          try {
+            const resumed = await resumeAllowPauses(userId, d.resume, d.at, audit.id);
+            if (gate.enabled) for (const r of resumed) void settleCovered(held.call, r.scope, r.pause);
+          } catch (e) {
+            console.warn(`proxy: pause not resumed: ${errorTag(e)}`);
           }
         }
         const timeoutMs = upstreamTimeoutMs(receivedAt, clock.now(), CALL_TIMEOUT_MS);

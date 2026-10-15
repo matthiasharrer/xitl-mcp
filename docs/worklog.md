@@ -3,6 +3,26 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-15 — interrupted Zeitfreigabe can be resumed (ADR-0029 amendment)
+
+- Matthias: a Clef mismatch should pause the Zeitfreigabe, not end it. His
+  calls (all lead recommendations): resume both on the card ("Erlauben &
+  fortsetzen") and in Läuft gerade; the approved call becomes the new
+  anchor; time keeps running. UI word **„unterbrochen“** ("pausiert" is
+  taken by ADR-0024).
+- Security shape: `Snooze.suspendedAt`; the single live loader
+  (`snooze.ts liveRows`) filters it, so an interrupted row is inert
+  everywhere. Resume ids live on the in-memory held call, never in the
+  request. Mutation (drop the filter) makes TC-217 fail.
+- Läuft-gerade "Fortsetzen" deliberately does not settle held calls: the
+  stray call would be re-checked and interrupt it again at once.
+- Lead built it directly (backend + UI); migration `20261007030000_snooze_suspended`
+  (named after the latest, per the naming rule). The `test-runner` agent isn't
+  registered when the session starts in `/home/coder/code`; used a
+  general-purpose agent with its instructions. Default Playwright browser
+  path lacks the headless shell 1248: run e2e with
+  `PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright`.
+
 ## 2026-10-08 — „Neue Version verfügbar“ banner (ADR-0035)
 
 - Port of the Haushalt feature (its ADR-0012): after a deploy a phone kept

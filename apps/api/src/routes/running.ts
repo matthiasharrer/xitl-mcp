@@ -10,6 +10,12 @@
 //                       (ADR-0033), oldest first }. No arguments,
 //                       no credentials: names, scope, times and the human's
 //                       "Wofür?" only.
+//   POST   /pauses/:id/resume
+//                     ADR-0029 amendment: "Fortsetzen" of an interrupted
+//                     Zeitfreigabe of the caller (still interrupted and live;
+//                     the anchor stays, held calls are NOT settled). Anything
+//                     else (Sperre, active, expired, unknown, foreign) -> 404.
+//                     -> the GET body
 //   DELETE /pauses    "Alle beenden": ends every Zeitfreigabe and Sperre of the
 //                       caller (paused accesses and upstreams stay; they are
 //                       resumed one by one via PATCH /api/mcp/clients/:id and
@@ -22,6 +28,7 @@ import { prisma } from '../db.js';
 import type { AppEnv } from '../identity.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { pauseEvents as defaultEvents, type PauseEvents } from '../lib/pauseEvents.js';
+import { resumeAllowPauses } from '../approval/snooze.js';
 
 export function makeRunningRoutes(clock: Clock = systemClock, events: PauseEvents = defaultEvents) {
   const r = new Hono<AppEnv>();
@@ -31,8 +38,7 @@ export function makeRunningRoutes(clock: Clock = systemClock, events: PauseEvent
     await next();
   });
 
-  r.get('/', async (c) => {
-    const userId = c.get('user').id;
+  async function view(userId: number) {
     const now = clock.now();
     const [rows, clients, upstreams] = await Promise.all([
       prisma.snooze.findMany({
@@ -46,6 +52,7 @@ export function makeRunningRoutes(clock: Clock = systemClock, events: PauseEvent
           createdAt: true,
           purpose: true,
           purposeSource: true,
+          suspendedAt: true,
           upstream: { select: { id: true, name: true } },
           mcpClient: { select: { id: true, name: true } },
         },
@@ -62,7 +69,7 @@ export function makeRunningRoutes(clock: Clock = systemClock, events: PauseEvent
         orderBy: [{ pausedAt: 'asc' }, { id: 'asc' }],
       }),
     ]);
-    return c.json({
+    return {
       pauses: rows.map((p) => ({
         id: p.id,
         // Anything but exactly ALLOW is a Sperre (snooze.ts isAllow).
@@ -75,10 +82,25 @@ export function makeRunningRoutes(clock: Clock = systemClock, events: PauseEvent
         createdAt: p.createdAt.toISOString(),
         purpose: p.purpose,
         purposeSource: p.purpose ? (p.purposeSource === 'suggested' ? 'suggested' : 'typed') : null,
+        // ADR-0029 amendment: interrupted by the KI-Prüfung (null = active).
+        suspendedAt: p.suspendedAt?.toISOString() ?? null,
       })),
       paused: clients.map((cl) => ({ id: cl.id, name: cl.name, pausedAt: cl.pausedAt!.toISOString() })),
       pausedUpstreams: upstreams.map((u) => ({ id: u.id, name: u.name, pausedAt: u.pausedAt!.toISOString() })),
-    });
+    };
+  }
+
+  r.get('/', async (c) => c.json(await view(c.get('user').id)));
+
+  r.post('/pauses/:id/resume', async (c) => {
+    const userId = c.get('user').id;
+    const id = Number(c.req.param('id'));
+    if (!Number.isSafeInteger(id) || id <= 0) return c.json({ error: 'Nicht gefunden.' }, 404);
+    // Only the caller's interrupted, live ALLOW rows (resumeAllowPauses
+    // filters); the anchor stays. Emits `running` itself.
+    const resumed = await resumeAllowPauses(userId, [id], clock.now());
+    if (resumed.length === 0) return c.json({ error: 'Nicht gefunden.' }, 404);
+    return c.json(await view(userId));
   });
 
   r.delete('/pauses', async (c) => {

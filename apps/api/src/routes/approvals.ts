@@ -34,7 +34,11 @@
 //                     the human's optional purpose (ADR-0029 amendment);
 //                     deny + snooze: deny pause, scope tool | upstream only
 //                     (ADR-0026; readonly -> 400)
-//                     -> 200 { state }, 404 unknown/foreign, 409 no longer open
+//                     resumePause?: true (ADR-0029 amendment, approve only,
+//                     no duration/scope/purpose, only on a call whose
+//                     mismatch interrupted a Zeitfreigabe; else 400):
+//                     "Erlauben & fortsetzen", anchored on this call
+//                     -> 200 { state, resumed? }, 404 unknown/foreign, 409 no longer open
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
@@ -79,6 +83,10 @@ const decisionSchema = z
     /** TC-173: the purpose was typed, or is an AI suggestion the human
      * tapped (display only; never on a Sperre, never without a purpose). */
     purposeSource: z.enum(['typed', 'suggested']).optional(),
+    /** ADR-0029 amendment: "Erlauben & fortsetzen": approve AND resume the
+     * Zeitfreigaben this call's mismatch interrupted (approve only, never
+     * with a duration, scope or purpose). */
+    resumePause: z.boolean().optional(),
   })
   .strict();
 
@@ -379,6 +387,19 @@ export function makeApprovalRoutes(
     if (body.snoozeScope === 'readonly' && !pending.readOnly) {
       return c.json({ error: '„Alle Lesetools“ geht nur bei einem Lesetool.' }, 400);
     }
+    // ADR-0029 amendment: resume only what THIS call's mismatch interrupted
+    // (ids kept on the held call, never taken from the request). Fail closed.
+    let resumable = 0;
+    if (body.resumePause === true) {
+      if (body.decision !== 'approve') return c.json({ error: 'Fortsetzen geht nur zusammen mit Erlauben.' }, 400);
+      if (wantsSnooze || body.snoozeScope !== undefined || purpose || body.purposeSource !== undefined) {
+        return c.json({ error: 'Fortsetzen übernimmt die unterbrochene Zeitfreigabe; Dauer, Umfang und „Wofür?“ gibt es dabei nicht.' }, 400);
+      }
+      const ids = pending.pauseCheck?.result === 'mismatch' ? (pending.interruptedPauseIds ?? []) : [];
+      if (ids.length === 0) return c.json({ error: 'Hier gibt es keine unterbrochene Zeitfreigabe.' }, 400);
+      // For the response only; the proxy re-reads the rows when it resumes.
+      resumable = await prisma.snooze.count({ where: { userId, id: { in: ids }, effect: 'ALLOW', suspendedAt: { not: null }, until: { gt: clock.now() } } });
+    }
     const until = snoozeUntil(clock.now(), body);
     const snoozeScope = body.snoozeScope === 'upstream' ? 'UPSTREAM' : body.snoozeScope === 'readonly' ? 'READONLY' : 'TOOL';
 
@@ -390,7 +411,7 @@ export function makeApprovalRoutes(
     const checkedByProxy = body.decision === 'approve' && until !== null && (await gate.active(userId));
     const result =
       body.decision === 'approve'
-        ? hub.decide(userId, id, { kind: 'approve', via: body.via, snoozeUntil: until, snoozeScope, purpose, purposeSource: purpose ? (body.purposeSource ?? 'typed') : null })
+        ? hub.decide(userId, id, { kind: 'approve', via: body.via, snoozeUntil: until, snoozeScope, purpose, purposeSource: purpose ? (body.purposeSource ?? 'typed') : null, resume: body.resumePause === true })
         : hub.decide(userId, id, { kind: 'deny', via: body.via, pauseUntil: until, pauseScope: snoozeScope === 'UPSTREAM' ? 'UPSTREAM' : 'TOOL', purpose });
     // Lost the race against the deadline / another device between get and decide.
     if (result !== 'ok') return c.json(GONE, 409);
@@ -409,7 +430,13 @@ export function makeApprovalRoutes(
         if (r === 'ok') alsoDecided++;
       }
     }
-    return c.json({ id, state: body.decision === 'approve' ? 'approved' : 'denied', snoozeUntil: until?.toISOString() ?? null, alsoDecided });
+    return c.json({
+      id,
+      state: body.decision === 'approve' ? 'approved' : 'denied',
+      snoozeUntil: until?.toISOString() ?? null,
+      alsoDecided,
+      ...(body.resumePause === true ? { resumed: resumable } : {}),
+    });
   });
 
   return r;

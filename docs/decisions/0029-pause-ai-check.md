@@ -168,3 +168,49 @@ Decided by Matthias after the bench (`scripts/bench/qwen_purpose_suggest.py`).
 - "Läuft gerade" (Freigaben page) lists every Zeitfreigabe, Sperre and paused
   access of the user across upstreams; "Alle beenden" ends Zeitfreigaben and
   Sperren only, never resumes a paused access.
+
+## Amendment 2026-10-15: a mismatch interrupts the Zeitfreigabe, it can be resumed
+
+Decided by Matthias (2026-10-15; roadmap "Resume a Zeitfreigabe ended by the
+KI-Prüfung"). Replaces "end the pause" in §4 and §6. A mismatch used to delete
+the row, so "Wofür?", scope and remaining time were gone, and approving the
+held call meant typing everything again.
+
+- **Interrupted, not deleted.** On a mismatch every *live, not yet
+  interrupted* allow pause of this access on this upstream gets
+  `Snooze.suspendedAt` = now (same set as before: all of them, not only the
+  matched row). UI word: **"unterbrochen"** ("pausiert" stays reserved for a
+  paused access, ADR-0024). Card and push: "KI-Prüfung: weicht ab
+  (Richtungswechsel) – Zeitfreigabe unterbrochen".
+- **An interrupted pause lets nothing through.** The single loader of live
+  pauses (`approval/snooze.ts` `liveRows`, used by the policy, the tools/list
+  stamp and the Sperre lookup) reads only rows with `suspendedAt` null, and so
+  does `settleCovered`'s liveness check. So the security argument of §1 holds
+  unchanged: after a swerve, every call is asked until the human acts (the
+  rejected alternative "mismatch holds the call but keeps the pause" stays
+  rejected). Sperren are never interrupted.
+- **Time keeps running** (as ADR-0024's paused access): `until` never moves; a
+  pause that expires while interrupted is gone. Resuming never extends it.
+- **Resume, two ways, both only via `/api` (Authelia), never via MCP:**
+  1. **On the held mismatch card: "Erlauben & fortsetzen"** (`POST
+     /api/approvals/:id { decision: 'approve', resumePause: true }`, no
+     duration/scope/purpose allowed with it → 400; only on a call whose
+     `pauseCheck` is a mismatch that interrupted something → else 400). The
+     ids it interrupted are kept on the in-memory held call (server-side,
+     never sent to a client). Approving resumes those rows that are still
+     interrupted and live, and **sets their anchor to the approved call**
+     (Matthias: what the human just accepted becomes the reference; the
+     purpose stays). Then, like a new grant (§6), the resumed pause settles
+     the covered held calls through the check. Rows that expired or were
+     ended meanwhile: the call is approved, nothing is resumed.
+     Not on the lock-screen action (that stays a plain "Erlauben").
+  2. **"Läuft gerade": "Fortsetzen"** on an interrupted Zeitfreigabe (`POST
+     /api/running/pauses/:id/resume`), for "deny the stray call, let the
+     agent carry on with the original task". The anchor stays; held calls
+     are **not** settled (the stray call would be re-checked and interrupt it
+     again at once); they wait for the human. "Beenden" works as before.
+- **"Nur erlauben" / "Ablehnen"** on the card decide the call only; the pause
+  stays interrupted until resumed, ended or expired.
+- A resumed pause that mismatches again is interrupted again (a new card).
+- Data: `Snooze.suspendedAt DateTime?` (null = active). `GET /api/running` and
+  the upstream's pause list carry `suspendedAt`.

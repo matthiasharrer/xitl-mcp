@@ -13,19 +13,19 @@
 //     request with a timeout
 //       p(gleich) ≥ threshold                          -> match
 //       below                                          -> mismatch: every
-//         allow pause of this access on this upstream is deleted here (same
-//         effect as "Beenden" in the UI, which emits no event either)
+//         live allow pause of this access on this upstream is INTERRUPTED
+//         here (`suspendedAt`, ADR-0029 amendment 2026-10-15): it lets
+//         nothing through until the human resumes it via /api
 //       HTTP error, timeout, garbage, anchor row gone  -> error (fail closed:
 //         the caller holds the call; the pause stays); a model failure also
 //         raises the outage notice (outage.ts), a success clears it.
 // `serial` runs one access's checks strictly in order (ADR-0029 §8), so the
 // "calls since" a check sees include every call checked before it.
 import { prisma } from '../db.js';
-import { pauseEvents } from '../lib/pauseEvents.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { PAUSE_CHECK_MAX_SINCE } from '../lib/limits.js';
 import type { DecisionPath, PolicyDecision } from '../lib/policy.js';
-import type { MatchedAllowPause } from '../approval/snooze.js';
+import { suspendAllowPauses, type MatchedAllowPause } from '../approval/snooze.js';
 import { verdict, type Deviation, type PauseCheckConfig } from './check.js';
 import { buildState, purposeText, type CheckCall } from './prompt.js';
 import { PauseCheckOutage } from './outage.js';
@@ -33,7 +33,14 @@ import { PauseCheckOutage } from './outage.js';
 export type GateResult =
   | { kind: 'blind' }
   | { kind: 'match'; score: number; choice: 'gleich' }
-  | { kind: 'mismatch'; score: number; choice: Deviation }
+  | {
+      kind: 'mismatch';
+      score: number;
+      choice: Deviation;
+      /** ADR-0029 amendment: the Snooze ids interrupted by this mismatch
+       * (empty when none was live any more), and what the card shows. */
+      interrupted?: { ids: number[]; until: Date; purpose: string | null };
+    }
   | { kind: 'error' };
 
 /** The decision after the check. Pure. Narrows only: anything but an ALLOW
@@ -173,16 +180,16 @@ export class PauseGate {
     if (result.kind === 'mismatch') {
       try {
         // ADR-0029 (Matthias: "stop the pause altogether"): once the agent has
-        // swerved, every allow pause of THIS access on THIS upstream ends, not
-        // only the matched row; another covering one would let the next call
-        // through. Deny pauses (Sperren) and other accesses stay.
-        await prisma.snooze.deleteMany({
-          where: { userId: input.userId, mcpClientId: input.mcpClientId, upstreamId: input.upstreamId, effect: 'ALLOW' },
-        });
-        pauseEvents.emit({ userId: input.userId });
+        // swerved, every allow pause of THIS access on THIS upstream stops
+        // letting calls through, not only the matched row; another covering
+        // one would let the next call through. Since the 2026-10-15
+        // amendment they are interrupted, not deleted, so the human can
+        // resume them. Deny pauses (Sperren) and other accesses stay.
+        const ids = await suspendAllowPauses({ userId: input.userId, mcpClientId: input.mcpClientId, upstreamId: input.upstreamId }, this.clock.now());
+        if (ids.length > 0) result = { ...result, interrupted: { ids, until: input.pause.until, purpose: input.pause.purpose ?? null } };
       } catch (e) {
         // The call is held all the same; the next call is checked again.
-        console.warn(`pause check: pause not ended: ${e instanceof Error ? e.name : 'unknown'}`);
+        console.warn(`pause check: pause not interrupted: ${e instanceof Error ? e.name : 'unknown'}`);
       }
     }
     return result;

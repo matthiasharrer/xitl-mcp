@@ -254,6 +254,12 @@ model Snooze {
   /// only, never a Sperre). NULL without a purpose. Display only ("(Vorschlag)"),
   /// the check treats both alike.
   purposeSource String?
+  /// ADR-0029 amendment (2026-10-15): set when the AI check found a mismatch
+  /// ("unterbrochen"). An interrupted row lets NOTHING through: every live
+  /// lookup (approval/snooze.ts liveRows) reads only rows where this is null.
+  /// Cleared only by the human via /api ("Erlauben & fortsetzen" on the held
+  /// card, "Fortsetzen" in Läuft gerade). `until` keeps running meanwhile.
+  suspendedAt   DateTime?
 
   @@index([userId, upstreamId, toolName, mcpClientId])
 }

@@ -15,6 +15,9 @@ export interface PauseCheckView {
   result: 'mismatch' | 'error';
   choice: 'richtungswechsel' | 'ausweitung' | null;
   score: number | null;
+  /** ADR-0029 amendment: the Zeitfreigabe this mismatch interrupted (offers
+   * "Erlauben & fortsetzen"); absent = nothing to resume. */
+  interrupted?: { until: string; purpose: string | null };
 }
 
 /** ADR-0029: the user's AI check outage ("KI-Prüfung nicht erreichbar"). */
@@ -29,7 +32,7 @@ const DEVIATION_LABEL: Record<string, string> = { richtungswechsel: 'Richtungswe
 export function pauseCheckNote(v: PauseCheckView): string {
   if (v.result === 'mismatch') {
     const label = v.choice ? DEVIATION_LABEL[v.choice] : null;
-    return `KI-Prüfung: weicht ab${label ? ` (${label})` : ''} – Zeitfreigabe beendet`;
+    return `KI-Prüfung: weicht ab${label ? ` (${label})` : ''} – Zeitfreigabe unterbrochen`;
   }
   return 'KI-Prüfung nicht erreichbar';
 }
@@ -81,14 +84,14 @@ function score2(n: number): string {
 }
 
 /** Verlauf detail line: "KI-Prüfung: passt (0,95)", "KI-Prüfung: weicht ab
- * (Richtungswechsel, 0,10) – Zeitfreigabe beendet", "KI-Prüfung nicht
+ * (Richtungswechsel, 0,10) – Zeitfreigabe unterbrochen", "KI-Prüfung nicht
  * erreichbar", or null when the call was not checked. */
 export function pauseCheckLine(e: { decisionPath: string; pauseCheckScore: number | null; pauseCheckChoice: string | null }): string | null {
   if (e.decisionPath.split('+').includes('snooze-ki-error')) return 'KI-Prüfung nicht erreichbar';
   if (e.pauseCheckScore === null || e.pauseCheckChoice === null) return null;
   if (e.pauseCheckChoice === 'gleich') return `KI-Prüfung: passt (${score2(e.pauseCheckScore)})`;
   const label = DEVIATION_LABEL[e.pauseCheckChoice] ?? 'abweichend';
-  return `KI-Prüfung: weicht ab (${label}, ${score2(e.pauseCheckScore)}) – Zeitfreigabe beendet`;
+  return `KI-Prüfung: weicht ab (${label}, ${score2(e.pauseCheckScore)}) – Zeitfreigabe unterbrochen`;
 }
 
 export type Policy = 'ALLOW' | 'ASK' | 'DENY' | 'AUTO';
@@ -351,7 +354,9 @@ export type ApprovalDecision =
       purpose?: string;
       /** TC-173: "suggested" = a tapped AI chip (Zeitfreigabe only). */
       purposeSource?: 'typed' | 'suggested';
-    };
+    }
+  /** ADR-0029 amendment: "Erlauben & fortsetzen" (never with a duration). */
+  | { decision: 'approve'; resumePause: true };
 
 /** An active pause on an upstream (ADR-0026, TC-124): allow or deny. */
 export interface Pause {
@@ -367,6 +372,8 @@ export interface Pause {
   purpose?: string | null;
   /** TC-173: "suggested" = a tapped AI suggestion ("(Vorschlag)"). */
   purposeSource?: 'typed' | 'suggested' | null;
+  /** ADR-0029 amendment: interrupted by the KI-Prüfung (null = active). */
+  suspendedAt?: string | null;
 }
 
 /** "Läuft gerade" (TC-178…183): the user's live Zeitfreigaben/Sperren across
@@ -382,6 +389,8 @@ export interface RunningPause {
   createdAt: string;
   purpose: string | null;
   purposeSource: 'typed' | 'suggested' | null;
+  /** ADR-0029 amendment: interrupted by the KI-Prüfung (null = active). */
+  suspendedAt: string | null;
 }
 export interface Running {
   pauses: RunningPause[];
@@ -542,11 +551,13 @@ export const api = {
   liftPause: (id: number, pauseId: number) => request<Pause[]>('DELETE', `/api/upstreams/${id}/snoozes/${pauseId}`),
   getRunning: () => request<Running>('GET', '/api/running'),
   endAllPauses: () => request<{ ended: number }>('DELETE', '/api/running/pauses'),
+  /** ADR-0029 amendment: "Fortsetzen" of an interrupted Zeitfreigabe. */
+  resumePause: (id: number) => request<Running>('POST', `/api/running/pauses/${id}/resume`),
   listApprovals: () => request<PendingApproval[]>('GET', '/api/approvals'),
   listUpstreamFaults: () => request<UpstreamFault[]>('GET', '/api/upstreams/faults'),
   getApproval: (id: string) => request<PendingApproval | ResolvedApproval>('GET', `/api/approvals/${encodeURIComponent(id)}`),
   decideApproval: (id: string, d: ApprovalDecision) =>
-    request<{ id: string; state: 'approved' | 'denied'; snoozeUntil: string | null; alsoDecided?: number }>('POST', `/api/approvals/${encodeURIComponent(id)}`, {
+    request<{ id: string; state: 'approved' | 'denied'; snoozeUntil: string | null; alsoDecided?: number; resumed?: number }>('POST', `/api/approvals/${encodeURIComponent(id)}`, {
       ...d,
       via: 'page',
     }),
@@ -608,7 +619,7 @@ const PATH_PART: Record<string, string> = {
   snooze: 'Zeitfreigabe, ohne Nachfrage',
   'snooze-deny': 'gesperrt (Ablehnen und nicht mehr fragen)',
   ki: 'KI-Prüfung: passt',
-  'snooze-ki-mismatch': 'Zeitfreigabe, KI-Prüfung: weicht ab – Zeitfreigabe beendet',
+  'snooze-ki-mismatch': 'Zeitfreigabe, KI-Prüfung: weicht ab – Zeitfreigabe unterbrochen',
   'snooze-ki-error': 'Zeitfreigabe, KI-Prüfung nicht erreichbar',
   'approved:page': 'erlaubt in der App',
   'approved:push': 'erlaubt per Benachrichtigung',

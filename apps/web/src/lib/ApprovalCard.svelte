@@ -72,6 +72,29 @@
       `Abgelehnt, ${label} gesperrt: ${denyScopeText}${fromChip ? ' (ohne KI-Vorschlag als Zweck)' : ''}`,
     );
 
+  /** ADR-0029 amendment: the Zeitfreigabe this call's mismatch interrupted
+   * ("Erlauben & fortsetzen"); null when there is nothing to resume. */
+  const interrupted = $derived(approval.pauseCheck?.result === 'mismatch' ? (approval.pauseCheck.interrupted ?? null) : null);
+  const interruptedLeft = $derived(interrupted ? Math.max(0, Math.ceil((new Date(interrupted.until).getTime() - now) / 60000)) : 0);
+  const resumable = $derived(interrupted !== null && interruptedLeft > 0);
+  async function resume() {
+    busy = true;
+    try {
+      const res = await api.decideApproval(approval.id, { decision: 'approve', resumePause: true });
+      showToast(res.resumed ? 'Erlaubt, Zeitfreigabe läuft weiter' : 'Erlaubt – die Zeitfreigabe war schon abgelaufen oder beendet');
+      ondone?.(approval.id, res.state);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 409 || e.status === 404)) {
+        showToast('Diese Freigabe ist nicht mehr offen.', { error: true });
+        ondone?.(approval.id, 'gone');
+      } else {
+        showToast(messageOf(e), { error: true });
+      }
+    } finally {
+      busy = false;
+    }
+  }
+
   const argsText = $derived.by(() => {
     try {
       return JSON.stringify(approval.arguments, null, 2) ?? '';
@@ -128,6 +151,11 @@
     <p class="pause-check-note" class:mismatch={approval.pauseCheck.result === 'mismatch'} data-pause-check={approval.pauseCheck.result}>
       {pauseCheckNote(approval.pauseCheck)}
     </p>
+    {#if interrupted}
+      <p class="hint interrupted-line" data-testid="interrupted-line">
+        {resumable ? `unterbrochen · noch ${interruptedLeft} Min.` : 'inzwischen abgelaufen'}{interrupted.purpose ? ` · „${interrupted.purpose}“` : ''}
+      </p>
+    {/if}
   {/if}
   {#if approval.sperreCheck}
     <!-- ADR-0026 amendment: outside the Sperre's purpose, so asked. -->
@@ -170,12 +198,17 @@
     <pre class="args" aria-label="Argumente">{argsText}</pre>
   {/if}
 
+  {#if resumable}
+    <!-- ADR-0029 amendment: approve and let the interrupted Zeitfreigabe run
+         on (same end, same "Wofür?"; this call becomes the reference). -->
+    <button type="button" class="btn primary resume-btn" disabled={busy || expired} onclick={resume}>Erlauben & fortsetzen</button>
+  {/if}
   <div class="decide-row">
     <button type="button" class="btn danger-outline" disabled={busy || expired} onclick={() => decide({ decision: 'deny' }, 'Abgelehnt')}>
       Ablehnen
     </button>
-    <button type="button" class="btn primary" disabled={busy || expired} onclick={() => decide({ decision: 'approve' }, 'Erlaubt')}>
-      Erlauben
+    <button type="button" class="btn" class:primary={!resumable} disabled={busy || expired} onclick={() => decide({ decision: 'approve' }, 'Erlaubt')}>
+      {resumable ? 'Nur erlauben' : 'Erlauben'}
     </button>
   </div>
   <!-- ADR-0029/0026 amendment: one optional "Wofür?" for whichever
@@ -402,5 +435,13 @@
   }
   .pause-check-note.mismatch {
     border-color: var(--danger);
+  }
+  .interrupted-line {
+    margin: -0.25rem 0 0.5rem;
+    overflow-wrap: anywhere;
+  }
+  .resume-btn {
+    width: 100%;
+    margin-bottom: 0.5rem;
   }
 </style>

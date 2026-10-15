@@ -35,7 +35,8 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
                          /pauses = "Alle beenden" (every Snooze of the
                          caller; paused accesses and upstreams stay). Changes are announced
                          by lib/pauseEvents.ts (emitted in createSnooze, the
-                         snooze DELETE, the ADR-0029 mismatch deletion,
+                         snooze DELETE, the ADR-0029 mismatch interruption
+                         and resume (snooze.ts suspend/resumeAllowPauses),
                          access pause/resume/delete, upstream pause/resume,
                          upstream URL change / delete, tool change / prune)
                          as the payload-free `running` event on the approval
@@ -373,23 +374,35 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
     client and upstream, outcome FORWARDED / UPSTREAM_ERROR / PENDING, newest
     `PAUSE_CHECK_MAX_SINCE` = 8, oldest first) + the new call.
   `narrow()` (pure) maps the result: match → ALLOW `snooze+ki`; mismatch →
-  the Snooze row is deleted (no event, like "Aufheben") and ASK
-  `snooze-ki-mismatch`; error/timeout/garbage/anchor row gone → ASK
+  every live ALLOW row of this access on this upstream is **interrupted**
+  (`Snooze.suspendedAt`, `suspendAllowPauses`, emits `running`; ADR-0029
+  amendment 2026-10-15) and ASK `snooze-ki-mismatch`; error/timeout/garbage/anchor row gone → ASK
   `snooze-ki-error`, pause kept; blind → unchanged `snooze`. It never turns
   anything else into ALLOW. The audit row then gets `pauseCheckScore`
   (p(gleich)), `pauseCheckChoice` (`gleich` or the stronger deviation) and,
   for an ALLOW via a pause, `pauseSnoozeId`. A held mismatch/error call
-  carries `PendingCall.pauseCheck` (card note, push `note`).
+  carries `PendingCall.pauseCheck` (card note, push `note`; on a mismatch
+  also `interrupted` {until, purpose} for display) and, server-side only,
+  `PendingCall.interruptedPauseIds`.
+  - **Interrupted rows are not live:** `liveRows` (the one loader behind
+    `livePauses` / `liveSnoozesFor`, i.e. policy, tools/list stamp, Sperre
+    lookup) and `settleCovered`'s liveness check read only `suspendedAt`
+    null. `until` keeps running. Resume only via /api: approve with
+    `resumePause` (Decision `resume` = the held call's ids → server.ts
+    `resumeAllowPauses(…, anchor = this call)` → `settleCovered` per resumed
+    row) or `POST /api/running/pauses/:id/resume` (anchor kept, held calls
+    not settled).
   - **Which pause "matched":** `pauseState().allow` (snooze.ts
     `matchedAllow`): of the live ALLOW rows covering the call, the one with
-    the latest `until`, ties → highest id. A mismatch ends that row only;
-    another blind/covering row can still let the next call through.
+    the latest `until`, ties → highest id. A mismatch interrupts every
+    live allow row of the access on the upstream, not only this one (a
+    second covering row would otherwise let the next call through).
   - **Settle path (TC-128 + ADR-0029 §6):** when the user's check is active
     at decision time, the approvals route does NOT settle covered held calls;
     server.ts does, right after `createSnooze` (anchor = the approved call),
     in `settleCovered`, in hub order under the same serial lock: match/blind
     → `pauseSnoozeId` (+ score) on the row, then `decide(approve, via
-    'pause')`; mismatch → score on the row, pause deleted, `setPauseCheck`
+    'pause')`; mismatch → score on the row, pause interrupted, `setPauseCheck`
     (SSE `checked`), stop; error → `setPauseCheck`, stop. The response's
     `alsoDecided` is then 0.
   - **Outage** (`outage.ts`, in memory): a model failure marks the user

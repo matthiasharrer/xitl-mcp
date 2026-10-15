@@ -75,9 +75,9 @@ describe('ADR-0029: why a paused call is asked after all', () => {
   const base = { id: 'abcdefghijklmnopqrstuv', upstreamName: 'Haushalt', toolName: 'archive_task', args: {}, deadline: new Date('2026-10-07T12:05:00Z') };
   test('mismatch / error carry the fixed German note; unchecked calls none', () => {
     expect(approvalMessage({ ...base, pauseCheck: { result: 'mismatch', choice: 'richtungswechsel', score: 0.1 } }).note).toBe(
-      'KI-Prüfung: weicht ab (Richtungswechsel) – Zeitfreigabe beendet',
+      'KI-Prüfung: weicht ab (Richtungswechsel) – Zeitfreigabe unterbrochen',
     );
-    expect(approvalMessage({ ...base, pauseCheck: { result: 'mismatch', choice: 'ausweitung', score: 0.2 } }).note).toBe('KI-Prüfung: weicht ab (Ausweitung) – Zeitfreigabe beendet');
+    expect(approvalMessage({ ...base, pauseCheck: { result: 'mismatch', choice: 'ausweitung', score: 0.2 } }).note).toBe('KI-Prüfung: weicht ab (Ausweitung) – Zeitfreigabe unterbrochen');
     expect(approvalMessage({ ...base, pauseCheck: { result: 'error', choice: null, score: null } }).note).toBe('KI-Prüfung nicht erreichbar');
     expect(approvalMessage(base)).not.toHaveProperty('note');
   });

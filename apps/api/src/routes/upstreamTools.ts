@@ -426,6 +426,8 @@ async function pausesView(upstreamId: number, userId: number) {
     purpose: r.purpose,
     // TC-173: "typed" | "suggested" (an AI suggestion the human tapped).
     purposeSource: r.purpose ? (r.purposeSource === 'suggested' ? 'suggested' : 'typed') : null,
+    // ADR-0029 amendment: interrupted by the KI-Prüfung (null = active).
+    suspendedAt: r.suspendedAt?.toISOString() ?? null,
   }));
 }
 

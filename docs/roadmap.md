@@ -5,7 +5,7 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-07 (`v0.13.1` released)_
+_Last updated: 2026-10-15 (resume an interrupted Zeitfreigabe built, unreleased)_
 
 ## Next
 
@@ -49,19 +49,6 @@ chips, "Läuft gerade" overview). Deployed: whatever Matthias last bumped
 8. MG-05 (Tina), whenever convenient.
 
 **Next, after ADR-0032…0034 (Matthias, 2026-10-07):**
-
-- **Resume a Zeitfreigabe ended by the KI-Prüfung** (Matthias, 2026-10-07).
-  Today a mismatch (ADR-0029) ends the pause, and its "Wofür?" purpose,
-  scope and remaining time are gone. Approving the held call means typing
-  everything again. Idea: the card of a mismatch-held call offers
-  "Erlauben und Zeitfreigabe fortsetzen". It approves the call and creates a
-  new pause with the same scope, purpose (+ source) and the original `until`
-  (never longer). The approved call becomes the new anchor, so Clef judges
-  later calls against what the user just accepted. Also offer it in the
-  Verlauf detail of the call that ended the pause? Needs: keep the ended
-  pause's fields (it's deleted today, or mark it `endedAt` + reason), and an
-  amendment to ADR-0029. Matthias confirmed (2026-10-07): it's about the
-  "Wofür?" purpose of the Zeitfreigabe.
 
 - **"Richtungswechsel" blocks too often** (Matthias, 2026-10-07: "sehr
   häufig" right now, in real use). First collect his real cases: audit rows

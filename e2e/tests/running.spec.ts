@@ -206,11 +206,11 @@ test.describe('TC-181 Live und Ablauf', () => {
       await step('alle beendet', () => request.delete('/api/running/pauses', { headers: ctx.user }));
       await step('Zugang pausiert', () => pauseClient(request, ctx, ctx.B.id, true));
       await step('Zugang fortgesetzt', () => pauseClient(request, ctx, ctx.B.id, false));
-      // ADR-0029: the AI check ends the Zeitfreigabe on a mismatch.
+      // ADR-0029 (amended 2026-10-15): the AI check interrupts the Zeitfreigabe on a mismatch.
       await step('erneut angelegt', () => grantAllow(request, ctx));
       await step('KI-Abbruch', async () => {
         const c = startCall(request, ctx.up.slug, ctx.A.token, 'add_item', { item: 'B', __check: 'wechsel:0.9' });
-        await expect.poll(() => snoozes(ctx).length, { timeout: 6000 }).toBe(0);
+        await expect.poll(() => snoozes(ctx).filter((s) => s.suspendedAt === null).length, { timeout: 6000 }).toBe(0);
         const p = await heldOf(request, ctx, 'add_item');
         await decide(request, p.id, { decision: 'deny' }, ctx.user);
         await c;
@@ -256,7 +256,7 @@ test.describe('TC-182 Sicherheit (fail closed)', () => {
     expect(JSON.stringify(ra)).not.toContain(b.up.name);
     expect(rb.pauses.every((p: any) => p.upstream.id === b.up.id)).toBe(true);
     // Payload: names, scope, times, purpose only.
-    expect(Object.keys(ra.pauses[0]).sort()).toEqual(['client', 'createdAt', 'effect', 'id', 'purpose', 'purposeSource', 'scope', 'toolName', 'until', 'upstream']);
+    expect(Object.keys(ra.pauses[0]).sort()).toEqual(['client', 'createdAt', 'effect', 'id', 'purpose', 'purposeSource', 'scope', 'suspendedAt', 'toolName', 'until', 'upstream']);
     expect(Object.keys(ra.pauses[0].upstream).sort()).toEqual(['id', 'name']);
     expect(Object.keys(ra.pauses[0].client).sort()).toEqual(['id', 'name']);
     expect(Object.keys(ra.paused[0]).sort()).toEqual(['id', 'name', 'pausedAt']);

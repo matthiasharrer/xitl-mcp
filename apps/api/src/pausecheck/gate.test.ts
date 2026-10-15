@@ -1,6 +1,6 @@
 // ADR-0029 gate: `narrow` can only narrow (TC-141), `evaluate` stays blind when
 // off / unanchored / switched off (TC-142, TC-146), fails closed on errors
-// (TC-140), ends the pause on a mismatch (TC-138), scopes "calls since" to
+// (TC-140), interrupts (never deletes) the pause on a mismatch (TC-138/TC-217), scopes "calls since" to
 // this pause, user, client and upstream (TC-144), and `serial` keeps order.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -8,11 +8,13 @@ const userFind = vi.fn();
 const auditFindFirst = vi.fn();
 const auditFindMany = vi.fn();
 const snoozeDelete = vi.fn();
+const snoozeFind = vi.fn();
+const snoozeUpdate = vi.fn();
 vi.mock('../db.js', () => ({
   prisma: {
     user: { findUnique: userFind },
     auditEntry: { findFirst: auditFindFirst, findMany: auditFindMany },
-    snooze: { deleteMany: snoozeDelete },
+    snooze: { deleteMany: snoozeDelete, findMany: snoozeFind, updateMany: snoozeUpdate },
   },
 }));
 
@@ -46,6 +48,8 @@ beforeEach(() => {
     { toolName: 'add_item', arguments: '{"item":"B1"}', upstream: { name: 'Haushalt' } },
   ]);
   snoozeDelete.mockResolvedValue({ count: 1 });
+  snoozeFind.mockResolvedValue([{ id: 42 }, { id: 43 }]);
+  snoozeUpdate.mockResolvedValue({ count: 2 });
 });
 
 describe('narrow (TC-141: the check only narrows)', () => {
@@ -109,10 +113,26 @@ describe('PauseGate.evaluate', () => {
     expect(snoozeDelete).not.toHaveBeenCalled();
   });
 
-  it('TC-138: mismatch ends exactly this pause (user-scoped)', async () => {
+  it('TC-138/TC-217: mismatch interrupts every live allow pause of this access on this upstream (user-scoped), never deletes', async () => {
+    const { check } = fakeCheck(async () => answer(0.1, 0.85, 0.05));
+    const until = new Date(Date.UTC(2026, 9, 7, 13));
+    expect(await new PauseGate(config(check), quiet).evaluate(input())).toEqual({
+      kind: 'mismatch',
+      score: 0.1,
+      choice: 'richtungswechsel',
+      interrupted: { ids: [42, 43], until, purpose: null },
+    });
+    const where = { userId: 1, mcpClientId: 10, upstreamId: 5, effect: 'ALLOW', suspendedAt: null, until: { gt: expect.any(Date) } };
+    expect(snoozeFind).toHaveBeenCalledWith({ where, select: { id: true } });
+    expect(snoozeUpdate).toHaveBeenCalledWith({ where: { ...where, id: { in: [42, 43] } }, data: { suspendedAt: expect.any(Date) } });
+    expect(snoozeDelete).not.toHaveBeenCalled();
+  });
+
+  it('TC-217: mismatch with no live pause left interrupts nothing (no resume offered)', async () => {
+    snoozeFind.mockResolvedValue([]);
     const { check } = fakeCheck(async () => answer(0.1, 0.85, 0.05));
     expect(await new PauseGate(config(check), quiet).evaluate(input())).toEqual({ kind: 'mismatch', score: 0.1, choice: 'richtungswechsel' });
-    expect(snoozeDelete).toHaveBeenCalledWith({ where: { userId: 1, mcpClientId: 10, upstreamId: 5, effect: 'ALLOW' } });
+    expect(snoozeUpdate).not.toHaveBeenCalled();
   });
 
   it('TC-140: rejection, timeout, missing anchor -> error; the pause stays; outage raised and cleared by the next success', async () => {
@@ -134,6 +154,7 @@ describe('PauseGate.evaluate', () => {
     expect(await g.evaluate(input())).toEqual({ kind: 'error' });
     expect(events).toHaveLength(1); // one outage, one start event
     expect(snoozeDelete).not.toHaveBeenCalled();
+    expect(snoozeUpdate).not.toHaveBeenCalled(); // the pause stays active
     mode = 'ok';
     expect((await g.evaluate(input())).kind).toBe('match');
     expect(g.outage.since(1)).toBeNull();

@@ -3,6 +3,15 @@
 Shipped roadmap entries, newest first. The reasoning is in `decisions/`, the
 test evidence in `testing.md`'s run log.
 
+## 2026-10-15 (unreleased)
+
+- **A KI-Prüfung mismatch interrupts the Zeitfreigabe instead of ending it**
+  (ADR-0029 amendment, Matthias). The row stays with `suspendedAt` (lets
+  nothing through), so "Wofür?", scope and end time survive. Resume on the
+  held card ("Erlauben & fortsetzen": the approved call becomes the anchor)
+  or in Läuft gerade ("Fortsetzen": anchor kept). The end time never moves.
+  TC-217…222.
+
 ## 2026-10-08 (unreleased)
 
 - **„Neue Version verfügbar“ banner (ADR-0035).** An app left open in the
