@@ -3,7 +3,7 @@
 Shipped roadmap entries, newest first. The reasoning is in `decisions/`, the
 test evidence in `testing.md`'s run log.
 
-## 2026-10-15 (unreleased)
+## 2026-10-15 (`v0.14.0`)
 
 - **A KI-Prüfung mismatch interrupts the Zeitfreigabe instead of ending it**
   (ADR-0029 amendment, Matthias). The row stays with `suspendedAt` (lets
@@ -12,7 +12,7 @@ test evidence in `testing.md`'s run log.
   or in Läuft gerade ("Fortsetzen": anchor kept). The end time never moves.
   TC-217…222.
 
-## 2026-10-08 (unreleased)
+## 2026-10-08 (`v0.14.0`)
 
 - **„Neue Version verfügbar“ banner (ADR-0035).** An app left open in the
   background kept the old bundle for days (seen in Haushalt; xitl is the same
