@@ -3,6 +3,19 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-16 — optional deny reason (ADR-0036)
+
+- Matthias picked roadmap item "reason when denying" with quick chips (over an
+  always-visible field). Lead wrote ADR-0036 + TC-223…227; a Sonnet developer
+  built it (migration `20261007040000_audit_deny_reason`); lead reviewed the
+  diff, ran the full suite and a mutation (approve-with-reason guard → TC-226).
+- The calls a Sperre settles `via: 'pause'` get the plain `MSG.declined`, not
+  `MSG.blocked` (existing behaviour); TC-225 wording corrected to match.
+- The server's 200-char cap counts before trimming (like `purpose`); the UI
+  caps free text at 120, so it can't hit it.
+- The testing run log had rows 36/37 twice (2026-10-08 and 2026-10-15);
+  renumbered the later ones 38/39.
+
 ## 2026-10-15 — interrupted Zeitfreigabe can be resumed (ADR-0029 amendment)
 
 - Matthias: a Clef mismatch should pause the Zeitfreigabe, not end it. His

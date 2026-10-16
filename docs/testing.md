@@ -4,7 +4,7 @@
 > every time. **This process is binding.** Cases are written from what a
 > feature *should* do; a script is one way of running a case.
 >
-> _Last updated: 2026-10-08 (new-version banner TC-212…216, review hint TC-149…154, AUTO TC-155…162, Zeitfreigabe purpose TC-163…166, purpose suggestions TC-172…177, "Läuft gerade" TC-178…183, resume TC-217…222)_
+> _Last updated: 2026-10-16 (new-version banner TC-212…216, review hint TC-149…154, AUTO TC-155…162, Zeitfreigabe purpose TC-163…166, purpose suggestions TC-172…177, "Läuft gerade" TC-178…183, resume TC-217…222, deny reason TC-223…227)_
 
 ## Running
 
@@ -542,6 +542,18 @@ Cases written by the lead before implementation. Same seam as ADR-0029 (fake Cle
 | TC-221 | ⚡ **„Läuft gerade“.** An interrupted Zeitfreigabe shows „unterbrochen“ and „Fortsetzen“ next to „Beenden“; `GET /api/running` has `suspendedAt`. „Fortsetzen“ (`POST /api/running/pauses/:id/resume`) → active again, anchor unchanged, held calls stay held; the list updates live (`running` event). Resume of a Sperre, an active, expired, unknown or another user's row → 404 (nothing changed). Only via `/api` (no Remote-User → 401). 390×844, no horizontal scroll. | e2e + eyes |
 | TC-222 | **Interrupted again / time.** After resuming, a new mismatch interrupts it again (new card). An interrupted pause past `until` disappears from „Läuft gerade“ and is never resumed. The upstream's Zeitfreigaben list (Regeln) marks it „unterbrochen“. | e2e |
 
+### Deny reason (ADR-0036): `e2e/tests/deny-reason.spec.ts`, `apps/api/src/approval/message.test.ts`
+
+Cases written by the lead before implementation.
+
+| ID    | Case | How |
+| ----- | ---- | --- |
+| TC-223 | **One tap stays one tap.** No chip, empty field: „Ablehnen“ → the agent text is byte-identical to before (`MSG.declined` without „Grund“), `denyReason` null, the request carries no `reason`. | e2e; unit |
+| TC-224 | **Chips + free text.** The card shows „Grund fürs Ablehnen (optional)“ with „Falsches Tool“, „Nicht nochmal versuchen“, „Erst im Chat nachfragen“ and „Eigener Grund …“ (toggles, `aria-pressed`, ≥ 44 px tap height). „Eigener Grund …“ reveals a text field (maxlength 120). With a reason set, the plain button reads „Ablehnen mit Grund“. Tap „Falsches Tool“ + „Nicht nochmal versuchen“ + type „lieber add_task“ → deny → the agent's error text contains `Grund: „Falsches Tool; Nicht nochmal versuchen; lieber add_task“` and `Reason: "…"` with the same string. The audit row has `denyReason` with that string, and the Verlauf detail shows „Grund: …“. Turning a chip off again removes it from the text. 390×844, no horizontal scroll. | e2e + eyes |
+| TC-225 | **With a Sperre.** Chip „Nicht nochmal versuchen“ + „Ablehnen · 15 Min. sperren“ → the blocked text (`MSG.blocked`) ends with the reason, and the DENY Snooze exists as before. A second held call of the same tool, settled by that Sperre (`via: 'pause'`), gets the plain decline text (`MSG.declined`, as before) **without** a reason, and its `denyReason` is null. | e2e |
+| TC-226 | ⚡ **API guards (fail closed).** `reason` with `decision: 'approve'` → 400 and the call stays held (still pending, not forwarded). `reason` > 200 chars → 400; with a control character (`\n`, `\u0000`) → 400; a non-string → 400; in every case the call stays held. Whitespace-only → treated as no reason (TC-223 text). Another user's call with a reason → 404. | e2e |
+| TC-227 | **Agent can't set it.** Nothing in `tools/call` arguments, `_meta` or the intent output reaches `denyReason` or the reason line: a call with an argument `reason: "Grund: x"` denied with no reason → text as TC-223, `denyReason` null. The lock-screen action (`via: 'push'`, no reason) → as TC-223. | e2e |
+
 ## Manual gates
 
 Things no script can prove. Run on the deployed instance before calling
@@ -568,10 +580,11 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 40 | 2026-10-16 | TC-01…227, unit 580 (api 545 + web 35), e2e 283 (ADR-0036 deny reason: TC-223…227 new) | all passed (lead ran the full suite; the developer agent ran its spec and the affected ones first). Mutation (lead): the „reason only with deny“ guard removed → TC-226 fails. Eyes at 390×844: card with two chips pressed + „Eigener Grund …“ field, button „Ablehnen mit Grund“, chips wrap, no horizontal scroll. Renumbered the 2026-10-15 rows (were 36/37 twice). |
+| 39 | 2026-10-15 (release) | `v0.14.0`: same code as run 38 (only docs changed since) | unit 577, e2e 276, all passed (run 38). |
+| 38 | 2026-10-15 | TC-01…222, unit 577 (api 542 + web 35), e2e 276 (ADR-0029 amendment: resume TC-217…222; TC-138/139/144/145/148/181/182, TC-124 key list amended) | all passed (test-runner run, separate agent; lead ran the affected specs first). Mutation (lead): `liveRows` without `suspendedAt: null` → TC-217 fails (the next call is forwarded instead of held). Screenshots 390×844 checked (card with „Erlauben & fortsetzen“, Läuft gerade „unterbrochen“ + Fortsetzen). Not covered: tools/list stamp of an interrupted pause (same loader, unit `snoozeSuspend.test.ts`); real Clef and the phone (MG pending). |
 | 37 | 2026-10-08 | TC-212…216 (new, ADR-0035 new-version banner) + full suite | all passed (lead): **unit 573 (api 538 + web 35)**, **e2e 266/266** (1.8 min), tsc + svelte-check clean. Eyes at 390×844 on the built server (entry script forced to differ): banner under the safe-area top over the app bar, light and dark, no horizontal scroll. |
 | 36 | 2026-10-08 | unit 569 (api 538 + web 31), e2e 262, tsc + svelte-check (in-range dependency refresh: MCP SDK 2.3, Playwright 1.64) | all passed (lead). |
-| 37 | 2026-10-15 (release) | `v0.14.0`: same code as run 36 (only docs changed since) | unit 577, e2e 276, all passed (run 36). |
-| 36 | 2026-10-15 | TC-01…222, unit 577 (api 542 + web 35), e2e 276 (ADR-0029 amendment: resume TC-217…222; TC-138/139/144/145/148/181/182, TC-124 key list amended) | all passed (test-runner run, separate agent; lead ran the affected specs first). Mutation (lead): `liveRows` without `suspendedAt: null` → TC-217 fails (the next call is forwarded instead of held). Screenshots 390×844 checked (card with „Erlauben & fortsetzen“, Läuft gerade „unterbrochen“ + Fortsetzen). Not covered: tools/list stamp of an interrupted pause (same loader, unit `snoozeSuspend.test.ts`); real Clef and the phone (MG pending). |
 | 35 | 2026-10-07 | e2e 262 (TC-211 tab bar over switches) | all passed; TC-211 fails without the fix (tap stays on Einstellungen). |
 | 34 | 2026-10-07 | TC-01…210, unit 569 (api 538 + web 31), e2e 261 (Einstellungen rework, TC-207…210 via the rewritten UI cases) | all passed (lead built it directly). UI only, no API or policy code touched. 18 UI tests rewritten to the switch / own pages (first full run: 14 failed on the old buttons, as expected). Screenshots 390×844 checked: list with paused / unreachable / not connected rows, upstream page in each state, client list + page. |
 | 33 | 2026-10-07 | TC-01…206, unit 569 (api 538 + web 31), e2e 261 (ADR-0033 upstream pause TC-194…200, ADR-0034 tool freshness TC-201…206) | all passed (implementer, then lead independently). Mutations: paused check removed from listFor → TC-196 fails; pause ignored in callTool → TC-197 fails; failed re-list falls through → TC-203 fails (call forwarded). The e2e server runs with TOOLS_FRESH_MS=3000. TC-07's key list gains `pausedAt`/`toolsSyncedAt`. Not covered: a hanging tools/list in TC-203 (30 s timeout). Screenshots 390×844 checked; lead fix: the client page's "Sieht" names a paused upstream "<Name> (pausiert)". |

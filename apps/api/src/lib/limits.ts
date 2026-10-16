@@ -182,3 +182,5 @@ export const AUTO_DRAFT_DESCRIPTION_CHARS = 300;
 
 /** ADR-0029 amendment: the purpose ("Wofür?") of a Zeitfreigabe. */
 export const MAX_PAUSE_PURPOSE_CHARS = 200;
+/** ADR-0036: the human's optional deny reason handed to the agent. */
+export const MAX_DENY_REASON_CHARS = 200;

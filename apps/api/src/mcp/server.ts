@@ -689,6 +689,8 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
       isError?: boolean;
       resultText?: string;
       decidedAt?: Date;
+      /** ADR-0036: the human's deny reason. */
+      denyReason?: string | null;
     }) => {
       await prisma.auditEntry.update({
         where: { id: audit.id },
@@ -697,6 +699,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           ...(data.decisionPath ? { decisionPath: data.decisionPath } : {}),
           isError: data.isError ?? null,
           resultText: data.resultText ?? null,
+          ...(data.denyReason ? { denyReason: data.denyReason } : {}),
           decidedAt: data.decidedAt ?? receivedAt,
           finishedAt: clock.now(),
         },
@@ -863,7 +866,10 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
       if (d.kind === 'deny') {
         // ADR-0032 §4 / ADR-0033 §4: settled because the upstream was hidden
         // from this client or paused: the same text as an unknown tool.
-        let text = d.via === 'client-hidden' || d.via === 'upstream-paused' ? unknownText : MSG.declined(shownName, displayName);
+        // ADR-0036: the human's reason (from /api only), never for the hidden vias.
+        const hiddenVia = d.via === 'client-hidden' || d.via === 'upstream-paused';
+        const denyReason = hiddenVia ? null : (d.reason ?? null);
+        let text = hiddenVia ? unknownText : MSG.declined(shownName, displayName, denyReason);
         if (d.pauseUntil) {
           // ADR-0026: "Ablehnen und nicht mehr fragen". Stored BEFORE the
           // agent gets its answer, so an immediate retry already hits it.
@@ -872,12 +878,12 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           try {
             // ADR-0026 amendment: anchored on this call, with the human's "Wofür?".
             await createSnooze(snoozeOwner, scope, name, d.pauseUntil, d.at, 'DENY', audit.id, d.purpose ?? null);
-            text = MSG.blocked(shownName, scope === 'UPSTREAM' ? upstream.name.slice(0, 100) : null, d.pauseUntil);
+            text = MSG.blocked(shownName, scope === 'UPSTREAM' ? upstream.name.slice(0, 100) : null, d.pauseUntil, denyReason);
           } catch (e) {
             console.warn(`proxy: deny pause not stored: ${errorTag(e)}`);
           }
         }
-        await finish({ outcome: 'DENIED', decisionPath: `${rule}+denied:${d.via}`, decidedAt: d.at, isError: true, resultText: text });
+        await finish({ outcome: 'DENIED', decisionPath: `${rule}+denied:${d.via}`, decidedAt: d.at, isError: true, resultText: text, denyReason });
         return errorResult(text);
       }
       if (d.kind === 'timeout') {

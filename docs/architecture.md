@@ -719,7 +719,10 @@ What the SDK (v2.2.0) and the protocol do — the reason for this shape:
   approve -> forward, `FORWARDED` `+approved:page|push` (snooze row written if
   asked); deny -> `DENIED` `+denied:page|push`, agent text names the user
   (with a deny pause, ADR-0026: the DENY row is written first, then the agent
-  gets `MSG.blocked`; if storing fails the call is denied all the same);
+  gets `MSG.blocked`; if storing fails the call is denied all the same;
+  ADR-0036: the human's optional `reason` is appended to `MSG.declined` /
+  `MSG.blocked` and stored in `AuditEntry.denyReason`, only for the decided
+  call, never for `via: 'pause'` / hidden vias);
   timeout -> `TIMED_OUT` `+timeout` ("nicht innerhalb von 5 Minuten
   freigegeben … später erneut versuchen"); client abort -> `DENIED`
   `+aborted`; shutdown -> `DENIED` `+shutdown`; revoked -> `DENIED`
@@ -743,7 +746,9 @@ What the SDK (v2.2.0) and the protocol do — the reason for this shape:
   caller's; an allow pause on a non-snoozable call -> 400; deny + duration =
   deny pause (ADR-0026), needs `snoozeScope` `tool`|`upstream` (missing or
   `readonly` -> 400), allowed for new/changed tools too since it only
-  tightens; same duration limits as the allow pause). The Sec-Fetch-Site guard
+  tightens; same duration limits as the allow pause; `reason?` ≤ 200, no
+  control characters, deny only, else 400 before anything is decided,
+  ADR-0036). The Sec-Fetch-Site guard
   applies (the service worker's fetch is same-origin).
 - The MCP response for a held call: the SDK's legacy (2025-06-18) stateless
   leg answers over SSE and sends `: keepalive` comments every 15 s while the

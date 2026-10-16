@@ -68,9 +68,26 @@
   const denyPause = (d: { snoozeMinutes?: number; snoozeUntilMidnight?: boolean }, label: string) =>
     decide(
       // S3: an untouched suggestion is never a Sperre's purpose.
-      { decision: 'deny', ...d, snoozeScope: denyScope, ...purposeFields('deny', purpose, suggested) },
-      `Abgelehnt, ${label} gesperrt: ${denyScopeText}${fromChip ? ' (ohne KI-Vorschlag als Zweck)' : ''}`,
+      { decision: 'deny', ...d, snoozeScope: denyScope, ...purposeFields('deny', purpose, suggested), ...(reason ? { reason } : {}) },
+      `Abgelehnt, ${label} gesperrt: ${denyScopeText}${fromChip ? ' (ohne KI-Vorschlag als Zweck)' : ''}${reason ? ', mit Grund' : ''}`,
     );
+
+  /** ADR-0036: optional deny reason: toggle chips (shown order) plus free
+   * text while "Eigener Grund …" is on, joined with "; ". Empty = none. */
+  const REASON_CHIPS = [
+    { key: 'wrong-tool', label: 'Falsches Tool' },
+    { key: 'no-retry', label: 'Nicht nochmal versuchen' },
+    { key: 'ask-first', label: 'Erst im Chat nachfragen' },
+  ] as const;
+  let reasonOn = $state<string[]>([]);
+  let customOn = $state(false);
+  let customText = $state('');
+  const reason = $derived(
+    [...REASON_CHIPS.filter((c) => reasonOn.includes(c.key)).map((c) => c.label), ...(customOn ? [customText.trim()] : [])]
+      .filter((t) => t !== '')
+      .join('; ') || undefined,
+  );
+  const toggleReason = (key: string) => (reasonOn = reasonOn.includes(key) ? reasonOn.filter((k) => k !== key) : [...reasonOn, key]);
 
   /** ADR-0029 amendment: the Zeitfreigabe this call's mismatch interrupted
    * ("Erlauben & fortsetzen"); null when there is nothing to resume. */
@@ -203,9 +220,52 @@
          on (same end, same "Wofür?"; this call becomes the reference). -->
     <button type="button" class="btn primary resume-btn" disabled={busy || expired} onclick={resume}>Erlauben & fortsetzen</button>
   {/if}
+  <!-- ADR-0036: optional reason for the agent, applies to every deny button. -->
+  <div class="deny-reason" data-testid="deny-reason">
+    <span class="suggest-label">Grund fürs Ablehnen (optional)</span>
+    <div class="suggest-chips">
+      {#each REASON_CHIPS as c (c.key)}
+        <button
+          type="button"
+          class="reason-chip"
+          data-testid={`deny-reason-chip-${c.key}`}
+          aria-pressed={reasonOn.includes(c.key)}
+          disabled={busy || expired}
+          onclick={() => toggleReason(c.key)}>{c.label}</button
+        >
+      {/each}
+      <button
+        type="button"
+        class="reason-chip"
+        data-testid="deny-reason-chip-custom"
+        aria-pressed={customOn}
+        disabled={busy || expired}
+        onclick={() => (customOn = !customOn)}>Eigener Grund …</button
+      >
+    </div>
+    {#if customOn}
+      <input
+        type="text"
+        class="reason-input"
+        data-testid="deny-reason-text"
+        maxlength="120"
+        bind:value={customText}
+        disabled={busy || expired}
+        aria-label="Eigener Grund fürs Ablehnen"
+        placeholder="z. B. lieber add_task nehmen"
+        enterkeyhint="done"
+        autocomplete="off"
+      />
+    {/if}
+  </div>
   <div class="decide-row">
-    <button type="button" class="btn danger-outline" disabled={busy || expired} onclick={() => decide({ decision: 'deny' }, 'Abgelehnt')}>
-      Ablehnen
+    <button
+      type="button"
+      class="btn danger-outline"
+      disabled={busy || expired}
+      onclick={() => decide({ decision: 'deny', ...(reason ? { reason } : {}) }, reason ? 'Abgelehnt, mit Grund' : 'Abgelehnt')}
+    >
+      {reason ? 'Ablehnen mit Grund' : 'Ablehnen'}
     </button>
     <button type="button" class="btn" class:primary={!resumable} disabled={busy || expired} onclick={() => decide({ decision: 'approve' }, 'Erlaubt')}>
       {resumable ? 'Nur erlauben' : 'Erlauben'}
@@ -359,6 +419,39 @@
   .suggest-chip[aria-pressed='true'] {
     background: var(--accent-soft);
     color: var(--accent-text);
+  }
+  .deny-reason {
+    margin: 0.5rem 0;
+    min-width: 0;
+  }
+  .reason-chip {
+    min-height: 2.75rem;
+    padding: 0.25rem 0.75rem;
+    border: 1px solid var(--danger);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--fg);
+    font: inherit;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    cursor: pointer;
+  }
+  .reason-chip[aria-pressed='true'] {
+    background: var(--danger);
+    color: light-dark(#fff, #3a0b08);
+  }
+  .reason-input {
+    width: 100%;
+    min-width: 0;
+    margin-top: 0.375rem;
+    font: inherit;
+    font-size: 1rem;
+    min-height: 2.75rem;
+    padding: 0.25rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--fg);
   }
   .suggest-text {
     display: -webkit-box;

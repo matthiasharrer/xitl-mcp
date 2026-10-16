@@ -51,7 +51,7 @@ export type Decision =
   | { kind: 'approve'; via: Exclude<Via, DenyOnlyVia>; at: Date; snoozeUntil: Date | null; snoozeScope?: SnoozeScope; purpose?: string | null; purposeSource?: PurposeSource | null; resume?: number[] }
   /** `pauseUntil`/`pauseScope`: also refuse this tool/upstream for this
    * client until then (deny pause, ADR-0026). */
-  | { kind: 'deny'; via: Via; at: Date; pauseUntil?: Date | null; pauseScope?: Exclude<SnoozeScope, 'READONLY'>; purpose?: string | null }
+  | { kind: 'deny'; via: Via; at: Date; pauseUntil?: Date | null; pauseScope?: Exclude<SnoozeScope, 'READONLY'>; purpose?: string | null; reason?: string | null }
   | { kind: 'timeout'; at: Date }
   | { kind: 'aborted'; at: Date }
   | { kind: 'shutdown'; at: Date }
@@ -191,7 +191,7 @@ export class ApprovalHub extends EventEmitter {
     id: string,
     d:
       | { kind: 'approve'; via: Exclude<Via, DenyOnlyVia>; snoozeUntil: Date | null; snoozeScope?: SnoozeScope; purpose?: string | null; purposeSource?: PurposeSource | null; resume?: boolean }
-      | { kind: 'deny'; via: Via; pauseUntil?: Date | null; pauseScope?: Exclude<SnoozeScope, 'READONLY'>; purpose?: string | null },
+      | { kind: 'deny'; via: Via; pauseUntil?: Date | null; pauseScope?: Exclude<SnoozeScope, 'READONLY'>; purpose?: string | null; reason?: string | null },
   ): DecideResult {
     const entry = this.entries.get(id);
     if (!entry || entry.call.userId !== userId) return 'not-found';
@@ -213,8 +213,8 @@ export class ApprovalHub extends EventEmitter {
             at,
           }
         : d.pauseUntil
-          ? { kind: 'deny', via: d.via, at, pauseUntil: d.pauseUntil, pauseScope: d.pauseScope === 'UPSTREAM' ? 'UPSTREAM' : 'TOOL', purpose: d.purpose ?? null }
-          : { kind: 'deny', via: d.via, at },
+          ? { kind: 'deny', via: d.via, at, pauseUntil: d.pauseUntil, pauseScope: d.pauseScope === 'UPSTREAM' ? 'UPSTREAM' : 'TOOL', purpose: d.purpose ?? null, reason: d.reason ?? null }
+          : { kind: 'deny', via: d.via, at, reason: d.reason ?? null },
     );
     return 'ok';
   }

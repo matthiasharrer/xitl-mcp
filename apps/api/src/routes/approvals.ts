@@ -34,6 +34,9 @@
 //                     the human's optional purpose (ADR-0029 amendment);
 //                     deny + snooze: deny pause, scope tool | upstream only
 //                     (ADR-0026; readonly -> 400)
+//                     reason? (ADR-0036: ≤ 200, no control characters, deny only;
+//                     whitespace-only = none; else 400 and the call stays held):
+//                     the human's deny reason, handed to the agent
 //                     resumePause?: true (ADR-0029 amendment, approve only,
 //                     no duration/scope/purpose, only on a call whose
 //                     mismatch interrupted a Zeitfreigabe; else 400):
@@ -48,7 +51,7 @@ import { systemClock, type Clock } from '../lib/clock.js';
 import { approvals as defaultHub, ApprovalHub, type PendingCall, type ResolvedEvent } from '../approval/pending.js';
 import { MAX_SNOOZE_MINUTES, snoozeUntil } from '../approval/budget.js';
 import { heldCoveredBy } from '../approval/snooze.js';
-import { MAX_APPROVAL_STREAMS_PER_USER, MAX_PAUSE_PURPOSE_CHARS } from '../lib/limits.js';
+import { MAX_APPROVAL_STREAMS_PER_USER, MAX_DENY_REASON_CHARS, MAX_PAUSE_PURPOSE_CHARS } from '../lib/limits.js';
 import { faultList } from '../upstream/faults.js';
 import { auditIntentFields, include as auditInclude, serializeAuditRow } from './audit.js';
 import { auditEvents as defaultAuditEvents, type AuditEvents } from '../lib/auditEvents.js';
@@ -83,6 +86,14 @@ const decisionSchema = z
     /** TC-173: the purpose was typed, or is an AI suggestion the human
      * tapped (display only; never on a Sperre, never without a purpose). */
     purposeSource: z.enum(['typed', 'suggested']).optional(),
+    /** ADR-0036: why the human denies (deny only), ≤ 200 chars, one line;
+     * the agent gets it in the decline text. */
+    reason: z
+      .string()
+      .max(MAX_DENY_REASON_CHARS)
+      // eslint-disable-next-line no-control-regex
+      .refine((v) => !/[\u0000-\u001f\u007f]/.test(v))
+      .optional(),
     /** ADR-0029 amendment: "Erlauben & fortsetzen": approve AND resume the
      * Zeitfreigaben this call's mismatch interrupted (approve only, never
      * with a duration, scope or purpose). */
@@ -378,6 +389,9 @@ export function makeApprovalRoutes(
     if (body.snoozeScope !== undefined && !wantsSnooze) return c.json({ error: 'Ein Umfang braucht eine Dauer.' }, 400);
     const purpose = body.purpose?.trim() || null;
     if (purpose && !wantsSnooze) return c.json({ error: '„Wofür?“ gibt es nur mit einer Zeitfreigabe oder Sperre.' }, 400);
+    // ADR-0036: a reason only with a deny; checked before anything is decided.
+    const reason = body.reason?.trim() || null;
+    if (reason && body.decision !== 'deny') return c.json({ error: 'Ein Grund gibt es nur beim Ablehnen.' }, 400);
     // TC-173/TC-174: a source only with a purpose; an AI suggestion is never a
     // Sperre's purpose (Matthias: only Zeitfreigaben). Fail closed: 400.
     if (body.purposeSource !== undefined && !purpose) return c.json({ error: 'Die Herkunft gibt es nur mit einem „Wofür?“.' }, 400);
@@ -412,7 +426,7 @@ export function makeApprovalRoutes(
     const result =
       body.decision === 'approve'
         ? hub.decide(userId, id, { kind: 'approve', via: body.via, snoozeUntil: until, snoozeScope, purpose, purposeSource: purpose ? (body.purposeSource ?? 'typed') : null, resume: body.resumePause === true })
-        : hub.decide(userId, id, { kind: 'deny', via: body.via, pauseUntil: until, pauseScope: snoozeScope === 'UPSTREAM' ? 'UPSTREAM' : 'TOOL', purpose });
+        : hub.decide(userId, id, { kind: 'deny', via: body.via, pauseUntil: until, pauseScope: snoozeScope === 'UPSTREAM' ? 'UPSTREAM' : 'TOOL', purpose, reason });
     // Lost the race against the deadline / another device between get and decide.
     if (result !== 'ok') return c.json(GONE, 409);
     // The pause also answers the calls already waiting that it covers

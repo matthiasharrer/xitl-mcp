@@ -37,3 +37,4 @@
 | 0033 | [An upstream can be paused: hidden from every client until resumed](0033-pause-an-upstream.md) | Accepted |
 | 0034 | [A call re-checks the tool list when it is older than 5 minutes](0034-tool-freshness-on-call.md) | Accepted |
 | 0035 | [„Neue Version verfügbar“: compare the entry script when the app returns to the foreground](0035-new-version-banner.md) | Accepted |
+| 0036 | [An optional reason when denying, passed to the agent](0036-deny-reason.md) | Accepted |

@@ -422,6 +422,10 @@ model AuditEntry {
   /// ADR-0030 (stored for tuning, shown in Verlauf): p(erlaubt) of the AUTO
   /// check. Null when not checked or the check failed (`auto-error`).
   autoScore          Float?
+  /// ADR-0036: the reason the human gave when denying this call (chips +
+  /// free text, ≤ 200 chars). Only the tapped call; null otherwise. Also part
+  /// of resultText, which is what the agent got.
+  denyReason         String?
 
   @@index([userId, receivedAt])
   @@index([sessionId])

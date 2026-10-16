@@ -153,18 +153,22 @@ export function untilText(until: Date): { de: string; en: string } {
 export const MSG = {
   /** ADR-0026: a deny pause ("Ablehnen und nicht mehr fragen"). Names the
    * tool (or the whole upstream) and the end, so the agent stops retrying. */
-  blocked: (tool: string, upstream: string | null, until: Date) => {
+  blocked: (tool: string, upstream: string | null, until: Date, reason?: string | null) => {
     const t = untilText(until);
+    // ADR-0036: the human's reason, after each half's sentences.
+    const de = reason ? ` Grund: „${reason}“` : '';
+    const en = reason ? ` Reason: "${reason}"` : '';
     return upstream !== null
-      ? `[xitl] Verweigert: Der Nutzer hat alle Tools von „${upstream}“ (auch „${tool}“) für diesen Client bis ${t.de} gesperrt. Bitte bis dahin nicht erneut versuchen. / Denied: the user blocked every tool of "${upstream}" (including "${tool}") for this client until ${t.en}. Do not retry before then.`
-      : `[xitl] Verweigert: Der Nutzer hat „${tool}“ für diesen Client bis ${t.de} gesperrt. Bitte bis dahin nicht erneut versuchen. / Denied: the user blocked "${tool}" for this client until ${t.en}. Do not retry before then.`;
+      ? `[xitl] Verweigert: Der Nutzer hat alle Tools von „${upstream}“ (auch „${tool}“) für diesen Client bis ${t.de} gesperrt. Bitte bis dahin nicht erneut versuchen.${de} / Denied: the user blocked every tool of "${upstream}" (including "${tool}") for this client until ${t.en}. Do not retry before then.${en}`
+      : `[xitl] Verweigert: Der Nutzer hat „${tool}“ für diesen Client bis ${t.de} gesperrt. Bitte bis dahin nicht erneut versuchen.${de} / Denied: the user blocked "${tool}" for this client until ${t.en}. Do not retry before then.${en}`;
   },
   denied: (tool: string) =>
     `[xitl] Verweigert: Das Tool „${tool}“ ist für diesen Client nicht erlaubt. / Denied: tool "${tool}" is not allowed for this client by the user's policy.`,
   unknownTool: (tool: string) =>
     `[xitl] Verweigert: Das Tool „${tool}“ ist nicht bekannt. / Denied: unknown tool "${tool}". List the tools first.`,
-  declined: (tool: string, by: string) =>
-    `[xitl] Abgelehnt: ${by} hat den Aufruf von „${tool}“ abgelehnt. / Declined: ${by} declined the call to "${tool}".`,
+  /** ADR-0036: `reason` is the human's optional deny reason (never the agent's). */
+  declined: (tool: string, by: string, reason?: string | null) =>
+    `[xitl] Abgelehnt: ${by} hat den Aufruf von „${tool}“ abgelehnt.${reason ? ` Grund: „${reason}“` : ''} / Declined: ${by} declined the call to "${tool}".${reason ? ` Reason: "${reason}"` : ''}`,
   timedOut: (tool: string) =>
     `[xitl] Verweigert: Der Aufruf von „${tool}“ wurde nicht innerhalb von 5 Minuten freigegeben; bitte später erneut versuchen. / Denied: the call to "${tool}" was not approved within 5 minutes; try again later.`,
   approvalCancelled: (tool: string) =>

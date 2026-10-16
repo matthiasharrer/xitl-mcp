@@ -58,6 +58,8 @@ export function serializeAuditRow(a: AuditListRow) {
     isError: a.isError,
     receivedAt: a.receivedAt.toISOString(),
     session: sessionRef(a.session),
+    /** ADR-0036: the human's deny reason (or null). */
+    denyReason: a.denyReason,
     ...auditIntentFields(a),
   };
 }
@@ -129,6 +131,7 @@ audit.get('/:id', async (c) => {
     decidedAt: a.decidedAt?.toISOString() ?? null,
     finishedAt: a.finishedAt?.toISOString() ?? null,
     session: sessionRef(a.session),
+    denyReason: a.denyReason,
     ...auditIntentFields(a),
     // ADR-0029: the AI check of an allow pause (p(gleich), verdict label).
     pauseCheckScore: a.pauseCheckScore,

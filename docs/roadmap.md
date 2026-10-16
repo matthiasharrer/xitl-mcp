@@ -5,11 +5,11 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-15 (`v0.14.0` released)_
+_Last updated: 2026-10-16 (deny reason ADR-0036, unreleased)_
 
 ## Next
 
-State 2026-10-15: **`v0.14.0` released** (resume a Zeitfreigabe the KI-Prüfung interrupted, ADR-0029 amendment; new-version banner ADR-0035; `v0.13.0`: Einstellungen rework: switches, own upstream and client pages; `v0.13.1` fixes a tab-bar tap toggling a switch; `v0.12.0`: per-client default per upstream ADR-0032, pause an upstream ADR-0033, tool freshness on call ADR-0034; `v0.10.0`: live Verlauf ADR-0028,
+State 2026-10-16: **unreleased on `main`:** optional deny reason (ADR-0036). **`v0.14.0` released** (resume a Zeitfreigabe the KI-Prüfung interrupted, ADR-0029 amendment; new-version banner ADR-0035; `v0.13.0`: Einstellungen rework: switches, own upstream and client pages; `v0.13.1` fixes a tab-bar tap toggling a switch; `v0.12.0`: per-client default per upstream ADR-0032, pause an upstream ADR-0033, tool freshness on call ADR-0034; `v0.10.0`: live Verlauf ADR-0028,
 Zeitfreigabe / Sperre wording, Zeitfreigabe AI check ADR-0029, tool review
 hint ADR-0031, AUTO ADR-0030, purpose line; `v0.11.0`: purpose suggestion
 chips, "Läuft gerade" overview). Deployed: whatever Matthias last bumped
@@ -60,15 +60,6 @@ chips, "Läuft gerade" overview). Deployed: whatever Matthias last bumped
   hinweisen" (mark the card, don't end the pause). Scores drift between
   llama.cpp builds (0.61 → 0.82 seen), so check `/health` and `/v1/models`
   first.
-
-- **Optional reason when denying**, passed to the agent in the denial text
-  ("[xitl] Abgelehnt: <Grund>"), e.g. "falsches Tool, nicht nochmal
-  versuchen". One tap must stay one tap without a reason. Options: an
-  optional text field on the card/detail always visible above the buttons
-  (empty = as today); or a few quick chips ("Falsches Tool", "Nicht
-  nochmal") plus free text. Not on the lock-screen action. The reason comes
-  from the human, so it is instruction to the agent by design; length-cap it
-  and store it on the audit row. Also fits the deny pause (ADR-0026).
 
 Ideas noted 2026-10-06 (ideas.md): session descriptions by the intent model;
 per-client policy floor / DCR `client_name` per upstream / profiles (work

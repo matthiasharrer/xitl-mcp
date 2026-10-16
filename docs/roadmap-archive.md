@@ -3,6 +3,16 @@
 Shipped roadmap entries, newest first. The reasoning is in `decisions/`, the
 test evidence in `testing.md`'s run log.
 
+## 2026-10-16 (unreleased)
+
+- **Optional reason when denying (ADR-0036, Matthias chose chips).** Above
+  „Ablehnen / Erlauben“: toggle chips „Falsches Tool“, „Nicht nochmal
+  versuchen“, „Erst im Chat nachfragen“ and „Eigener Grund …“ (text field,
+  ≤ 120). The agent gets `… abgelehnt. Grund: „…“ / … Reason: "…"`, also with
+  a Sperre; only the tapped call, not the ones the Sperre settles. Stored in
+  `AuditEntry.denyReason`, shown in the Verlauf detail. No reason = the old
+  text, one tap. Not on the lock-screen action. TC-223…227.
+
 ## 2026-10-15 (`v0.14.0`)
 
 - **A KI-Prüfung mismatch interrupts the Zeitfreigabe instead of ending it**

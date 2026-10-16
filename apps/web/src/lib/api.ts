@@ -342,9 +342,10 @@ export interface ResolvedApproval extends AuditIntentFields {
 }
 
 export type ApprovalDecision =
-  | { decision: 'deny' }
+  /** ADR-0036: `reason`, the optional deny reason handed to the agent. */
+  | { decision: 'deny'; reason?: string }
   /** ADR-0026: deny and pause (this tool or the whole upstream). */
-  | { decision: 'deny'; snoozeMinutes?: number; snoozeUntilMidnight?: boolean; snoozeScope: 'tool' | 'upstream'; purpose?: string }
+  | { decision: 'deny'; snoozeMinutes?: number; snoozeUntilMidnight?: boolean; snoozeScope: 'tool' | 'upstream'; purpose?: string; reason?: string }
   /** `purpose`: the optional "Wofür?" of the Zeitfreigabe (ADR-0029 amendment). */
   | {
       decision: 'approve';
@@ -414,6 +415,8 @@ export interface AuditRow extends AuditIntentFields {
   isError: boolean | null;
   receivedAt: string;
   session: SessionRef;
+  /** ADR-0036: the reason Matthias gave when denying (or null). */
+  denyReason: string | null;
 }
 
 export interface AuditDetail extends AuditRow {

@@ -121,3 +121,30 @@ describe('MSG.blocked (ADR-0026, TC-123)', () => {
     expect(t).toContain('14:15 Uhr');
   });
 });
+
+describe('deny reason in MSG (ADR-0036, TC-223/224/225)', () => {
+  const until = new Date('2026-10-06T12:15:00Z');
+  test('declined without a reason is the unchanged text', () => {
+    const t = 'Abgelehnt: Matthias hat den Aufruf von „add_task“ abgelehnt. / Declined: Matthias declined the call to "add_task".';
+    expect(MSG.declined('add_task', 'Matthias')).toBe(`[xitl] ${t}`);
+    expect(MSG.declined('add_task', 'Matthias', null)).toBe(`[xitl] ${t}`);
+    expect(MSG.declined('add_task', 'Matthias', '')).toBe(`[xitl] ${t}`);
+  });
+  test('declined with a reason: both halves carry it', () => {
+    expect(MSG.declined('add_task', 'Matthias', 'Falsches Tool; lieber x')).toBe(
+      '[xitl] Abgelehnt: Matthias hat den Aufruf von „add_task“ abgelehnt. Grund: „Falsches Tool; lieber x“ / Declined: Matthias declined the call to "add_task". Reason: "Falsches Tool; lieber x"',
+    );
+  });
+  test('blocked without a reason is unchanged, with one it is appended per half', () => {
+    for (const up of [null, 'Haushalt']) {
+      const plain = MSG.blocked('archive_task', up, until);
+      expect(plain).not.toContain('Grund');
+      expect(plain.endsWith('Do not retry before then.')).toBe(true);
+      expect(MSG.blocked('archive_task', up, until, null)).toBe(plain);
+      const t = MSG.blocked('archive_task', up, until, 'Nicht nochmal versuchen');
+      expect(t).toBe(
+        plain.replace(' / Denied', ' Grund: „Nicht nochmal versuchen“ / Denied') + ' Reason: "Nicht nochmal versuchen"',
+      );
+    }
+  });
+});

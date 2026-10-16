@@ -91,6 +91,10 @@
         <dt>Entschieden</dt><dd>{fmt(e.decidedAt)}</dd>
         <dt>Fertig</dt><dd>{fmt(e.finishedAt)}</dd>
       </dl>
+      {#if e.denyReason}
+        <!-- ADR-0036: the reason Matthias gave when denying (plain text). -->
+        <p class="reason-line" data-testid="deny-reason-line">Grund: {e.denyReason}</p>
+      {/if}
       <SessionLine session={e.session} />
       <IntentSummary intent={e} meta={{ model: e.intentModel, at: e.intentAt }} />
       <h3 class="section-title">Argumente</h3>
