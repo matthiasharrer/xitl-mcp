@@ -3,7 +3,7 @@
 Shipped roadmap entries, newest first. The reasoning is in `decisions/`, the
 test evidence in `testing.md`'s run log.
 
-## 2026-10-16 (unreleased)
+## 2026-10-16 (`v0.15.0`)
 
 - **Optional reason when denying (ADR-0036, Matthias chose chips).** Above
   „Ablehnen / Erlauben“: toggle chips „Falsches Tool“, „Nicht nochmal

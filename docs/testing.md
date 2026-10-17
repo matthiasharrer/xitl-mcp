@@ -580,6 +580,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 41 | 2026-10-17 (release) | `v0.15.0`: same code as run 40 (only docs changed since) | unit 580, e2e 283, all passed (run 40). |
 | 40 | 2026-10-16 | TC-01…227, unit 580 (api 545 + web 35), e2e 283 (ADR-0036 deny reason: TC-223…227 new) | all passed (lead ran the full suite; the developer agent ran its spec and the affected ones first). Mutation (lead): the „reason only with deny“ guard removed → TC-226 fails. Eyes at 390×844: card with two chips pressed + „Eigener Grund …“ field, button „Ablehnen mit Grund“, chips wrap, no horizontal scroll. Renumbered the 2026-10-15 rows (were 36/37 twice). |
 | 39 | 2026-10-15 (release) | `v0.14.0`: same code as run 38 (only docs changed since) | unit 577, e2e 276, all passed (run 38). |
 | 38 | 2026-10-15 | TC-01…222, unit 577 (api 542 + web 35), e2e 276 (ADR-0029 amendment: resume TC-217…222; TC-138/139/144/145/148/181/182, TC-124 key list amended) | all passed (test-runner run, separate agent; lead ran the affected specs first). Mutation (lead): `liveRows` without `suspendedAt: null` → TC-217 fails (the next call is forwarded instead of held). Screenshots 390×844 checked (card with „Erlauben & fortsetzen“, Läuft gerade „unterbrochen“ + Fortsetzen). Not covered: tools/list stamp of an interrupted pause (same loader, unit `snoozeSuspend.test.ts`); real Clef and the phone (MG pending). |
