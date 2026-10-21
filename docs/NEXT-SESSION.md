@@ -38,6 +38,21 @@ Die KI-Prüfung (Clef, ADR-0029) von Zeitfreigaben blockiert zu oft mit „Richt
 
    Das Ergebnis wird ein ADR oder ein Amendment zu ADR-0029.
 
+## Zwischenstand (2026-10-21, Abend)
+
+Die Schritte 1 bis 3 sind erledigt. Es gibt 14 Mismatch-Zeilen (#362 bis #385), alle aus einer Session: den n8n-E-Mail-Draft-Workflow von Ollama auf llama.cpp umstellen, Upstream `n8n-instance-mcp` (Anzeigename „N8N Instance MCP“). Alle Zeilen stammen von vor v0.16.0 (der Tag ist von 20:50 Berliner Zeit), deshalb ist `clefInput` überall `null`.
+
+Alle 14 States sind **bytegenau rekonstruiert**: Der Score gegen den echten Clef stimmt mit dem gespeicherten überein, Δ = 0. Die Rekonstruktion liegt in `data/clef-cases-2026-10-21/` (gitignored). `recon.mts` läuft mit `npx tsx` und nutzt das echte `buildState`, in `matches.json` stehen die States.
+
+Ankerkette:
+- #360 `search_workflows` (Zeitfreigabe erteilt) → #362
+- #362 bleibt Anker für #363, #367, #369 und #371. Bei #367 also nur „Erlauben“, danach „Fortsetzen“ in „Läuft gerade“.
+- Ab #371 wandert der Anker bei jedem „Erlauben & fortsetzen“ auf den gerade freigegebenen Aufruf. Clef vergleicht dann also nur noch Schritt mit Schritt und nicht mehr mit der Aufgabe.
+
+Nebenbefund: „Calls executed since“ enthält auch Aufrufe, die **vor** dem neuen Anker liegen (#361, #375 bis #377), weil die Liste über `pauseSnoozeId` läuft und nicht ab dem Anker. Freigegebene Mismatch-Aufrufe fehlen dort dagegen ganz.
+
+Offen: Schritt 4, Matthias' Urteil pro Fall.
+
 ## Grenzen
 
 - Die `xitl`-Tools bleiben dauerhaft read-only (ADR-0037 §3). Kein Tool, das Regeln, Freigaben oder Einstellungen ändert.
