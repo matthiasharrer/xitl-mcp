@@ -46,7 +46,7 @@ export const MAX_SNOOZE_MINUTES = 24 * 60;
 const BERLIN = 'Europe/Berlin';
 
 /** Europe/Berlin's offset from UTC at `at`, in ms (e.g. +2 h in summer). */
-function berlinOffsetMs(at: Date): number {
+export function berlinOffsetMs(at: Date): number {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: BERLIN,
     hourCycle: 'h23',
@@ -62,16 +62,40 @@ function berlinOffsetMs(at: Date): number {
   return asUtc - Math.floor(at.getTime() / 1000) * 1000;
 }
 
+/** Local midnight in Europe/Berlin that starts the calendar day given by the
+ * UTC-style `wall` timestamp (Date.UTC(y, m - 1, d)). DST-safe: the second
+ * pass uses the offset in force at the result itself. */
+function berlinMidnightOfWall(wall: number): Date {
+  let guess = wall - berlinOffsetMs(new Date(wall));
+  guess = wall - berlinOffsetMs(new Date(guess));
+  return new Date(guess);
+}
+
 /** The next local midnight in Europe/Berlin after `now` ("Heute" snooze). */
 export function nextBerlinMidnight(now: Date): Date {
   const local = new Date(now.getTime() + berlinOffsetMs(now));
   // Midnight starting the next local day, expressed as if it were UTC…
-  const wall = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + 1);
-  // …then shifted by the offset in force at that moment (DST-safe: the
-  // second pass uses the offset at the result itself).
-  let guess = wall - berlinOffsetMs(new Date(wall));
-  guess = wall - berlinOffsetMs(new Date(guess));
-  return new Date(guess);
+  return berlinMidnightOfWall(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + 1));
+}
+
+/** The instant a Berlin calendar day starts (00:00 local) for a valid
+ * `YYYY-MM-DD`; null for anything else (also impossible dates like
+ * 2026-02-30). The day ends where the next one starts (ADR-0037 filters). */
+export function berlinDayStart(ymd: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const wall = Date.UTC(y, mo - 1, d);
+  const check = new Date(wall);
+  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== mo - 1 || check.getUTCDate() !== d) return null;
+  return berlinMidnightOfWall(wall);
+}
+
+/** The Berlin day after the one `ymd` names, as `YYYY-MM-DD`. */
+export function nextBerlinDay(ymd: string): string | null {
+  if (berlinDayStart(ymd) === null) return null;
+  const [y, mo, d] = ymd.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, mo - 1, d + 1)).toISOString().slice(0, 10);
 }
 
 /** The snooze end for an approval, or null for "Einmal erlauben". */

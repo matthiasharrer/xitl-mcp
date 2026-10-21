@@ -61,7 +61,7 @@ describe('narrow (TC-141: the check only narrows)', () => {
     { policy: 'ASK', path: 'new-tool' },
     { policy: 'ASK', path: 'policy:upstream-default' },
   ];
-  const results = [{ kind: 'match', score: 0.99, choice: 'gleich' }, { kind: 'mismatch', score: 0.1, choice: 'ausweitung' }, { kind: 'error' }, { kind: 'blind' }] as const;
+  const results = [{ kind: 'match', score: 0.99, choice: 'gleich', input: 's' }, { kind: 'mismatch', score: 0.1, choice: 'ausweitung', input: 's' }, { kind: 'error' }, { kind: 'blind' }] as const;
   it('anything but ALLOW via snooze is unchanged, whatever the check says', () => {
     for (const d of all) for (const r of results) expect(narrow(d, r)).toEqual(d);
   });
@@ -101,13 +101,16 @@ describe('PauseGate.evaluate', () => {
   it('TC-137/TC-144: match; state = anchor + its summary + calls since (scoped, oldest first) + new call', async () => {
     const { check, spy } = fakeCheck(async () => answer(0.95));
     const g = new PauseGate(config(check), quiet);
-    expect(await g.evaluate(input())).toEqual({ kind: 'match', score: 0.95, choice: 'gleich' });
+    const res = await g.evaluate(input());
+    expect(res).toEqual({ kind: 'match', score: 0.95, choice: 'gleich', input: expect.any(String) });
     expect(auditFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 7, userId: 1 } }));
     const q = auditFindMany.mock.calls[0]![0];
     expect(q.where).toEqual({ userId: 1, mcpClientId: 10, upstreamId: 5, pauseSnoozeId: 42, outcome: { in: ['FORWARDED', 'UPSTREAM_ERROR', 'PENDING'] } });
     expect(q.orderBy).toEqual({ id: 'desc' });
     expect(q.take).toBe(8);
     const state = spy.mock.calls[0]![0];
+    // ADR-0037: the result carries exactly the text Clef was sent.
+    expect((res as { input: string }).input).toBe(state);
     expect(blocksOf(state).map((b) => (b.arguments as { item: string }).item)).toEqual(['erst', 'B1', 'B2', 'neu']);
     expect(state).toContain('Summary of that call (by the proxy, German): "legt „erst“ an."');
     expect(snoozeDelete).not.toHaveBeenCalled();
@@ -120,6 +123,7 @@ describe('PauseGate.evaluate', () => {
       kind: 'mismatch',
       score: 0.1,
       choice: 'richtungswechsel',
+      input: expect.any(String),
       interrupted: { ids: [42, 43], until, purpose: null },
     });
     const where = { userId: 1, mcpClientId: 10, upstreamId: 5, effect: 'ALLOW', suspendedAt: null, until: { gt: expect.any(Date) } };
@@ -131,7 +135,7 @@ describe('PauseGate.evaluate', () => {
   it('TC-217: mismatch with no live pause left interrupts nothing (no resume offered)', async () => {
     snoozeFind.mockResolvedValue([]);
     const { check } = fakeCheck(async () => answer(0.1, 0.85, 0.05));
-    expect(await new PauseGate(config(check), quiet).evaluate(input())).toEqual({ kind: 'mismatch', score: 0.1, choice: 'richtungswechsel' });
+    expect(await new PauseGate(config(check), quiet).evaluate(input())).toEqual({ kind: 'mismatch', score: 0.1, choice: 'richtungswechsel', input: expect.any(String) });
     expect(snoozeUpdate).not.toHaveBeenCalled();
   });
 

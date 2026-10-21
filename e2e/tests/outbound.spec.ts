@@ -54,7 +54,7 @@ test('TC-77 Upstream mit interner Adresse anlegen -> 400 (deutsch), keine Zeile;
   // the same message in the form, on a phone (390×844 from the config)
   await page.setExtraHTTPHeaders(MATTHIAS);
   await page.goto('/#/einstellungen');
-  await page.getByRole('button', { name: 'Upstream hinzufügen' }).click();
+  await page.getByRole('button', { name: 'Upstream hinzufügen', exact: true }).click();
   const sheet = page.getByRole('dialog', { name: 'Upstream hinzufügen' });
   const name = uniq('Intern TC77').replace(/[^A-Za-z0-9 -]/g, '');
   await sheet.getByLabel('Name').fill(name);
@@ -282,7 +282,7 @@ test('TC-84 Formular am Handy: interne Adresse -> Hinweis + "Trotzdem erlauben" 
 }) => {
   await page.setExtraHTTPHeaders(MATTHIAS);
   await page.goto('/#/einstellungen');
-  await page.getByRole('button', { name: 'Upstream hinzufügen' }).click();
+  await page.getByRole('button', { name: 'Upstream hinzufügen', exact: true }).click();
   const sheet = page.getByRole('dialog', { name: 'Upstream hinzufügen' });
   const name = uniq('Intern TC84').replace(/[^A-Za-z0-9 -]/g, '');
   await sheet.getByLabel('Name').fill(name);

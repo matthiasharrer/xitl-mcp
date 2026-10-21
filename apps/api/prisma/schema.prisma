@@ -54,6 +54,12 @@ enum UpstreamAuth {
   OAUTH
   HEADER
   NONE
+  /// ADR-0037: the in-process `xitl` upstream (read-only Verlauf and upstream
+  /// list). No URL to call, no credentials; withUpstream connects to it over
+  /// an in-memory transport. Stored as TEXT in SQLite, so adding it needed no
+  /// SQL; old code reading BUILTIN fails closed (not OAUTH: it would try the
+  /// HTTP path to `builtin:xitl` and fail).
+  BUILTIN
 }
 
 enum UpstreamStatus {
@@ -426,6 +432,12 @@ model AuditEntry {
   /// free text, ≤ 200 chars). Only the tapped call; null otherwise. Also part
   /// of resultText, which is what the agent got.
   denyReason         String?
+  /// ADR-0037: the exact state text sent to Clef for this call's AI check
+  /// (anchor, purpose, calls since, the call; <= MAX_PAUSE_CHECK_STATE_CHARS).
+  /// Set with pauseCheckScore on a match or mismatch; null when unchecked, on
+  /// an error, for blind pauses and for rows from before this column. Read
+  /// only by the built-in `xitl` upstream's get_history_entry.
+  pauseCheckInput    String?
 
   @@index([userId, receivedAt])
   @@index([sessionId])

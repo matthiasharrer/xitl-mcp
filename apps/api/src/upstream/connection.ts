@@ -15,11 +15,16 @@
 // upstream's instructions are scrubbed of our own credentials before they are
 // stored (they are handed to agents).
 //
+// ADR-0037: a BUILTIN row (the in-process `xitl` upstream) is never contacted
+// over HTTP: the Client is linked to an in-process server for that row's user
+// over an in-memory transport. No fetch, no credentials, no instance header.
+//
 // ADR-0033: a paused upstream (`pausedAt` set) is never contacted: the re-read
 // row is checked before anything else (no token refresh, no connect, no
 // request), and UpstreamPaused is thrown. The callers check the pause earlier
 // themselves; this is the backstop for any path that forgets to.
 import { Client, StreamableHTTPClientTransport, type FetchLike } from '@modelcontextprotocol/client';
+import { InMemoryTransport } from '@modelcontextprotocol/server';
 import { prisma } from '../db.js';
 import type { Upstream } from '../generated/prisma/client.js';
 import { systemClock, type Clock } from '../lib/clock.js';
@@ -31,6 +36,7 @@ import { MAX_UPSTREAM_RESPONSE_BYTES } from '../lib/limits.js';
 import { scrubSecrets, type UpstreamState } from '../lib/proxyText.js';
 import { ReconnectRequired, errorTag, markNeedsReconnect, refreshUpstreamTokens } from './oauthClient.js';
 import { upstreamStates } from './stateEvents.js';
+import { buildBuiltinServer } from '../builtin/server.js';
 
 export const CONNECT_TIMEOUT_MS = 15_000;
 export const CALL_TIMEOUT_MS = 120_000;
@@ -97,6 +103,9 @@ export async function recordSuccess(upstreamId: number, userId: number): Promise
   }
 }
 
+/** The kinds withUpstream knows how to reach; any other value is refused. */
+const KNOWN_AUTH: readonly string[] = ['OAUTH', 'HEADER', 'NONE', 'BUILTIN'];
+
 export interface UpstreamSession {
   client: Client;
   /** Current credential values, for scrubbing results (proxyText.scrubSecrets). */
@@ -133,6 +142,8 @@ export async function withUpstream<T>(
   if (!row) throw new UpstreamNotConnected();
   // Before the connection states and before any refresh: not contacted at all.
   if (row.pausedAt !== null) throw new UpstreamPaused();
+  // Fail closed: a kind this code doesn't know is never contacted.
+  if (!KNOWN_AUTH.includes(row.auth)) throw new UpstreamNotConnected();
   if (row.auth === 'OAUTH') {
     if (row.status === 'NEEDS_RECONNECT') throw new UpstreamNeedsReconnect();
     if (!isUsable(row)) throw new UpstreamNotConnected();
@@ -153,6 +164,7 @@ export async function withUpstream<T>(
   }
 
   async function contact(row: Upstream): Promise<T> {
+    if (row.auth === 'BUILTIN') return contactBuiltin(row);
     if (row.auth === 'OAUTH') {
       if (needsRefresh(row.tokenExpiresAt, clock.now())) {
         try {
@@ -238,6 +250,27 @@ export async function withUpstream<T>(
       throw e;
     } finally {
       await client.close().catch((e) => console.warn(`upstream ${upstreamId}: close failed: ${errorTag(e)}`));
+    }
+  }
+
+  /** ADR-0037: the in-process server for this row's user, linked in memory. */
+  async function contactBuiltin(row: Upstream): Promise<T> {
+    const server = buildBuiltinServer(row.userId);
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'xitl', version: '0.1.0' });
+    try {
+      await server.connect(serverSide);
+      await client.connect(clientSide, { timeout: Math.min(timeoutMs, CONNECT_TIMEOUT_MS) });
+      const raw = client.getInstructions();
+      const instructions = typeof raw === 'string' ? raw.slice(0, MAX_INSTRUCTIONS) : null;
+      if (instructions !== row.instructions) {
+        await prisma.upstream.updateMany({ where: { id: row.id, userId }, data: { instructions } });
+      }
+      // No credentials exist for this kind: nothing to scrub.
+      return await fn({ client, secrets: () => [] });
+    } finally {
+      await client.close().catch((e) => console.warn(`upstream ${upstreamId}: close failed: ${errorTag(e)}`));
+      await server.close().catch((e) => console.warn(`upstream ${upstreamId}: close failed: ${errorTag(e)}`));
     }
   }
 }

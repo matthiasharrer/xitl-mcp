@@ -126,6 +126,12 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
                          draft.ts ("Vorschlag" prompt/parse, pure), text.ts
                          (card/push notes), index.ts (instance, shares the
                          pause gate's outage)
+  builtin/               the built-in `xitl` upstream (ADR-0037): server.ts
+                         (buildBuiltinServer: three read-only tools, in
+                         process), history.ts (strict list_history
+                         arguments, filter -> where, whitelisted
+                         serializers, Clef-input reconstruction),
+                         upstreams.ts (list_upstreams)
   lib/push.ts            Web Push sender, VAPID (AppSetting "vapid"),
                          PUSH_OUTBOX transport (copied from Haushalt)
   lib/clock.ts           injectable Clock (ADR-0003)
@@ -192,6 +198,102 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   its audit rows stay (`upstreamId` → NULL), so deciding afterwards is 409.
 - Slugs: `^[a-z0-9][a-z0-9-]{0,31}$`, unique per user, `register` and `token`
   reserved (they are OAuth endpoints under `/mcp`).
+- `UpstreamAuth` is `OAUTH | HEADER | NONE | BUILTIN` (ADR-0037, next
+  subsection). `BUILTIN` is created only by `POST /api/upstreams/builtin`;
+  `authSchema` of the normal create / PATCH does not list it (400), and
+  `urlSchema` only takes http(s) (`builtin:xitl` → 400). A PATCH of a BUILTIN
+  row that carries `url`, `auth`, `headerName`, `headerValue` or
+  `allowInternal` is refused as a whole, 400 `{code: 'builtin_fixed'}`
+  (name, description, default policy, AUTO rule, `paused` still work).
+  `POST /:id/connect` on it is 400 (`startConnect` also refuses any non-OAUTH
+  row). `serializeUpstream` shows `auth: 'BUILTIN'` and `url: 'builtin:xitl'`
+  to the owner; the UI keys on `auth`.
+
+### Built-in upstream `xitl` (ADR-0037, TC-228…239)
+
+An upstream kind, not a second server: a BUILTIN row (slug `xitl`, name
+`xitl`, url `builtin:xitl`, status CONNECTED, default ASK, created by
+`POST /api/upstreams/builtin`, 409 when the user has one (`builtin_exists`) or
+the slug `xitl` is taken (`slug_taken`, German text)) is an ordinary row for
+policy, tool rules, client defaults, pausing, Zeitfreigaben with KI-Prüfung,
+Sperren, audit, intent, review hint and freshness. Only the connection differs.
+
+- **Connection.** `withUpstream` (upstream/connection.ts) after the paused
+  check: an auth kind it doesn't know (`KNOWN_AUTH`) is refused
+  (`UpstreamNotConnected`, fail closed); `BUILTIN` goes to `contactBuiltin`:
+  `buildBuiltinServer(row.userId)` and a `Client` linked by
+  `InMemoryTransport.createLinkedPair()` (exported by
+  `@modelcontextprotocol/server`), `fn` runs with `secrets: () => []`, both
+  sides closed. No fetch, no `outboundFetch`, no `X-Xitl-Instance`, no
+  credentials. The instructions are stored on the row like an HTTP upstream's
+  (the unified `initialize` reads them back), and the `lastFailureAt`
+  bookkeeping is the same code path. Everything that used to contact a row
+  goes through `withUpstream` (tools list / sync, instructions, freshness,
+  calls) and so works for BUILTIN; the only direct HTTP users are the OAuth
+  flows, which are OAUTH-only (`startConnect`, `finishConnect`,
+  `refreshUpstreamTokens` check `auth`). `isUsable` is true for BUILTIN (no
+  connect step), so `storedState` gives `ok` / `unreachable`.
+- **Server** (`builtin/server.ts`): low-level `Server`, exactly three tools,
+  all `annotations: { readOnlyHint: true }`, English descriptions and
+  instructions; output is one text block of pretty JSON (no
+  `structuredContent`, like the proxy's own servers). An unknown tool name is
+  an `isError` result. No tool changes anything and none may be added without
+  a new ADR. Every query is scoped by the `userId` the server was built for
+  (`findFirst({where:{id, userId}})`, never by id alone).
+  - `list_upstreams()` → `{upstreams:[{slug,name,description,state,toolCount,lastCallAt}]}`
+    by slug. `state` (German): `pausiert` when `pausedAt` is set, else
+    `storedState`: `aktiv` / `nicht verbunden` / `neu verbinden` /
+    `nicht erreichbar`. `toolCount` = KnownTool rows of the upstream (what
+    the upstream page lists). `lastCallAt` = newest audit `receivedAt`, or null.
+  - `list_history({upstream?, tool?, status?, pause_check?, from?, to?, limit?, before?})`
+    → `{entries, nextBefore}`, newest first by id, default 20, `limit` 1…50.
+    `parseHistoryArgs` is strict: an unknown key, a wrong type or an unknown
+    value is an `isError` with a German + English text, never "all rows".
+    `upstream` = slug (an unknown slug, or another user's, is empty);
+    `status` = `forwarded|denied|pending|timed_out|upstream_error`;
+    `pause_check` = `match` (choice `gleich`) | `mismatch` (`richtungswechsel`
+    or `ausweitung`) | `error` (`decisionPath` starts with `snooze-ki-error`).
+    `from`/`to`: `YYYY-MM-DD` = the whole Berlin day, both ends inclusive
+    (`berlinDayStart` / `nextBerlinDay` in approval/budget.ts, DST-correct: the
+    day ends where the next Berlin midnight starts), or an ISO date-time with
+    an offset (an offset-less one is refused as ambiguous); filters combine
+    with AND. Entry: `id, at, upstream (slug), tool, client, status, policy,
+    decisionPath, pauseCheck {result, choice, score} | null, purpose`. Times
+    are Europe/Berlin local with offset (`2026-10-21T14:03:05+02:00`,
+    `berlinIso`).
+  - `get_history_entry({id})`: `id, at, decidedAt, finishedAt, upstream, tool,
+    client, endpoint, arguments (parsed), policy, decisionPath, status,
+    isError, denyReason, purpose, purposeSource, pauseCheck {result, choice,
+    score, threshold}, sperreScore, autoScore, intent {title, summary} | null
+    (only when `intentStatus` DONE), clefInput, clefInputSource`. A missing
+    and a foreign id give the same `isError` text („Eintrag nicht gefunden.“).
+    `threshold` = `PauseGate.threshold` (the configured p(gleich) threshold;
+    null when `PAUSE_CHECK_URL` is not set). `clefInput` = `pauseCheckInput`
+    (`'stored'`); else, for a row with `pauseSnoozeId` whose Snooze row still
+    has `anchorAuditId` and that was checked (match / mismatch), the state is
+    rebuilt with the gate's own `buildState` from the anchor (+ its intent
+    summary if DONE), the forwarded rows under that pause with `id <` this
+    row (same scoping as `PauseGate.evaluate`: user, client, upstream, pause
+    id; newest 8) and the row itself, purpose = `pausePurpose`
+    (`'reconstructed'`, best effort: an input that was truncated or a pause
+    row since deleted gives null / null). Note: a mismatch row written by the
+    proxy has no `pauseSnoozeId` (it was held, not forwarded under the
+    pause), so rows from before ADR-0037 are mostly reconstructible only when
+    they were a match.
+- **What never leaves:** the serializers are whitelists (the queries `select`
+  only what is emitted; never a spread of a row). Not in any output: upstream
+  url, auth kind, header name/value, tokens, OAuth data, default policy, tool
+  rules, AUTO rule, instructions, `allowInternal`, `resultText`,
+  `intentPrompt`, `intentAnswer`, diagnostics (protocol version, client info,
+  user agent, header names, `_meta` keys, trace ids). `arguments` of every
+  upstream's calls do leave (they are the case); approval per call is the guard
+  (ADR-0037 consequences). TC-233 plants markers for each and greps the output.
+- **UI.** Einstellungen shows the secondary button „xitl als Upstream
+  hinzufügen“ (with a one-line hint) below „Upstream hinzufügen“ only while the
+  user has no BUILTIN row; the list row reads `xitl · Eingebaut`; the upstream
+  page shows `Eingebaut` instead of the URL and has no „Verbinden“ (all
+  gated on `auth === 'OAUTH'` already); the edit sheet (`UpstreamSheet`) omits
+  URL, Anmeldung and header fields and sends no `url`/`auth`.
 
 ### Upstream OAuth client (ADR-0013, TC-15…18)
 
@@ -291,7 +393,8 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   and `oauthFetchFor` set `X-Xitl-Instance` (random per process, set after any
   configured header); a middleware in `app.ts` on `/mcp`, `/mcp/*`,
   `/oauth/*`, `/.well-known/*` answers 508 `loop_detected` to our own id,
-  before auth/consent/DCR.
+  before auth/consent/DCR. The built-in `xitl` upstream (ADR-0037) is not
+  involved: nothing goes out, its server runs in-process.
 
 ### Proxy core (ADR-0004, ADR-0008, ADR-0014, TC-19…23)
 
@@ -302,7 +405,9 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   skipped, so `initialize` behind an HTTP/2 ingress got no session, TC-73) so only `initialize`/`server/discover` contacts the upstream
   for its instructions, and for session bookkeeping (next section).
 - Upstream access: `withUpstream(upstreamId, userId, fn)` re-reads the row
-  scoped by user, opens a `Client` + `StreamableHTTPClientTransport` with our
+  scoped by user (a `BUILTIN` row is served in-process over an in-memory
+  transport instead, see "Built-in upstream `xitl`"; an unknown auth kind is
+  refused), opens a `Client` + `StreamableHTTPClientTransport` with our
   own `fetch` wrapper (credential only to the upstream's origin, `redirect:
   'error'`, timeout 15 s connect / 120 s call, every response capped at
   `MAX_UPSTREAM_RESPONSE_BYTES` = 10 MiB via `limitResponse`: a declared
@@ -379,8 +484,13 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   amendment 2026-10-15) and ASK `snooze-ki-mismatch`; error/timeout/garbage/anchor row gone → ASK
   `snooze-ki-error`, pause kept; blind → unchanged `snooze`. It never turns
   anything else into ALLOW. The audit row then gets `pauseCheckScore`
-  (p(gleich)), `pauseCheckChoice` (`gleich` or the stronger deviation) and,
-  for an ALLOW via a pause, `pauseSnoozeId`. A held mismatch/error call
+  (p(gleich)), `pauseCheckChoice` (`gleich` or the stronger deviation),
+  `pauseCheckInput` (ADR-0037: the exact state text sent to Clef, i.e. the
+  `input` that `PauseGate.evaluate` returns with a match / mismatch; written
+  on the same audit write as the score, in `decideAndAudit` and on the
+  settle-by-Zeitfreigabe path; null for blind, error and unchecked calls and
+  for rows from before ADR-0037; read only by the built-in `xitl` upstream)
+  and, for an ALLOW via a pause, `pauseSnoozeId`. A held mismatch/error call
   carries `PendingCall.pauseCheck` (card note, push `note`; on a mismatch
   also `interrupted` {until, purpose} for display) and, server-side only,
   `PendingCall.interruptedPauseIds`.
@@ -536,6 +646,10 @@ scripts/icons.mjs  rasterizes apps/web/public/icon.svg into the PWA PNGs
   identifies a chat when the client has no session (ADR-0016 measurement).
 
 ### Unified endpoint `/mcp` (ADR-0014, ADR-0017, TC-61…68)
+
+(A BUILTIN row is one more upstream here: its tools are `xitl_list_upstreams`,
+`xitl_list_history`, `xitl_get_history_entry`, listed and called through the
+same `listFor` / `callTool` as any other; ADR-0037.)
 
 - Same request path as `/mcp/<slug>` (mount.ts `serve(c, null)`): the gate
   takes OAuth or an all-upstreams access token (ADR-0018), no upstream is resolved, `AuthInfo.extra` gets
@@ -1004,7 +1118,9 @@ The Regeln view's "Gilt" uses the same function, so it shows "Fragen
 `session: {id, createdAt} | null` (ADR-0016) and the intent fields
 (ADR-0025, see "Intent summary"). User-scoped;
 another user's id is 404. The UI renders `decisionPath` in German
-(`decisionPathText` in web `lib/api.ts`).
+(`decisionPathText` in web `lib/api.ts`). Neither route exposes
+`pauseCheckInput`; an agent reads the Verlauf only through the built-in
+`xitl` upstream (ADR-0037, whitelisted, user-scoped, without result text).
 
 ### Policy engine (ADR-0004, TC-24, TC-30)
 

@@ -455,7 +455,7 @@
     </div>
 
     {#if upstream}
-      <p class="detail-sub" data-testid="upstream-address">{upstream.slug} · <span class="url">{upstream.url}</span></p>
+      <p class="detail-sub" data-testid="upstream-address">{upstream.slug} · {#if upstream.auth === 'BUILTIN'}<span data-testid="upstream-builtin">Eingebaut</span>{:else}<span class="url">{upstream.url}</span>{/if}</p>
     {/if}
 
     <div class="card general" data-testid="upstream-general">

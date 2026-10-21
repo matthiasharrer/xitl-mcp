@@ -3,6 +3,24 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-21 — built-in upstream `xitl` (ADR-0037)
+
+- Matthias: the KI-Prüfung makes Zeitfreigaben "für komplexere Dinge aktuell
+  echt unbrauchbar" (Richtungswechsel). To get his real cases he proposed an
+  MCP server over xitl itself, generic (Verlauf with filters + upstream
+  metadata), no Zugriffe, no "nur hinweisen" relief until we've seen cases.
+- Lead wrote ADR-0037 + TC-228…239; a Sonnet developer built it (BUILTIN
+  upstream kind over `InMemoryTransport`, migration
+  `20261007050000_builtin_upstream` adds `AuditEntry.pauseCheckInput`). Lead
+  reviewed the security paths (user scoping, whitelisted selects, no HTTP
+  path for BUILTIN, PATCH/connect guards), reran unit 651 / e2e 296.
+- Gap: a mismatch row has no `pauseSnoozeId` (only forwarded calls get one),
+  so old mismatches mostly can't be reconstructed (`clefInput: null`). Cases
+  that count come after the release, from the stored input.
+- Next: Matthias releases, opts in on the phone, then we pull mismatches via
+  the XITL connector (`xitl_list_history pause_check=mismatch`) and rerun the
+  Clef benches with them.
+
 ## 2026-10-16 — optional deny reason (ADR-0036)
 
 - Matthias picked roadmap item "reason when denying" with quick chips (over an

@@ -18,7 +18,7 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
 
 **Open, in order:**
 
-0. **Built-in upstream `xitl` (ADR-0037, Matthias 2026-10-21), in progress.**
+0. **Built-in upstream `xitl` (ADR-0037, Matthias 2026-10-21), built on main, not released.**
    Read-only MCP access to the Verlauf (filters) and upstream metadata, plus
    the stored Clef input per checked call (TC-228…239). Purpose: pull real
    "Richtungswechsel" cases (see the next-section entry), which Matthias calls

@@ -5,6 +5,18 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 const findFirst = vi.fn();
 const updateMany = vi.fn();
 vi.mock('../db.js', () => ({ prisma: { upstream: { findFirst, updateMany } } }));
+// ADR-0037: a spy that calls through, to prove a BUILTIN row never goes out.
+const outboundSpy = vi.fn();
+vi.mock('../lib/outbound.js', async (orig) => {
+  const actual = await orig<typeof import('../lib/outbound.js')>();
+  return {
+    ...actual,
+    outboundFetch: (...a: Parameters<typeof actual.outboundFetch>) => {
+      outboundSpy(...a);
+      return actual.outboundFetch(...a);
+    },
+  };
+});
 const { withUpstream, UpstreamNeedsReconnect, UpstreamNotConnected, UpstreamPaused, storedState, recordFailure, recordSuccess } = await import('./connection.js');
 const { upstreamStates } = await import('./stateEvents.js');
 
@@ -19,6 +31,7 @@ const row = (over: Record<string, unknown> = {}) => ({
 const run = () => withUpstream(7, 1, async () => 'ok', { clock, timeoutMs: 2000 });
 
 beforeEach(() => {
+  outboundSpy.mockReset();
   findFirst.mockReset();
   updateMany.mockReset().mockResolvedValue({ count: 1 });
 });
@@ -134,5 +147,56 @@ describe('storedState', () => {
     expect(storedState({ ...base, status: 'CONNECTED', lastFailureAt: NOW })).toBe('unreachable');
     expect(storedState({ ...base, status: 'CONNECTED' })).toBe('ok');
     expect(storedState({ auth: 'NONE', status: 'NOT_CONNECTED', accessToken: null, lastFailureAt: null })).toBe('ok');
+  });
+});
+
+// ADR-0037 (TC-230): the BUILTIN kind is served in-process. No fetch, no
+// outbound call, no credentials; fn gets a real client of the built-in server.
+describe('BUILTIN upstream (ADR-0037)', () => {
+  const builtin = (over: Record<string, unknown> = {}) => row({ auth: 'BUILTIN', url: 'builtin:xitl', ...over });
+
+  test('never calls outboundFetch or global fetch; the client lists exactly the three read-only tools, with instructions', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    findFirst.mockResolvedValue(builtin());
+    try {
+      const seen = await withUpstream(7, 1, async ({ client, secrets }) => ({
+        tools: (await client.listTools()).tools,
+        instructions: client.getInstructions(),
+        secrets: secrets(),
+      }), { clock, timeoutMs: 2000 });
+      expect(seen.tools.map((t) => t.name)).toEqual(['list_upstreams', 'list_history', 'get_history_entry']);
+      for (const t of seen.tools) expect(t.annotations?.readOnlyHint).toBe(true);
+      expect(seen.instructions).toBeTruthy();
+      expect(seen.secrets).toEqual([]);
+      expect(outboundSpy).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
+      // The instructions are stored like an HTTP upstream's (the unified initialize reads them back).
+      expect(updateMany).toHaveBeenCalledWith({ where: { id: 7, userId: 1 }, data: { instructions: seen.instructions } });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test('a paused BUILTIN row is refused first, like any other', async () => {
+    findFirst.mockResolvedValue(builtin({ pausedAt: new Date('2026-10-05T11:00:00Z') }));
+    await expect(run()).rejects.toBeInstanceOf(UpstreamPaused);
+  });
+
+  test('a failing fn records the failure like an HTTP upstream', async () => {
+    findFirst.mockResolvedValue(builtin());
+    await expect(withUpstream(7, 1, async () => { throw new Error('boom'); }, { clock, timeoutMs: 2000 })).rejects.toThrow('boom');
+    expect(updateMany).toHaveBeenCalledWith({ where: { id: 7, userId: 1, lastFailureAt: null }, data: { lastFailureAt: NOW } });
+  });
+
+  test('an unknown auth kind is refused before anything is contacted (fail closed)', async () => {
+    findFirst.mockResolvedValue(row({ auth: 'SOMETHING_NEW' }));
+    await expect(run()).rejects.toBeInstanceOf(UpstreamNotConnected);
+    expect(outboundSpy).not.toHaveBeenCalled();
+    expect(updateMany).not.toHaveBeenCalled();
+  });
+
+  test('storedState / isUsable: a BUILTIN row is usable and ok, unreachable after a failure', () => {
+    expect(storedState({ auth: 'BUILTIN', status: 'CONNECTED', accessToken: null, lastFailureAt: null })).toBe('ok');
+    expect(storedState({ auth: 'BUILTIN', status: 'CONNECTED', accessToken: null, lastFailureAt: NOW })).toBe('unreachable');
   });
 });

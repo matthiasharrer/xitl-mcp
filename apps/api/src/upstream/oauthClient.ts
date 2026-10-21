@@ -155,6 +155,9 @@ const RECONNECT_CODES = new Set(['invalid_grant', 'invalid_client', 'unauthorize
 /** Step 1 (POST /api/upstreams/:id/connect): discovery, DCR if needed, PKCE.
  * Stores the pending flow and returns the URL to send the browser to. */
 export async function startConnect(row: Upstream, redirectUri: string, clock: Clock = systemClock): Promise<string> {
+  // Fail closed (ADR-0037): only an OAUTH row has an address to discover; a
+  // BUILTIN row's url (`builtin:xitl`) must never be fetched.
+  if (row.auth !== 'OAUTH') throw new ConnectError('Dieser Upstream braucht keine Verbindung.');
   let info: Awaited<ReturnType<typeof discoverOAuthServerInfo>>;
   try {
     info = await discoverOAuthServerInfo(row.url, { fetchFn: oauthFetchFor(row) });

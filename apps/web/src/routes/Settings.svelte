@@ -131,6 +131,21 @@
     }
   }
 
+  let addingBuiltin = $state(false);
+  /** ADR-0037: the built-in `xitl` upstream, one per person. */
+  async function addBuiltin() {
+    addingBuiltin = true;
+    try {
+      await api.createBuiltinUpstream();
+      showToast('„xitl“ hinzugefügt');
+      await load();
+    } catch (e) {
+      showToast(messageOf(e), { error: true });
+    } finally {
+      addingBuiltin = false;
+    }
+  }
+
   async function save(input: UpstreamInput) {
     await api.createUpstream(input);
     showToast(`„${input.name}“ hinzugefügt`);
@@ -365,7 +380,7 @@
                         <span class="badge status-{u.status.toLowerCase()}">{STATUS_LABEL[u.status]}</span>
                       {/if}
                     </span>
-                    <span class="row-sub">{u.slug}{u.allowInternal ? ' · intern' : ''}</span>
+                    <span class="row-sub">{u.slug}{u.auth === 'BUILTIN' ? ' · Eingebaut' : u.allowInternal ? ' · intern' : ''}</span>
                   </span>
                   <span class="chev" aria-hidden="true">›</span>
                 </a>
@@ -389,6 +404,14 @@
       <button type="button" class="btn primary wide add-upstream" onclick={() => (sheet = 'new')}>
         Upstream hinzufügen
       </button>
+      {#if !upstreams.some((u) => u.auth === 'BUILTIN')}
+        <button type="button" class="btn wide add-builtin" disabled={addingBuiltin} onclick={addBuiltin}>
+          {addingBuiltin ? 'Füge hinzu…' : 'xitl als Upstream hinzufügen'}
+        </button>
+        <p class="hint endpoint-note">
+          Lässt einen Agenten den Verlauf und die Upstreams von xitl lesen (nur lesen). Jeder Aufruf braucht deine Freigabe, solange du keine Regel setzt.
+        </p>
+      {/if}
       {#if !mcpConfigured}
         <p class="hint endpoint-note">
           Die Claude-Anbindung ist auf diesem Server nicht eingerichtet. Sie wird aktiv, sobald die
@@ -448,6 +471,9 @@
 </div>
 
 <style>
+  .add-builtin {
+    margin-top: var(--space-2, 0.5rem);
+  }
   .chip.paused {
     color: var(--warn);
     border-color: var(--warn);

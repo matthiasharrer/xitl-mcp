@@ -182,6 +182,16 @@ export function firstMessage(error: z.ZodError): string {
 
 const SLUG_TAKEN = 'Diesen Slug hast du schon vergeben.';
 
+/** ADR-0037: the built-in upstream's fixed identity. */
+const BUILTIN_SLUG = 'xitl';
+const BUILTIN_EXISTS = 'Der eingebaute Upstream „xitl“ ist schon eingerichtet.';
+const BUILTIN_SLUG_TAKEN = 'Der Kürzel „xitl“ ist schon für einen anderen Upstream vergeben. Benenne ihn um oder lösche ihn, dann kannst du den eingebauten hinzufügen.';
+/** PATCH of a BUILTIN row's url / auth / header / allowInternal. */
+export const BUILTIN_FIXED = {
+  error: 'Der eingebaute Upstream hat keine Adresse und keine Anmeldung; sie lassen sich nicht ändern.',
+  code: 'builtin_fixed',
+} as const;
+
 /** PATCH of a HEADER upstream's URL without a new header value (ADR-0021). */
 export const HEADER_VALUE_REQUIRED = {
   error: 'Neue Adresse: Bitte gib den Header-Wert neu ein.',
@@ -248,6 +258,25 @@ upstreams.post('/', async (c) => {
   }
 });
 
+// POST /api/upstreams/builtin: opt in to the built-in `xitl` upstream
+// (ADR-0037), one per person. The ONLY way a BUILTIN row is created: the
+// normal create / PATCH refuse `auth: 'BUILTIN'` (authSchema).
+upstreams.post('/builtin', async (c) => {
+  noStore(c);
+  const userId = c.get('user').id;
+  if (await prisma.upstream.findFirst({ where: { userId, auth: 'BUILTIN' }, select: { id: true } })) return c.json({ error: BUILTIN_EXISTS, code: 'builtin_exists' }, 409);
+  if (await prisma.upstream.findUnique({ where: { userId_slug: { userId, slug: BUILTIN_SLUG } }, select: { id: true } })) return c.json({ error: BUILTIN_SLUG_TAKEN, code: 'slug_taken' }, 409);
+  try {
+    const row = await prisma.upstream.create({
+      data: { userId, slug: BUILTIN_SLUG, name: 'xitl', url: 'builtin:xitl', auth: 'BUILTIN', status: 'CONNECTED', defaultPolicy: 'ASK', description: null },
+    });
+    return c.json(serializeUpstream(row), 201);
+  } catch (e) {
+    if (isUniqueViolation(e)) return c.json({ error: BUILTIN_SLUG_TAKEN, code: 'slug_taken' }, 409);
+    throw e;
+  }
+});
+
 // ---- Connecting an OAUTH upstream (ADR-0013, TC-15/16) ----
 //
 // POST /:id/connect starts the flow and returns the upstream AS's authorize
@@ -264,7 +293,7 @@ upstreams.post('/:id/connect', async (c) => {
   if (id === null) return c.json({ error: 'Nicht gefunden.' }, 404);
   const row = await prisma.upstream.findFirst({ where: { id, userId: c.get('user').id } });
   if (!row) return c.json({ error: 'Nicht gefunden.' }, 404);
-  if (row.auth !== 'OAUTH') return c.json({ error: 'Dieser Upstream braucht keine Verbindung.' }, 400);
+  if (row.auth !== 'OAUTH') return c.json({ error: row.auth === 'BUILTIN' ? BUILTIN_FIXED.error : 'Dieser Upstream braucht keine Verbindung.' }, 400);
   // ADR-0033: a paused upstream is not contacted, not even its AS.
   if (row.pausedAt !== null) return c.json({ error: 'Der Upstream ist pausiert. Setze ihn erst fort.', code: 'upstream_paused' }, 409);
   try {
@@ -323,6 +352,12 @@ upstreams.patch('/:id', async (c) => {
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: firstMessage(parsed.error) }, 400);
   const v = parsed.data;
+  // ADR-0037: a BUILTIN row has no address, login or header. Any attempt to
+  // set one is refused as a whole (nothing changes); name, description,
+  // default policy, AUTO rule and pause stay editable.
+  if (existing.auth === 'BUILTIN' && (v.url !== undefined || v.auth !== undefined || v.headerName !== undefined || v.headerValue !== undefined || v.allowInternal !== undefined)) {
+    return c.json(BUILTIN_FIXED, 400);
+  }
   const data: Record<string, unknown> = {};
   const urlChanged = v.url !== undefined && v.url !== existing.url;
   // A changed URL recomputes the flag (re-confirm); an unchanged one keeps it.

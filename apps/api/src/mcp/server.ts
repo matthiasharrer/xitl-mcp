@@ -315,7 +315,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           pause,
           call: { upstream: other.upstreamName, tool: other.toolName, args: other.args },
         });
-        const scored = r.kind === 'match' || r.kind === 'mismatch' ? { pauseCheckScore: r.score, pauseCheckChoice: r.choice, pausePurpose: pause.purpose ?? null, pausePurposeSource: pause.purpose ? (pause.purposeSource ?? 'typed') : null } : {};
+        const scored = r.kind === 'match' || r.kind === 'mismatch' ? { pauseCheckScore: r.score, pauseCheckChoice: r.choice, pauseCheckInput: r.input, pausePurpose: pause.purpose ?? null, pausePurposeSource: pause.purpose ? (pause.purposeSource ?? 'typed') : null } : {};
         if (r.kind === 'blind' || r.kind === 'match') {
           await prisma.auditEntry.updateMany({ where: { id: other.auditId, userId }, data: { pauseSnoozeId: pause.id, ...scored } });
           auditEvents.emit({ userId, auditId: other.auditId });
@@ -612,7 +612,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           sessionId: call.session?.id ?? null,
           intentStatus: intents.initialStatus,
           ...(check?.kind === 'match' || check?.kind === 'mismatch'
-            ? { pauseCheckScore: check.score, pauseCheckChoice: check.choice, pausePurpose: ev.pauses.allow?.purpose ?? null, pausePurposeSource: ev.pauses.allow?.purpose ? (ev.pauses.allow.purposeSource ?? 'typed') : null }
+            ? { pauseCheckScore: check.score, pauseCheckChoice: check.choice, pauseCheckInput: check.input, pausePurpose: ev.pauses.allow?.purpose ?? null, pausePurposeSource: ev.pauses.allow?.purpose ? (ev.pauses.allow.purposeSource ?? 'typed') : null }
             : {}),
           pauseSnoozeId: underPause,
           ...(autoResult?.kind === 'pass' || autoResult?.kind === 'below' ? { autoScore: autoResult.score } : {}),

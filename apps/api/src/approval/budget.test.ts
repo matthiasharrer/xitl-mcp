@@ -4,6 +4,8 @@ import {
   approvalDeadline,
   approvalSummary,
   approvalTimeoutFromEnv,
+  berlinDayStart,
+  nextBerlinDay,
   CALL_BUDGET_MS,
   MIN_UPSTREAM_MS,
   nextBerlinMidnight,
@@ -83,5 +85,34 @@ describe('push summary (TC-32)', () => {
     const long = approvalSummary('add_item', { item: 'x'.repeat(5000), more: 'y' });
     expect(long.length).toBeLessThanOrEqual(SUMMARY_MAX);
     expect(long.endsWith('…')).toBe(true);
+  });
+});
+
+// ADR-0037 / TC-235: a Berlin calendar day as a time range, DST-correct.
+describe('berlinDayStart / nextBerlinDay', () => {
+  test('normal summer and winter days start at Berlin midnight', () => {
+    expect(berlinDayStart('2026-07-01')!.toISOString()).toBe('2026-06-30T22:00:00.000Z');
+    expect(berlinDayStart('2026-01-15')!.toISOString()).toBe('2026-01-14T23:00:00.000Z');
+  });
+  test('the day of the switch to winter time (2026-10-25) is 25 hours long', () => {
+    const start = berlinDayStart('2026-10-25')!;
+    const end = berlinDayStart(nextBerlinDay('2026-10-25')!)!;
+    expect(start.toISOString()).toBe('2026-10-24T22:00:00.000Z');
+    expect(end.toISOString()).toBe('2026-10-25T23:00:00.000Z');
+    expect((end.getTime() - start.getTime()) / 3_600_000).toBe(25);
+  });
+  test('the day of the switch to summer time (2026-03-29) is 23 hours long', () => {
+    const start = berlinDayStart('2026-03-29')!;
+    const end = berlinDayStart(nextBerlinDay('2026-03-29')!)!;
+    expect(start.toISOString()).toBe('2026-03-28T23:00:00.000Z');
+    expect((end.getTime() - start.getTime()) / 3_600_000).toBe(23);
+  });
+  test('month and year ends roll over; invalid dates are null', () => {
+    expect(nextBerlinDay('2026-12-31')).toBe('2027-01-01');
+    expect(nextBerlinDay('2026-02-28')).toBe('2026-03-01');
+    for (const bad of ['2026-02-30', '2026-13-01', '2026-1-1', '', 'x', '2026-10-25T00:00', '20261025']) {
+      expect(berlinDayStart(bad), bad).toBeNull();
+      expect(nextBerlinDay(bad), bad).toBeNull();
+    }
   });
 });

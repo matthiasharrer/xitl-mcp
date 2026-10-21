@@ -95,7 +95,8 @@ export function pauseCheckLine(e: { decisionPath: string; pauseCheckScore: numbe
 }
 
 export type Policy = 'ALLOW' | 'ASK' | 'DENY' | 'AUTO';
-export type UpstreamAuth = 'OAUTH' | 'HEADER' | 'NONE';
+/** BUILTIN (ADR-0037): the in-process `xitl` upstream; no address, no login. */
+export type UpstreamAuth = 'OAUTH' | 'HEADER' | 'NONE' | 'BUILTIN';
 export type UpstreamStatus = 'NOT_CONNECTED' | 'CONNECTED' | 'NEEDS_RECONNECT';
 
 export interface Upstream {
@@ -502,6 +503,8 @@ export const api = {
   listUpstreams: () => request<Upstream[]>('GET', '/api/upstreams'),
   getUpstream: (id: number) => request<Upstream>('GET', `/api/upstreams/${id}`),
   createUpstream: (input: UpstreamInput) => request<Upstream>('POST', '/api/upstreams', input),
+  /** ADR-0037: opt in to the built-in `xitl` upstream (one per person). */
+  createBuiltinUpstream: () => request<Upstream>('POST', '/api/upstreams/builtin'),
   updateUpstream: (id: number, patch: Partial<UpstreamInput>) =>
     request<Upstream>('PATCH', `/api/upstreams/${id}`, patch),
   deleteUpstream: (id: number) => request<void>('DELETE', `/api/upstreams/${id}`),

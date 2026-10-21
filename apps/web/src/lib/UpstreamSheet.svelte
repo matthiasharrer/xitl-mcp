@@ -18,6 +18,9 @@
   // svelte-ignore state_referenced_locally
   const u = upstream;
   const creating = u === undefined;
+  // ADR-0037: the built-in upstream has no address, login or header; the API
+  // refuses to change them, so the sheet doesn't show or send them.
+  const builtin = u?.auth === 'BUILTIN';
   let name = $state(u?.name ?? '');
   let slug = $state(u?.slug ?? '');
   // While adding, the slug follows the name until the user edits it themselves.
@@ -63,7 +66,7 @@
   const canSave = $derived(
     name.trim() !== '' &&
       slug !== '' &&
-      url.trim() !== '' &&
+      (builtin || url.trim() !== '') &&
       !busy &&
       (auth !== 'HEADER' || (headerName.trim() !== '' && (headerValue !== '' || keepsStoredHeaderValue))),
   );
@@ -75,16 +78,16 @@
     error = null;
     internalHint = null;
     headerValueError = null;
-    const input: UpstreamInput = {
+    const input = {
       name: name.trim(),
       slug,
-      url: url.trim(),
       description: description.trim() === '' ? null : description.trim(),
       defaultPolicy,
-      auth,
-    };
+      // A BUILTIN edit sends no url / auth (the API answers builtin_fixed).
+      ...(builtin ? {} : { url: url.trim(), auth }),
+    } as UpstreamInput;
     if (allowInternal) input.allowInternal = true;
-    if (auth === 'HEADER') {
+    if (!builtin && auth === 'HEADER') {
       input.headerName = headerName.trim();
       // Empty on edit = keep the stored value (it is write-only).
       if (headerValue !== '') input.headerValue = headerValue;
@@ -153,6 +156,7 @@
         <span class="hint">Kommt in die Adresse: /mcp/{slug || '…'}</span>
       </label>
 
+      {#if !builtin}
       <label class="field">
         <span class="label">URL</span>
         <input
@@ -166,6 +170,7 @@
           spellcheck="false"
         />
       </label>
+      {/if}
 
       <label class="field">
         <span class="label">Beschreibung</span>
@@ -188,6 +193,7 @@
         {/if}
       </fieldset>
 
+      {#if !builtin}
       <fieldset class="field">
         <legend class="label">Anmeldung beim Upstream</legend>
         <div class="segmented">
@@ -199,8 +205,9 @@
           {/each}
         </div>
       </fieldset>
+      {/if}
 
-      {#if auth === 'HEADER'}
+      {#if !builtin && auth === 'HEADER'}
         <label class="field">
           <span class="label">Header-Name</span>
           <input

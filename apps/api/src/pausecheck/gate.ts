@@ -32,11 +32,13 @@ import { PauseCheckOutage } from './outage.js';
 
 export type GateResult =
   | { kind: 'blind' }
-  | { kind: 'match'; score: number; choice: 'gleich' }
+  | { kind: 'match'; score: number; choice: 'gleich'; input: string }
   | {
       kind: 'mismatch';
       score: number;
       choice: Deviation;
+      /** ADR-0037: the exact state text sent to Clef (stored on the audit row). */
+      input: string;
       /** ADR-0029 amendment: the Snooze ids interrupted by this mismatch
        * (empty when none was live any more), and what the card shows. */
       interrupted?: { ids: number[]; until: Date; purpose: string | null };
@@ -62,7 +64,7 @@ export function narrow(decision: PolicyDecision, result: GateResult | null): { p
 }
 
 /** Audit outcomes that count as "forwarded under the pause" (in flight too). */
-const FORWARDED_OUTCOMES = ['FORWARDED', 'UPSTREAM_ERROR', 'PENDING'] as const;
+export const FORWARDED_OUTCOMES = ['FORWARDED', 'UPSTREAM_ERROR', 'PENDING'] as const;
 
 export interface GateInput {
   userId: number;
@@ -100,6 +102,12 @@ export class PauseGate {
   /** PAUSE_CHECK_URL is configured. */
   get enabled(): boolean {
     return this.config !== null;
+  }
+
+  /** The configured p(gleich) threshold, or null when the check is off
+   * (ADR-0037: shown by the built-in upstream's get_history_entry). */
+  get threshold(): number | null {
+    return this.config?.threshold ?? null;
   }
 
   /** Configured AND the user's switch is on (a missing user counts as off:
@@ -166,7 +174,7 @@ export class PauseGate {
     try {
       const answer = await config.check.check(state, ctrl.signal, purposeText(purpose) !== null);
       const v = verdict(answer, config.threshold);
-      result = v.kind === 'match' ? { kind: 'match', score: v.score, choice: 'gleich' } : { kind: 'mismatch', score: v.score, choice: v.deviation };
+      result = v.kind === 'match' ? { kind: 'match', score: v.score, choice: 'gleich', input: state } : { kind: 'mismatch', score: v.score, choice: v.deviation, input: state };
     } catch (e) {
       // Class only: never the URL path, the state or the answer.
       console.warn(`pause check failed (${ctrl.signal.aborted ? 'timeout' : e instanceof Error ? e.name : 'unknown'}), call held`);

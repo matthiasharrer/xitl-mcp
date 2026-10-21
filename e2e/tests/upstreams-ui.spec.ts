@@ -21,7 +21,7 @@ test('TC-08 Einstellungen: Upstream hinzufügen, bearbeiten, löschen (mit Best�
   await noHorizontalScroll(page);
 
   // add
-  await page.getByRole('button', { name: 'Upstream hinzufügen' }).click();
+  await page.getByRole('button', { name: 'Upstream hinzufügen', exact: true }).click();
   const sheet = page.getByRole('dialog', { name: 'Upstream hinzufügen' });
   await expect(sheet).toBeVisible();
   await sheet.getByLabel('Name').fill(name);
@@ -42,7 +42,7 @@ test('TC-08 Einstellungen: Upstream hinzufügen, bearbeiten, löschen (mit Best�
   await noHorizontalScroll(page);
 
   // a duplicate slug is refused with the server's German message, sheet stays open
-  await page.getByRole('button', { name: 'Upstream hinzufügen' }).click();
+  await page.getByRole('button', { name: 'Upstream hinzufügen', exact: true }).click();
   await sheet.getByLabel('Name').fill('Doppelt');
   await sheet.getByLabel('Slug').fill(slug);
   await sheet.getByLabel('URL').fill('https://x.example/mcp');
