@@ -5,24 +5,32 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-17 (`v0.15.0` released)_
+_Last updated: 2026-10-21 (ADR-0037 built-in `xitl` upstream started)_
 
 ## Next
 
 State 2026-10-17: **`v0.15.0` released** (optional deny reason, ADR-0036; `v0.14.0`: resume a Zeitfreigabe the KI-Prüfung interrupted, ADR-0029 amendment; new-version banner ADR-0035; `v0.13.0`: Einstellungen rework: switches, own upstream and client pages; `v0.13.1` fixes a tab-bar tap toggling a switch; `v0.12.0`: per-client default per upstream ADR-0032, pause an upstream ADR-0033, tool freshness on call ADR-0034; `v0.10.0`: live Verlauf ADR-0028,
 Zeitfreigabe / Sperre wording, Zeitfreigabe AI check ADR-0029, tool review
 hint ADR-0031, AUTO ADR-0030, purpose line; `v0.11.0`: purpose suggestion
-chips, "Läuft gerade" overview). Deployed: whatever Matthias last bumped
+chips, "Läuft gerade" overview). Deployed: every release (released = deployed, Matthias 2026-10-20; was: whatever Matthias last bumped
 (`v0.9.0` or older). GitOps has `INTENT_LLM_URL` (qwen) and `PAUSE_CHECK_URL`
 (Clef 27B, alias `clef`) with NetworkPolicies.
 
 **Open, in order:**
 
-0. **Deploy `v0.15.0`** (Matthias bumps the tag; then try „Erlauben & fortsetzen“ / „Fortsetzen“ on the phone with real Clef, and a deny with a reason chip from Claude.ai; GitOps already has
-   `PAUSE_CHECK_URL` and the NetworkPolicy to llama-cpp-clef, 2026-10-07).
-   Then the manual gates MG-09…11: Zeitfreigabe AI check on the phone (incl.
-   "Wofür?"), Sperre with purpose, AUTO with a real rule + "Mit Verlauf
-   testen" (the real-data check of ADR-0030's threshold).
+0. **Built-in upstream `xitl` (ADR-0037, Matthias 2026-10-21), in progress.**
+   Read-only MCP access to the Verlauf (filters) and upstream metadata, plus
+   the stored Clef input per checked call (TC-228…239). Purpose: pull real
+   "Richtungswechsel" cases (see the next-section entry), which Matthias calls
+   "für komplexere Dinge aktuell echt unbrauchbar". After it ships: pull his
+   mismatches via the XITL connector, rerun the benches with them, then pick
+   the lever (threshold, prompt, anchor on purpose, "nur hinweisen").
+1. **Phone checks of `v0.14.0`/`v0.15.0`** (released = deployed, Matthias
+   2026-10-20): „Erlauben & fortsetzen“ / „Fortsetzen“ with real Clef, a deny
+   with a reason chip from Claude.ai. Then the manual gates MG-09…11:
+   Zeitfreigabe AI check on the phone (incl. "Wofür?"), Sperre with purpose,
+   AUTO with a real rule + "Mit Verlauf testen" (the real-data check of
+   ADR-0030's threshold).
 2. **Toast count with KI-Prüfung on** (found by TC-128 e2e, 2026-10-07):
    a Zeitfreigabe settles the covered held calls in the proxy through Clef
    (ADR-0029), after the response, so `alsoDecided` is 0 and the toast never
