@@ -5,26 +5,27 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-21 (ADR-0037 built-in `xitl` upstream started)_
+_Last updated: 2026-10-21 (`v0.16.0` released)_
 
 ## Next
 
-State 2026-10-17: **`v0.15.0` released** (optional deny reason, ADR-0036; `v0.14.0`: resume a Zeitfreigabe the KI-Prüfung interrupted, ADR-0029 amendment; new-version banner ADR-0035; `v0.13.0`: Einstellungen rework: switches, own upstream and client pages; `v0.13.1` fixes a tab-bar tap toggling a switch; `v0.12.0`: per-client default per upstream ADR-0032, pause an upstream ADR-0033, tool freshness on call ADR-0034; `v0.10.0`: live Verlauf ADR-0028,
+State 2026-10-21: **`v0.16.0` released** (built-in upstream `xitl`, ADR-0037; `v0.15.0`: optional deny reason, ADR-0036; `v0.14.0`: resume a Zeitfreigabe the KI-Prüfung interrupted, ADR-0029 amendment; new-version banner ADR-0035; `v0.13.0`: Einstellungen rework: switches, own upstream and client pages; `v0.13.1` fixes a tab-bar tap toggling a switch; `v0.12.0`: per-client default per upstream ADR-0032, pause an upstream ADR-0033, tool freshness on call ADR-0034; `v0.10.0`: live Verlauf ADR-0028,
 Zeitfreigabe / Sperre wording, Zeitfreigabe AI check ADR-0029, tool review
 hint ADR-0031, AUTO ADR-0030, purpose line; `v0.11.0`: purpose suggestion
-chips, "Läuft gerade" overview). Deployed: every release (released = deployed, Matthias 2026-10-20; was: whatever Matthias last bumped
-(`v0.9.0` or older). GitOps has `INTENT_LLM_URL` (qwen) and `PAUSE_CHECK_URL`
+chips, "Läuft gerade" overview). Deployed: every release (released = deployed, Matthias 2026-10-20). GitOps has `INTENT_LLM_URL` (qwen) and `PAUSE_CHECK_URL`
 (Clef 27B, alias `clef`) with NetworkPolicies.
 
 **Open, in order:**
 
-0. **Built-in upstream `xitl` (ADR-0037, Matthias 2026-10-21), built on main, not released.**
-   Read-only MCP access to the Verlauf (filters) and upstream metadata, plus
-   the stored Clef input per checked call (TC-228…239). Purpose: pull real
-   "Richtungswechsel" cases (see the next-section entry), which Matthias calls
-   "für komplexere Dinge aktuell echt unbrauchbar". After it ships: pull his
-   mismatches via the XITL connector, rerun the benches with them, then pick
-   the lever (threshold, prompt, anchor on purpose, "nur hinweisen").
+0. **Richtungswechsel cases (ADR-0037 shipped in `v0.16.0`).** Matthias opts
+   in to „xitl als Upstream hinzufügen“ and works normally for a few days.
+   Then pull his mismatches via the XITL connector (`xitl_list_history`
+   `pause_check=mismatch`, `xitl_get_history_entry` → `clefInput`), ask him
+   what he meant for each, add them to `clef_bench.py` /
+   `clef_pause_intent.py`, and pick the lever (threshold, prompt, anchor on
+   the purpose, "nur hinweisen"). He calls the check "für komplexere Dinge
+   aktuell echt unbrauchbar". Pre-`v0.16.0` mismatches mostly have no
+   reconstructable input (no `pauseSnoozeId` on held rows).
 1. **Phone checks of `v0.14.0`/`v0.15.0`** (released = deployed, Matthias
    2026-10-20): „Erlauben & fortsetzen“ / „Fortsetzen“ with real Clef, a deny
    with a reason chip from Claude.ai. Then the manual gates MG-09…11:

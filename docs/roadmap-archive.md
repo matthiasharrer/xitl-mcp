@@ -3,6 +3,16 @@
 Shipped roadmap entries, newest first. The reasoning is in `decisions/`, the
 test evidence in `testing.md`'s run log.
 
+## 2026-10-21 (`v0.16.0`)
+
+- **Built-in upstream `xitl` (ADR-0037, Matthias's idea).** Opt-in per
+  person in Einstellungen; an ordinary upstream row of kind BUILTIN served
+  in-process (no HTTP), default „Fragen“. Read-only tools `list_upstreams`,
+  `list_history` (filters: upstream, tool, status, pause_check, from/to,
+  paging), `get_history_entry` (incl. the exact Clef input, now stored per
+  checked call as `AuditEntry.pauseCheckInput`). Never URLs, credentials,
+  rules, result texts or Zugriffe. TC-228…239.
+
 ## 2026-10-16 (`v0.15.0`)
 
 - **Optional reason when denying (ADR-0036, Matthias chose chips).** Above
