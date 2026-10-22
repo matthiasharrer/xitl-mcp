@@ -82,22 +82,23 @@ def p_gleich(state, variant):
         return json.load(r)['answers']['richtung']['probabilities']['gleich']
 
 
-full = '--full-purpose' in sys.argv
-variants = sys.argv[sys.argv.index('--variants') + 1].split(',') if '--variants' in sys.argv else list(VARIANTS)
-cases = [(c[0], c[1], synthetic_state(c)) for c in CASES] + real_cases(full)
-res = {v: {} for v in variants}
-t0 = time.monotonic()
-for cid, exp, st in cases:
+if __name__ == '__main__':
+    full = '--full-purpose' in sys.argv
+    variants = sys.argv[sys.argv.index('--variants') + 1].split(',') if '--variants' in sys.argv else list(VARIANTS)
+    cases = [(c[0], c[1], synthetic_state(c)) for c in CASES] + real_cases(full)
+    res = {v: {} for v in variants}
+    t0 = time.monotonic()
+    for cid, exp, st in cases:
+        for v in variants:
+            res[v][cid] = p_gleich(st, v)
+        print(f'{exp:3} {cid:26} ' + '  '.join(f'{v} {res[v][cid]:.3f}' for v in variants), flush=True)
+    print(f'\n{len(cases)} cases, {time.monotonic() - t0:.0f} s, purpose: {"full" if full else "as stored"}')
     for v in variants:
-        res[v][cid] = p_gleich(st, v)
-    print(f'{exp:3} {cid:26} ' + '  '.join(f'{v} {res[v][cid]:.3f}' for v in variants), flush=True)
-print(f'\n{len(cases)} cases, {time.monotonic() - t0:.0f} s, purpose: {"full" if full else "as stored"}')
-for v in variants:
-    for part in ('synthetic', 'real', 'all'):
-        sel = [(cid, exp) for cid, exp, _ in cases if part == 'all' or (part == 'real') == cid.startswith('real-')]
-        if not sel:
-            continue
-        ok = [res[v][c] for c, e in sel if e == 'ok']
-        ask = [res[v][c] for c, e in sel if e == 'ask']
-        print(f'{v} {part:9}: min ok {min(ok):.3f}  max ask {max(ask):.3f}  gap {min(ok) - max(ask):+.3f}  '
-              f'at 0.8: ok passed {sum(p >= 0.8 for p in ok)}/{len(ok)}, ask passed {sum(p >= 0.8 for p in ask)}/{len(ask)}')
+        for part in ('synthetic', 'real', 'all'):
+            sel = [(cid, exp) for cid, exp, _ in cases if part == 'all' or (part == 'real') == cid.startswith('real-')]
+            if not sel:
+                continue
+            ok = [res[v][c] for c, e in sel if e == 'ok']
+            ask = [res[v][c] for c, e in sel if e == 'ask']
+            print(f'{v} {part:9}: min ok {min(ok):.3f}  max ask {max(ask):.3f}  gap {min(ok) - max(ask):+.3f}  '
+                  f'at 0.8: ok passed {sum(p >= 0.8 for p in ok)}/{len(ok)}, ask passed {sum(p >= 0.8 for p in ask)}/{len(ask)}')

@@ -61,7 +61,15 @@ Schritte 5 und 6 sind erledigt: `scripts/bench/clef_purpose_fit.py` (14 syntheti
 
 Korrektur einer Annahme: Eine Allow-Pause hebt auch eine explizite ASK-Regel auf (`policy.ts` Schritt 10). Eine Regel „immer fragen, auch bei Zeitfreigabe“ gibt es noch nicht.
 
-Offen: Schritt 7, Matthias entscheidet über den Hebel.
+Gegenprobe mit Qwen und Reasoning (`scripts/bench/qwen_purpose_fit.py`, Alias `qwen`, ein Lauf mit temperature 0.6, Log in `data/clef-cases-2026-10-21/qwen_run.log`):
+- Q0 (Ankerfrage): synthetisch 12/14, echt 6/13.
+- Q1 (Zweckfrage): synthetisch 13/14, echt 8/13.
+- Q1 lässt ausgerechnet #385 durch (Dedup-Workflow archiviert, „cleanup implied by the purpose“) und ebenso plan-add-then-remove. Lese-Aufrufe (#362, #363, #367, #379) hält es an.
+- Median 25 s pro Aufruf, bis zu 58 s. Als blockierende Prüfung taugt das also auch nicht.
+
+Matthias erwägt, Clef aus dem Cluster zu nehmen. Reihenfolge: zuerst `PAUSE_CHECK_URL` im Deployment entfernen, dann Clef. Alle drei Funktionen (ADR-0029, Sperre mit Zweck, AUTO) schalten sich damit sauber ab.
+
+Offen: Matthias entscheidet über den Hebel. Vorschlag: Regel-Option „auch bei Zeitfreigabe fragen“ und Zähler im „Wofür?“-Feld.
 
 ## Grenzen
 
