@@ -57,19 +57,36 @@ Forces:
 
 ## Decision
 
-1. **Opt-in per upstream: "Oberflächen anzeigen (MCP Apps)", default off.**
-   New column `Upstream.appsEnabled Boolean @default(false)`, set only through
-   `/api` (Remote-User), on the upstream's page in Einstellungen. The
-   built-in `xitl` upstream (ADR-0037) has none and the switch is not shown.
+1. **Two values, one tap (Matthias, 2026-10-24).** A view is shown for a tool
+   only if both hold:
+   - **the page is acknowledged** (per resource, since several tools may
+     share one `ui://` URI): new table `UiResource` (upstreamId, uri,
+     `contentHash` sha256 of the HTML as last read, `acknowledgedHash`,
+     `acknowledgedAt`, `changedAt`). Unique (upstreamId, uri).
+   - **the tool's display is on**: `KnownTool.uiEnabled Boolean?` (null =
+     the upstream default `Upstream.appsDefault Boolean @default(false)`).
+   In the UI this is **one switch "Oberfläche anzeigen" per tool**: turning
+   it on also acknowledges the page's current hash. A changed page shows
+   "Oberfläche geändert" on every tool using it; "Neue Version anzeigen"
+   re-acknowledges and leaves the tools' switches as they were. Acknowledging
+   via one tool counts for every tool sharing the page; whether those show
+   it follows their own switch / the upstream default. Both values are
+   written only through `/api` (Remote-User). The built-in `xitl` upstream
+   (ADR-0037) has no views; nothing is shown.
+   **No ASK for views:** a host may prefetch at list time, and holding a
+   render is pointless; what a view *does* (tool calls) is gated by the
+   tools' own rules (item 5). The switch decides what is shown, never what
+   is executed.
 
-2. **Off (the default): strip.** `listFor` removes `_meta.ui` and
-   `_meta["ui/resourceUri"]` from every tool (other `_meta` keys pass as
-   today). A tool whose `visibility` excludes `"model"` (`["app"]`) is **not
-   listed at all** when off: without a view nothing legitimate calls it, and
-   listing it would show the model a tool the upstream meant to hide. This
-   alone ends the spinner. Ships first, before anything else here.
+2. **Not shown: strip.** For a tool whose view is not shown (switch off,
+   page not acknowledged or changed, upstream default off), `listFor`
+   removes `_meta.ui` and `_meta["ui/resourceUri"]` (other `_meta` keys pass
+   as today). A tool whose `visibility` excludes `"model"` (`["app"]`) is
+   **not listed at all** then: without a view nothing legitimate calls it,
+   and listing it would show the model a tool the upstream meant to hide.
+   Stripping alone ends the spinner and ships first.
 
-3. **On: pass through and serve.**
+3. **Shown: pass through and serve.**
    - `tools/list` keeps `_meta.ui`. On `/mcp` the URI is rewritten to
      `ui://<slug>/<original without "ui://">` (both forms of the key); on
      `/mcp/<slug>` it stays as is. App-only tools are listed (the host hides
@@ -81,14 +98,18 @@ Forces:
      resources stay unproxied (they would be a data channel with no policy).
    - `resources/read(uri)` resolves the URI to (upstream, original URI) and
      answers **only if** the upstream is the user's, visible to this client
-     (not paused, not hidden by ADR-0032/0033), switched on, and a tool of it
+     (not paused, not hidden by ADR-0032/0033) and at least one tool of it
      that this client may see (policy not DENY, same evaluation as `listFor`)
-     references exactly that URI. The reference is read from
-     `KnownTool.uiResourceUri` (new column, recorded on every sync). Anything
-     else answers the same "unknown resource" error, no oracle.
+     with its view shown references exactly that URI. The reference is read
+     from `KnownTool.uiResourceUri` (new column, recorded on every sync).
+     Anything else answers the same "unknown resource" error, no oracle.
    - The upstream's answer is passed through only if every content item has
      `uri` = the original URI and `mimeType` `text/html;profile=mcp-app` and
-     the total is ≤ 2 MB; otherwise the same error. `_meta.ui` (CSP,
+     the total is ≤ 2 MB; otherwise the same error. Then the sha256 of the
+     HTML is compared with `acknowledgedHash`: different → `contentHash` and
+     `changedAt` are recorded, the page counts as changed (stripped from the
+     next `tools/list`) and this read answers the same error. A host's cached
+     older copy may still render; that copy was acknowledged. `_meta.ui` (CSP,
      permissions, domain) passes unchanged: the host enforces it, and xitl
      rewriting a CSP would only be guessing.
    - No approval for `resources/read`: it fetches the view, not data the
@@ -109,14 +130,24 @@ Forces:
 ## Consequences
 
 - Slice 1 (strip, item 2) fixes the spinner on its own and is releasable.
-- Matthias decides per upstream whether its views are worth it. On `/mcp` a
-  switched-on upstream's view can reach other upstreams' tools through the
-  host (gated by policy); the switch's help text says so.
-- New schema: `Upstream.appsEnabled`, `KnownTool.uiResourceUri`
-  (hand-written `ADD COLUMN`, migration named after the latest one).
-- Not covered: a changed view HTML is not flagged. Later option (ideas.md):
-  store a hash per `uiResourceUri` on first read, mark "Oberfläche geändert"
-  on change, advisory like the review hint.
+- Matthias decides per tool whether its view is worth it; a new or changed
+  page is never shown before he tapped it. On `/mcp` a shown view can reach
+  other upstreams' tools through the host (gated by policy); the switch's
+  help text says so.
+- Acknowledging needs the hash, which xitl only learns on a read: the first
+  `resources/read` of a new page records `contentHash` and is refused, the
+  tool shows "Neu: Oberfläche" in Regeln; after the tap the next call shows
+  it. To avoid a first refused render, syncing tools may read new pages in
+  the background (decided while building).
+- A page whose HTML changes on every upstream release needs a tap per
+  release.
+- New schema: table `UiResource`, `Upstream.appsDefault`,
+  `KnownTool.uiResourceUri`, `KnownTool.uiEnabled` (hand-written
+  `ADD COLUMN`, migration named after the latest one).
+- **Data resources** (files, schemas, logs, templates) stay unproxied. They
+  are model-reachable reads of agent-chosen URIs, i.e. read-only tools in
+  all but name, and would need the full policy (ASK, audit, pauses): a
+  separate ADR when an upstream offers some (ideas.md).
 - No `notifications/resources/list_changed`, no prompts, no non-UI resources.
 - Protocol 2026-07-28 (sessionless, `_meta` envelope) needs nothing extra:
   `resources/*` are ordinary requests.
@@ -138,14 +169,21 @@ Forces:
   holds no agent-chosen data. Calls from the view are approved anyway.
 - **Proxy all resources.** Non-UI resources are reads with agent-chosen URIs
   and no policy model; out of scope.
+- **Per upstream only (first draft).** Too coarse once views are per tool,
+  and no answer to changed HTML.
+- **Acknowledge page and switch display separately in the UI.** Two taps for
+  one intent; kept as two stored values only so a changed page can be
+  blocked without losing the switches.
 - **Strip forever (no MCP Apps).** Fine as slice 1; the views (charts,
   pickers) are the point of the feature, so not as the end state.
 
 ## Open questions (Matthias)
 
-1. Opt-in per upstream, default off: ok?
-2. On `/mcp` allowed (with the cross-upstream note), or only per-upstream
+Settled 2026-10-24: per tool, default off; page acknowledged + display on in
+one tap; changed HTML re-asked (hash); no ASK for views; data resources out
+of scope.
+
+1. On `/mcp` allowed (with the cross-upstream note), or only per-upstream
    endpoints?
-3. View HTML changes: ignore for now (ideas.md), or flag in v1?
-4. Which upstream sent the view (the RAM question)? Needed for the manual
+2. Which upstream sent the view (the RAM question)? Needed for the manual
    test.

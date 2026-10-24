@@ -213,3 +213,9 @@
   Zeitfreigaben, not Sperren.**
   **Built 2026-10-07** (TC-172…177, not yet committed/released at the time of
   writing): chips "Nur dies" / "Diese Art", `purposeSource` typed|suggested.
+
+- **Data resources through xitl** (ADR-0038 leaves them out, 2026-10-24):
+  files, schemas, logs, resource templates (`file:///{path}`). Model-reachable
+  reads of agent-chosen URIs, so treat them like read-only tools: Erlauben /
+  Fragen / Verbieten, audit, Zeitfreigaben, Sperren; namespaced on `/mcp`.
+  Only once an upstream actually offers some.
