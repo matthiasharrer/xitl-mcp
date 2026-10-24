@@ -17,6 +17,15 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
 
 **Open, in order:**
 
+-1. **MCP Apps (ADR-0038, Proposed 2026-10-24).** Claude.ai shows an endless
+   "Verbindung … wird hergestellt" box when an upstream's tool carries
+   `_meta.ui.resourceUri`: xitl passes it through but serves no
+   `resources/read`. Matthias answers the ADR's open questions, then: slice 1
+   strip `_meta.ui` (switch off = default; ends the spinner, releasable),
+   slice 2 `appsEnabled` + `KnownTool.uiResourceUri` + `_meta.ui` in change
+   detection, slice 3 `resources` capability with URI rewrite on `/mcp` and
+   the checked `resources/read`, slice 4 phone check in Claude.ai (view
+   renders, a view-initiated call is still held, which `_meta`/headers mark it).
 0. **Richtungswechsel cases (ADR-0037 shipped in `v0.16.0`).** Matthias opts
    in to „xitl als Upstream hinzufügen“ and works normally for a few days.
    Then pull his mismatches via the XITL connector (`xitl_list_history`
@@ -134,7 +143,7 @@ stay behind Authelia.
   still runs (same window as revoke); Claude.ai's reaction to the 403 is
   unmeasured. Rename/revoke in the UI still show the API's English "not
   found" on a 404 (pause has its own German toast).
-- Only `tools` are proxied (no resources/prompts); no `list_changed`
+- Only `tools` are proxied (no resources/prompts; MCP Apps views: ADR-0038); no `list_changed`
   notifications (stateless endpoint; next `tools/list` sees changes).
 - DCR cleanup (TC-88): prune-then-create isn't atomic, so concurrent
   registrations can briefly exceed `MAX_UNBOUND_CLIENTS` by a few; the next
