@@ -1,6 +1,6 @@
 # 0038. MCP Apps: an upstream's UI resources, opt-in per upstream
 
-- **Status:** Proposed (2026-10-24; open questions for Matthias at the end)
+- **Status:** Accepted (2026-10-25, Matthias: per tool, one tap, views on `/mcp` too, pages read when the tool list is synced)
 - **Date:** 2026-10-24
 
 ## Context
@@ -134,11 +134,15 @@ Forces:
   page is never shown before he tapped it. On `/mcp` a shown view can reach
   other upstreams' tools through the host (gated by policy); the switch's
   help text says so.
-- Acknowledging needs the hash, which xitl only learns on a read: the first
-  `resources/read` of a new page records `contentHash` and is refused, the
-  tool shows "Neu: Oberfläche" in Regeln; after the tap the next call shows
-  it. To avoid a first refused render, syncing tools may read new pages in
-  the background (decided while building).
+- **Pages are read when the tool list is synced** (Matthias 2026-10-25):
+  after a successful `tools/list` from the upstream, every referenced
+  `ui://` page is read in the background (same checks as item 3: mimeType,
+  ≤ 2 MB; at most one read in flight per page; never awaited by the list),
+  and its `contentHash` / `changedAt` updated. So "Neu: Oberfläche" appears
+  in Regeln as soon as the tool does, and a changed page is stripped from
+  the next `tools/list` before a host tries to render it. A read on behalf
+  of a host still re-checks the hash (the HTML may change between syncs).
+  A failed background read changes nothing (no hash = not shown).
 - A page whose HTML changes on every upstream release needs a tap per
   release.
 - New schema: table `UiResource`, `Upstream.appsDefault`,
@@ -177,13 +181,9 @@ Forces:
 - **Strip forever (no MCP Apps).** Fine as slice 1; the views (charts,
   pickers) are the point of the feature, so not as the end state.
 
-## Open questions (Matthias)
+## Settled with Matthias
 
-Settled 2026-10-24: per tool, default off; page acknowledged + display on in
-one tap; changed HTML re-asked (hash); no ASK for views; data resources out
-of scope.
-
-1. On `/mcp` allowed (with the cross-upstream note), or only per-upstream
-   endpoints?
-2. Which upstream sent the view (the RAM question)? Needed for the manual
-   test.
+2026-10-24: per tool, default off; page acknowledged + display on in one
+tap; changed HTML re-asked (hash); no ASK for views; data resources out of
+scope. 2026-10-25: views on `/mcp` too (with the cross-upstream note); pages
+read in the background on tool sync.
