@@ -3,6 +3,24 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-24/25 — MCP Apps (ADR-0038), slice 1
+
+- Matthias (Claude.ai, „XITL Proxy All“, a RAM question answered by the
+  Grafana upstream) saw two endless „Verbindung … wird hergestellt BETA“
+  boxes. Cause: MCP Apps. xitl passed `_meta.ui.resourceUri` through but
+  advertises only `tools`, so Claude.ai's `resources/read` failed.
+- Planned with him step by step (what views are, per tool vs. per server,
+  when `_meta.ui` is read, shared pages, data resources vs. views). Settled:
+  per-tool switch, one tap acknowledges the page (hash) and turns display on,
+  no ASK for views, views on `/mcp` too, pages read in the background on tool
+  sync, data resources out (ideas.md). ADR-0038 Accepted.
+- Slice 1 built by the lead (small): `usableTools` drops view-only tools,
+  `listFor` strips `_meta.ui`. TC-240…242, mutation checked, unit 657 / e2e
+  299. Gotcha: e2e needs `PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright`
+  here (85 browser cases fail at 0 ms otherwise).
+- Next: Matthias releases slice 1; then slices 2–3 (developer agent, security
+  review by the lead), slice 4 with Grafana on the phone.
+
 ## 2026-10-21 — built-in upstream `xitl` (ADR-0037)
 
 - Matthias: the KI-Prüfung makes Zeitfreigaben "für komplexere Dinge aktuell

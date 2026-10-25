@@ -20,15 +20,16 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
 -1. **MCP Apps (ADR-0038, Accepted 2026-10-25).** Claude.ai shows an endless
    "Verbindung … wird hergestellt" box when an upstream's tool carries
    `_meta.ui.resourceUri`: xitl passes it through but serves no
-   `resources/read`. Slice 1
-   strip `_meta.ui` (nothing acknowledged yet = all stripped; ends the
-   spinner, releasable), slice 2 `UiResource` + `uiResourceUri`/`uiEnabled`/
-   `appsDefault` + `_meta.ui` in change detection + the per-tool switch in
-   Regeln, slice 3 `resources` capability with URI rewrite on `/mcp`, the
-   checked `resources/read`, the hash check and the background read on
-   tool sync, slice 4 phone check in
-   Claude.ai (view renders, a view-initiated call is still held, which
-   `_meta`/headers mark it).
+   `resources/read`. **Slice 1 built 2026-10-25, unreleased** (strip
+   `_meta.ui`, drop view-only tools; ends the spinner; after release check
+   Claude.ai + Grafana: no box, text answer). Next: slice 2 `UiResource` +
+   `uiResourceUri`/`uiEnabled`/`appsDefault` + `_meta.ui` in change detection
+   + the per-tool switch in Regeln (view-only tools recorded again), slice 3
+   `resources` capability with URI rewrite on `/mcp`, the checked
+   `resources/read`, the hash check and the background read on tool sync,
+   slice 4 phone check in Claude.ai with **Grafana** (the upstream that showed
+   the spinner): view renders, a view-initiated call is still held, which
+   `_meta`/headers mark it.
 0. **Richtungswechsel cases (ADR-0037 shipped in `v0.16.0`).** Matthias opts
    in to „xitl als Upstream hinzufügen“ and works normally for a few days.
    Then pull his mismatches via the XITL connector (`xitl_list_history`
