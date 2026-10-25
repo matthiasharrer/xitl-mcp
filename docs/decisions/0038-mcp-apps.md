@@ -130,6 +130,10 @@ Forces:
 ## Consequences
 
 - Slice 1 (strip, item 2) fixes the spinner on its own and is releasable.
+  **Built 2026-10-25** (TC-240…242): since nothing can be acknowledged yet,
+  every view reference is stripped and every view-only tool dropped in
+  `usableTools` (not recorded at all; slice 2 must record them again once
+  views can be shown).
 - Matthias decides per tool whether its view is worth it; a new or changed
   page is never shown before he tapped it. On `/mcp` a shown view can reach
   other upstreams' tools through the host (gated by policy); the switch's

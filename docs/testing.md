@@ -575,6 +575,18 @@ apply; set a tool rule ALLOW in setup where a case only checks the output.
 | TC-238 | **Read only, for good.** tools/list of the BUILTIN upstream has exactly the three tools; `tools/call` of any other name on it (`set_rule`, `delete_upstream`, …) → denied as unknown, nothing changed (row counts of Rule/Snooze/Upstream/McpClient/User before = after). | e2e |
 | TC-239 | **Its own calls are ordinary.** A `list_history` call appears in the Verlauf as upstream `xitl` with its arguments; the next `list_history` lists it. Arguments carrying `</call>` / „SYSTEM: …“ come back as plain JSON data. | e2e |
 
+### MCP Apps, slice 1: no view references (ADR-0038): `e2e/tests/mcp-apps.spec.ts`, `apps/api/src/upstream/tools.test.ts`
+
+Until views are served (slices 2–3), no tool may point a client at one, and a
+view-only tool is no tool. The fake upstream's `/control/…/tools` takes
+`_meta`.
+
+| ID    | Case | How |
+| ----- | ---- | --- |
+| TC-240 | ⚡ **No view reference leaves xitl.** Upstream tools with `_meta.ui.resourceUri`, the flat `_meta["ui/resourceUri"]` and `visibility: ["model","app"]`: tools/list on `/mcp/<slug>` and `/mcp` contains no `ui://` anywhere; an unrelated `_meta` key stays; a tool whose only `_meta` was `ui` has no `_meta`. `initialize` advertises no `resources`. Unit: `withoutUiMeta` returns the same object when there is nothing to strip. **Mutation (lead):** not stripping in `listFor` → TC-240 fails. | e2e; unit |
+| TC-241 | ⚡ **View-only tools don't exist.** `visibility` without `"model"` (`["app"]`, `[]`) and a malformed visibility (string, `null`, non-strings: fail closed) → not usable: not listed on either endpoint, no KnownTool row. Absent visibility / non-object `ui` → a normal tool. | e2e; unit |
+| TC-242 | ⚡ **Calling one is unknown.** With default ALLOW, `refresh_chart` (view-only) on `/mcp/<slug>` and `<slug>_refresh_chart` on `/mcp` → isError with exactly the unknown-tool text, never forwarded (fake upstream call count 0). The tool with a view still works (text result). | e2e |
+
 ## Manual gates
 
 Things no script can prove. Run on the deployed instance before calling
@@ -601,6 +613,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 44 | 2026-10-25 | TC-01…242, unit 657 (api 622 + web 35), e2e 299 (ADR-0038 slice 1: TC-240…242 new) | all passed (lead; first e2e run blocked by the browser path, rerun with `PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright`). Mutation: `listFor` without `withoutUiMeta` → TC-240 fails. Not covered: Claude.ai with the Grafana upstream (no more spinner) after deploy. |
 | 43 | 2026-10-21 (release) | `v0.16.0`: same code as run 42 (only docs changed since) | unit 651, e2e 296, all passed (run 42). |
 | 42 | 2026-10-21 | TC-01…239, unit 651 (api 616 + web 35), e2e 296 (ADR-0037 built-in upstream: TC-228…239 new; `outbound`/`upstreams-ui` add-button locators made exact) | all passed (developer agent, then lead independently: unit 651, e2e 296). Mutations (developer, reported): BUILTIN not routed in-process → TC-230 fails; `userId` dropped from the history `where` → TC-232 fails (e2e + 2 unit); `get_history_entry` by id only → TC-232 fails. Lead reviewed the security paths line by line. Eyes at 390×844: Einstellungen with „xitl als Upstream hinzufügen“, upstream page „xitl · Eingebaut“ without address/Verbinden. Not covered: real Claude.ai connector + phone approval of an `xitl_*` call (after deploy). |
 | 41 | 2026-10-17 (release) | `v0.15.0`: same code as run 40 (only docs changed since) | unit 580, e2e 283, all passed (run 40). |

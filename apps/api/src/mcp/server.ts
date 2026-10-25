@@ -10,7 +10,8 @@
 // - tools/list: fetches the upstream's list, records it (KnownTool), applies
 //   the policy for THIS client: DENY tools are dropped, ASK tools get the
 //   approval stamp in their description; name/inputSchema/annotations pass
-//   through unchanged. `/mcp` does this for every usable upstream in parallel,
+//   through unchanged; MCP Apps view references (`_meta.ui`) are removed
+//   and view-only tools are not listed at all (ADR-0038, slice 1). `/mcp` does this for every usable upstream in parallel,
 //   prefixes the names `<slug>_` and leaves out an upstream that fails
 //   (ADR-0017 degrade). No tool is added for a failing upstream: the user is
 //   told by push and on Freigaben (ADR-0022, upstream/stateEvents.ts), the
@@ -84,7 +85,7 @@ import {
   storedState,
   withUpstream,
 } from '../upstream/connection.js';
-import { refreshToolsFromUpstream, syncKnownTools, usableTools } from '../upstream/tools.js';
+import { refreshToolsFromUpstream, syncKnownTools, usableTools, withoutUiMeta } from '../upstream/tools.js';
 import { SingleFlight, toolsFreshFromEnv, toolsStale, vanished } from '../upstream/freshness.js';
 import { errorTag } from '../upstream/oauthClient.js';
 import { approvals, ApprovalHub, type Decision } from '../approval/pending.js';
@@ -402,8 +403,11 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         now,
       });
       if (decision.policy === 'DENY') continue;
+      // ADR-0038 slice 1: no MCP Apps views are served yet, so no tool
+      // points at one.
+      const shown = withoutUiMeta(t);
       // AUTO may be asked (ADR-0030): stamped like ASK. Only plain ALLOW is not.
-      listed.push(decision.policy !== 'ALLOW' ? { ...t, description: stampedDescription(t.description, displayName) } : t);
+      listed.push(decision.policy !== 'ALLOW' ? { ...shown, description: stampedDescription(t.description, displayName) } : shown);
     }
     return listed;
   }

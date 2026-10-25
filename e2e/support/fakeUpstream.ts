@@ -21,7 +21,7 @@
 //   Control (test-only):
 //     POST /control/t/<t>/config   { accessTtl?, rejectRefresh?, instructions?, headerSecret?,
 //                                    ...malicious modes, see `Malice` below }
-//     POST /control/t/<t>/tools    { name, description?, annotations?, inputSchema? }: adds
+//     POST /control/t/<t>/tools    { name, description?, annotations?, inputSchema?, _meta? }: adds
 //                                  a tool, or REPLACES the definition of an
 //                                  existing one (base or added) of that name
 //                                  (rug pull, TC-36)
@@ -49,6 +49,8 @@ interface ToolDef {
   description?: string;
   inputSchema: Record<string, unknown>;
   annotations?: Record<string, unknown>;
+  /** Passed through as the tool's `_meta` (MCP Apps `ui`, ADR-0038). */
+  _meta?: Record<string, unknown>;
 }
 
 /** Malicious behaviour, all off by default, set via /control/…/config (TC-46…48). */
@@ -440,6 +442,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
         description: body.description,
         inputSchema: body.inputSchema && typeof body.inputSchema === 'object' ? body.inputSchema : (base?.inputSchema ?? { type: 'object', properties: {} }),
         annotations: body.annotations,
+        ...(body._meta && typeof body._meta === 'object' ? { _meta: body._meta } : {}),
       };
       const extra = t.extraTools.findIndex((x) => x.name === name);
       if (base) t.overrides.set(name, def);

@@ -439,7 +439,13 @@ Sperren, audit, intent, review hint and freshness. Only the connection differs.
 - `initialize`: instructions = prefix line ("Über xitl vermittelt … / Proxied
   by xitl …") + the upstream's instructions (live, else last seen, else the
   description, else the name). Only `tools` is advertised: **resources and
-  prompts are not proxied** (out of scope for now).
+  prompts are not proxied** (MCP Apps views: ADR-0038, slices 2–3 open;
+  data resources: ideas.md).
+- MCP Apps (ADR-0038 slice 1): `usableTools` drops view-only tools
+  (`_meta.ui.visibility` without `"model"`, malformed = view-only), so they
+  are never recorded, listed or forwarded (unknown-tool); `listFor` strips
+  `_meta.ui` and `_meta["ui/resourceUri"]` from every listed tool
+  (`withoutUiMeta`), so no client tries to render a view xitl can't serve.
 - `tools/list`: not usable (OAUTH not connected / needs reconnect) -> `[]`
   without contacting the upstream; otherwise fetch, scrub our credentials out
   of the list (`scrubSecrets`, also in "Tools aktualisieren"), `syncKnownTools`,

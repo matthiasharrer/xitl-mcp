@@ -30,13 +30,15 @@ const MAX_DESCRIPTION = 10_000;
 
 /** Upstream tools with a usable name, first occurrence of each name only, at
  * most MAX_UPSTREAM_TOOLS (TC-48: the rest are dropped, never recorded or
- * listed, so calling one is "unknown-tool"). */
+ * listed, so calling one is "unknown-tool"). ADR-0038 slice 1: a tool meant
+ * for an MCP Apps view only is dropped the same way (TC-240). */
 export function usableTools(tools: Tool[], max: number = MAX_UPSTREAM_TOOLS): Tool[] {
   const seen = new Set<string>();
   const out: Tool[] = [];
   if (!Array.isArray(tools)) return out;
   for (const t of tools) {
     if (typeof t?.name !== 'string' || t.name.length === 0 || t.name.length > MAX_NAME || seen.has(t.name)) continue;
+    if (isAppOnly(t)) continue;
     if (out.length >= max) {
       if (!warnedAbout.has(tools)) {
         warnedAbout.add(tools);
@@ -49,6 +51,37 @@ export function usableTools(tools: Tool[], max: number = MAX_UPSTREAM_TOOLS): To
   }
   return out;
 }
+/** ADR-0038: `_meta.ui.visibility` without "model" (e.g. `["app"]`): the
+ * upstream wants only its view to call the tool. Views aren't served yet, so
+ * nothing legitimate calls it. A visibility that isn't an array of strings
+ * counts as app-only too (fail closed: never show the model a tool the
+ * upstream may have meant to hide); absent = both (spec default). */
+export function isAppOnly(t: Tool): boolean {
+  const meta = (t as { _meta?: unknown })._meta;
+  if (!isRecord(meta) || !isRecord(meta.ui) || !('visibility' in meta.ui)) return false;
+  const v = meta.ui.visibility;
+  if (!Array.isArray(v) || !v.every((x) => typeof x === 'string')) return true;
+  return !v.includes('model');
+}
+
+/** ADR-0038 slice 1 (TC-241): the tool without its MCP Apps view reference
+ * (`_meta.ui`, and the deprecated flat `_meta["ui/resourceUri"]`), so a
+ * client never tries to render a view xitl can't serve (the endless
+ * "Verbindung wird hergestellt" box in Claude.ai). Other `_meta` keys stay. */
+export function withoutUiMeta(t: Tool): Tool {
+  const meta = (t as { _meta?: unknown })._meta;
+  if (!isRecord(meta) || !('ui' in meta || 'ui/resourceUri' in meta)) return t;
+  const { ui: _ui, 'ui/resourceUri': _flat, ...rest } = meta;
+  const out: Record<string, unknown> = { ...t };
+  if (Object.keys(rest).length > 0) out._meta = rest;
+  else delete out._meta;
+  return out as Tool;
+}
+
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return typeof x === 'object' && x !== null && !Array.isArray(x);
+}
+
 /** One log line per list, although sync and listing both filter it. */
 const warnedAbout = new WeakSet<Tool[]>();
 
