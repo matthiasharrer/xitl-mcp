@@ -18,8 +18,18 @@
   `listFor` strips `_meta.ui`. TC-240…242, mutation checked, unit 657 / e2e
   299. Gotcha: e2e needs `PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright`
   here (85 browser cases fail at 0 ms otherwise).
-- Next: Matthias releases slice 1; then slices 2–3 (developer agent, security
-  review by the lead), slice 4 with Grafana on the phone.
+- Slice 1 released as `v0.16.1`; Matthias confirmed: no more box in
+  Claude.ai. He had expected the whole feature ("ich dachte es ist schon
+  alles fertig") → say clearly which slice a release contains.
+- Slices 2–3: lead wrote the amendment (no upstream default, tap reads now,
+  hash over HTML + `_meta.ui`, `uiMeta` NULL = silent, view-only anchor rule)
+  and TC-243…251; an Opus developer built them (24 min). Deviation accepted:
+  the SDK sends -32602 for resource-not-found. Lead review: all checks before
+  any contact, hash compared with the acknowledged one, scrub before hash,
+  view-only tools still through policy. Unit 707 / e2e 308 / build ok.
+  Released as `v0.17.0`.
+- Next: MG-12 with Grafana on the phone (turn on „Oberfläche“ in Regeln,
+  ask Claude.ai; note the `_meta`/headers of view-initiated calls).
 
 ## 2026-10-21 — built-in upstream `xitl` (ADR-0037)
 

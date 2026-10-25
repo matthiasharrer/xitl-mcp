@@ -640,6 +640,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 47 | 2026-10-25 (release) | `v0.17.0`: same code as run 46 (only docs changed since) | unit 707, e2e 308, all passed (run 46). |
 | 46 | 2026-10-25 | TC-01…251, unit 707 (api 672 + web 35), e2e 308 (ADR-0038 slices 2–3: TC-243…251 new, TC-240…242 adapted; TC-19/TC-61 expect `resources` in the capabilities) | all passed (developer agent, then lead independently; build ok). Mutations (developer, reported): no "shown" check in `readPage` → TC-247 fails; no hash comparison → TC-248, TC-251 fail; view-only tools listed unconditionally → TC-246 (+241, 248) fail. Lead reviewed `uiViews.ts`, `uiPages.ts`, the `server.ts` resources/view paths and the routes line by line. Eyes at 390×844 (developer screenshot, lead looked): „Oberfläche“ row with switch, CSP line, shared-page line, „Nur für die Oberfläche“. Not covered: Claude.ai rendering the Grafana view (MG-12). |
 | 45 | 2026-10-25 (release) | `v0.16.1`: same code as run 44 (only docs changed since) | unit 657, e2e 299, all passed (run 44). |
 | 44 | 2026-10-25 | TC-01…242, unit 657 (api 622 + web 35), e2e 299 (ADR-0038 slice 1: TC-240…242 new) | all passed (lead; first e2e run blocked by the browser path, rerun with `PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright`). Mutation: `listFor` without `withoutUiMeta` → TC-240 fails. Not covered: Claude.ai with the Grafana upstream (no more spinner) after deploy. |

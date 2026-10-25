@@ -5,11 +5,11 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-25 (`v0.16.1` released)_
+_Last updated: 2026-10-25 (`v0.17.0` released)_
 
 ## Next
 
-State 2026-10-25: **`v0.16.1` released** (MCP Apps slice 1, ADR-0038: no view references, ends the Claude.ai spinner; `v0.16.0`: built-in upstream `xitl`, ADR-0037; `v0.15.0`: optional deny reason, ADR-0036; `v0.14.0`: resume a Zeitfreigabe the KI-Prüfung interrupted, ADR-0029 amendment; new-version banner ADR-0035; `v0.13.0`: Einstellungen rework: switches, own upstream and client pages; `v0.13.1` fixes a tab-bar tap toggling a switch; `v0.12.0`: per-client default per upstream ADR-0032, pause an upstream ADR-0033, tool freshness on call ADR-0034; `v0.10.0`: live Verlauf ADR-0028,
+State 2026-10-25: **`v0.17.0` released** (MCP Apps views per tool, ADR-0038 slices 2–3; `v0.16.1`: slice 1, no view references, ends the Claude.ai spinner; `v0.16.0`: built-in upstream `xitl`, ADR-0037; `v0.15.0`: optional deny reason, ADR-0036; `v0.14.0`: resume a Zeitfreigabe the KI-Prüfung interrupted, ADR-0029 amendment; new-version banner ADR-0035; `v0.13.0`: Einstellungen rework: switches, own upstream and client pages; `v0.13.1` fixes a tab-bar tap toggling a switch; `v0.12.0`: per-client default per upstream ADR-0032, pause an upstream ADR-0033, tool freshness on call ADR-0034; `v0.10.0`: live Verlauf ADR-0028,
 Zeitfreigabe / Sperre wording, Zeitfreigabe AI check ADR-0029, tool review
 hint ADR-0031, AUTO ADR-0030, purpose line; `v0.11.0`: purpose suggestion
 chips, "Läuft gerade" overview). Deployed: every release (released = deployed, Matthias 2026-10-20). GitOps has `INTENT_LLM_URL` (qwen) and `PAUSE_CHECK_URL`
@@ -22,14 +22,16 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
    `_meta.ui.resourceUri`: xitl passes it through but serves no
    `resources/read`. **Slice 1 released in `v0.16.1`** (strip `_meta.ui`,
    drop view-only tools). Matthias checks Claude.ai + Grafana: no box, text
-   answer. Next: slice 2 `UiResource` +
-   `uiResourceUri`/`uiEnabled`/`appsDefault` + `_meta.ui` in change detection
-   + the per-tool switch in Regeln (view-only tools recorded again), slice 3
-   `resources` capability with URI rewrite on `/mcp`, the checked
-   `resources/read`, the hash check and the background read on tool sync,
-   slice 4 phone check in Claude.ai with **Grafana** (the upstream that showed
-   the spinner): view renders, a view-initiated call is still held, which
-   `_meta`/headers mark it.
+   answer. **Slices 2–3 released in `v0.17.0`** (TC-243…251; the
+   amendment: no upstream default, the tap reads the page now, hash covers
+   `_meta.ui`): `UiResource` + `KnownTool.uiMeta/prevUiMeta/uiResourceUri/
+   uiEnabled` (migration `20261007060000_mcp_apps`), `_meta.ui` in change
+   detection, view-only tools recorded again, background page read on tool
+   sync, the switch „Oberfläche“ in Regeln, `resources` capability with URI
+   rewrite on `/mcp`, the checked `resources/read` with the hash check.
+   Next: slice 4 phone check in Claude.ai with **Grafana** (MG-12: view
+   renders, a view-initiated call is still held, which `_meta`/headers mark
+   it).
 0. **Richtungswechsel cases (ADR-0037 shipped in `v0.16.0`).** Matthias opts
    in to „xitl als Upstream hinzufügen“ and works normally for a few days.
    Then pull his mismatches via the XITL connector (`xitl_list_history`
@@ -147,7 +149,7 @@ stay behind Authelia.
   still runs (same window as revoke); Claude.ai's reaction to the 403 is
   unmeasured. Rename/revoke in the UI still show the API's English "not
   found" on a 404 (pause has its own German toast).
-- Only `tools` are proxied (no resources/prompts; MCP Apps views: ADR-0038); no `list_changed`
+- Only `tools` and MCP Apps pages are proxied (no data resources/prompts, ADR-0038); no `list_changed`
   notifications (stateless endpoint; next `tools/list` sees changes).
 - DCR cleanup (TC-88): prune-then-create isn't atomic, so concurrent
   registrations can briefly exceed `MAX_UNBOUND_CLIENTS` by a few; the next

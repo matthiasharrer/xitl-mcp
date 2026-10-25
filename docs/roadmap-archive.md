@@ -3,6 +3,18 @@
 Shipped roadmap entries, newest first. The reasoning is in `decisions/`, the
 test evidence in `testing.md`'s run log.
 
+## 2026-10-25 (`v0.17.0`)
+
+- **MCP Apps views per tool (ADR-0038 slices 2–3 + amendment).** Switch
+  „Oberfläche“ per tool in Regeln: the tap reads the page now and
+  acknowledges its hash (HTML + CSP); a changed page is stripped and refused
+  until „Neue Version anzeigen“. Pages read in the background on tool sync.
+  `resources` capability on `/mcp/<slug>` and `/mcp` (URI `ui://<slug>/…`),
+  `resources/read` only for pages of tools shown to that client, one refusal
+  for every reason. View-only tools recorded again, listed/callable only
+  while a view of their upstream is shown, always through policy.
+  TC-243…251.
+
 ## 2026-10-25 (`v0.16.1`)
 
 - **MCP Apps slice 1 (ADR-0038).** No view references leave xitl:
