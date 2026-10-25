@@ -164,6 +164,41 @@ Forces:
   unreferenced URI, wrong mimeType, oversize), and that a view-initiated
   call is still held. Manual gate on the phone: the view renders in Claude.ai.
 
+## Amendment 2026-10-25: details fixed for slices 2–3 (lead)
+
+Refinements found while specifying; none changes what Matthias decided.
+
+- **No upstream default.** `Upstream.appsDefault` is dropped:
+  `KnownTool.uiEnabled Boolean @default(false)`. A shown view always needed
+  a tap anyway (acknowledgement), so an upstream-wide default only added a
+  concept. Acknowledging via tool A does not turn tool B on; B's own tap
+  does (re-reads and re-acknowledges, harmless).
+- **The tap reads the page now.** `PATCH …/tools/:toolId {uiEnabled:true}`
+  (and "Neue Version anzeigen") reads the page from the upstream right then
+  and acknowledges exactly that hash; a failed read → 502 with a German
+  message, nothing changed. So what is acknowledged is what is current,
+  never a hash from an older background read.
+- **The hash covers the page's `_meta.ui` too:** sha256 of canonical JSON
+  `{text|blob, mimeType, meta}` of the content items. A widened CSP
+  (`connectDomains`) is a change that needs a new tap, like new HTML. The
+  page's CSP domains and permissions are stored (clipped) and shown on the
+  tool card ("Darf verbinden mit …" / "Keine externen Verbindungen").
+- **Tool definition:** `KnownTool.uiMeta` = canonical JSON of `{resourceUri,
+  visibility}` (or the string "null"); NULL = recorded before the column
+  existed, stored silently on first sight (like `inputSchema`, ADR-0031), so
+  the release doesn't flag every existing Grafana tool. A later difference
+  is a change (`changedAt`, `prevUiMeta`). `uiResourceUri` is derived from
+  it (only `ui://` strings ≤ 512 chars; anything else = no view).
+- **View-only tools** (visibility without `"model"`) are recorded again
+  (slice 1 dropped them in `usableTools`). They are listed and callable only
+  while the upstream has at least one tool whose view is shown to this
+  client; otherwise not listed and refused as unknown (`unknown-tool`, as in
+  slice 1). Policy applies to them like to every tool.
+- **Error code** of every refused `resources/read`: JSON-RPC `-32002`
+  "Resource not found", one text for all reasons (no oracle).
+- **Token scope** (ADR-0018) applies to resources exactly as to tools: a
+  page of an upstream outside the token's scope does not exist.
+
 ## Alternatives considered
 
 - **Always pass through, no switch.** Every upstream's HTML would run in his
