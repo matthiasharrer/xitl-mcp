@@ -170,6 +170,24 @@ export interface ToolRow {
   previous: { description: string | null; annotations: Record<string, unknown> | null; parameters: ToolParam[] | null } | null;
   /** Last cosmetic-only change, auto-acknowledged (`auto-ack:cosmetic`). */
   cosmeticAckAt: string | null;
+  /** ADR-0038: the tool's MCP Apps view; null = none and not view-only. */
+  ui: ToolUi | null;
+}
+
+/** ADR-0038: a tool's view as Regeln shows it. */
+export interface ToolUi {
+  /** The page's `ui://` URI; null for a view-only tool without a view of its own. */
+  uri: string | null;
+  state: 'new' | 'shown' | 'off' | 'changed' | 'unreadable';
+  /** The tool's switch "Oberfläche anzeigen". */
+  enabled: boolean;
+  /** The page was read at least once (the CSP below is known). */
+  read: boolean;
+  /** Other tools of the upstream using the same page. */
+  sharedWith: string[];
+  csp: { connectDomains: string[]; resourceDomains: string[]; frameDomains: string[]; baseUriDomains: string[]; permissions: string[] } | null;
+  /** Only the view may call it (visibility without "model"). */
+  appOnly: boolean;
 }
 
 export interface ToolParam {
@@ -547,6 +565,12 @@ export const api = {
     request<{ available: boolean; entries: { id: number; tool: string; receivedAt: string; outcome: Outcome }[] }>('GET', `/api/upstreams/${id}/auto-rule/history`),
   testAutoRule: (id: number, rule: string, auditId: number, signal?: AbortSignal) =>
     request<{ auditId: number; result: 'pass' | 'below' | 'error'; score: number | null }>('POST', `/api/upstreams/${id}/auto-rule/test`, { rule, auditId }, signal),
+  /** ADR-0038: the switch "Oberfläche anzeigen" (on reads the page now). */
+  setToolUi: (id: number, toolId: number, uiEnabled: boolean) =>
+    request<ToolsView>('PATCH', `/api/upstreams/${id}/tools/${toolId}`, { uiEnabled }),
+  /** ADR-0038: "Neue Version anzeigen" (re-reads and acknowledges the page). */
+  acknowledgeToolUi: (id: number, toolId: number) =>
+    request<ToolsView>('POST', `/api/upstreams/${id}/tools/${toolId}/ui/acknowledge`),
   acknowledgeTool: (id: number, toolId: number) =>
     request<ToolsView>('POST', `/api/upstreams/${id}/tools/${toolId}/acknowledge`),
   setClientPolicy: (id: number, toolId: number, clientId: number, policy: Policy) =>

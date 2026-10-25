@@ -17,6 +17,9 @@ import { withUpstream, CONNECT_TIMEOUT_MS } from './connection.js';
 import { MAX_KNOWN_TOOLS_PER_UPSTREAM, MAX_UPSTREAM_TOOLS } from '../lib/limits.js';
 import { scrubSecrets } from '../lib/proxyText.js';
 import { canonical, isCosmetic, schemaText } from '../toolhint/defs.js';
+import { uiMetaText, uiResourceUriOf } from './uiViews.js';
+
+export { isAppOnly } from './uiViews.js';
 
 /** Whether the FIRST tools/list ever seen for an upstream counts as
  * acknowledged. ADR-0004 says the new-tool rule is for tools "the upstream
@@ -30,15 +33,15 @@ const MAX_DESCRIPTION = 10_000;
 
 /** Upstream tools with a usable name, first occurrence of each name only, at
  * most MAX_UPSTREAM_TOOLS (TC-48: the rest are dropped, never recorded or
- * listed, so calling one is "unknown-tool"). ADR-0038 slice 1: a tool meant
- * for an MCP Apps view only is dropped the same way (TC-240). */
+ * listed, so calling one is "unknown-tool"). ADR-0038: view-only tools are
+ * usable (recorded); listFor/callTool decide per client whether they exist
+ * (only while a view of the upstream is shown). */
 export function usableTools(tools: Tool[], max: number = MAX_UPSTREAM_TOOLS): Tool[] {
   const seen = new Set<string>();
   const out: Tool[] = [];
   if (!Array.isArray(tools)) return out;
   for (const t of tools) {
     if (typeof t?.name !== 'string' || t.name.length === 0 || t.name.length > MAX_NAME || seen.has(t.name)) continue;
-    if (isAppOnly(t)) continue;
     if (out.length >= max) {
       if (!warnedAbout.has(tools)) {
         warnedAbout.add(tools);
@@ -51,23 +54,11 @@ export function usableTools(tools: Tool[], max: number = MAX_UPSTREAM_TOOLS): To
   }
   return out;
 }
-/** ADR-0038: `_meta.ui.visibility` without "model" (e.g. `["app"]`): the
- * upstream wants only its view to call the tool. Views aren't served yet, so
- * nothing legitimate calls it. A visibility that isn't an array of strings
- * counts as app-only too (fail closed: never show the model a tool the
- * upstream may have meant to hide); absent = both (spec default). */
-export function isAppOnly(t: Tool): boolean {
-  const meta = (t as { _meta?: unknown })._meta;
-  if (!isRecord(meta) || !isRecord(meta.ui) || !('visibility' in meta.ui)) return false;
-  const v = meta.ui.visibility;
-  if (!Array.isArray(v) || !v.every((x) => typeof x === 'string')) return true;
-  return !v.includes('model');
-}
-
-/** ADR-0038 slice 1 (TC-241): the tool without its MCP Apps view reference
- * (`_meta.ui`, and the deprecated flat `_meta["ui/resourceUri"]`), so a
- * client never tries to render a view xitl can't serve (the endless
- * "Verbindung wird hergestellt" box in Claude.ai). Other `_meta` keys stay. */
+/** ADR-0038 (TC-240): the tool without its MCP Apps view reference
+ * (`_meta.ui`, and the deprecated flat `_meta["ui/resourceUri"]`), for every
+ * tool whose view is not shown to the client, so a client never tries to
+ * render a view xitl won't serve (the endless "Verbindung wird hergestellt"
+ * box in Claude.ai). Other `_meta` keys stay. */
 export function withoutUiMeta(t: Tool): Tool {
   const meta = (t as { _meta?: unknown })._meta;
   if (!isRecord(meta) || !('ui' in meta || 'ui/resourceUri' in meta)) return t;
@@ -99,7 +90,8 @@ export function onToolsSynced(l: SyncListener): () => void {
  * Upserts KnownTool rows for one upstream's current tool list.
  *
  * Rug pull (TC-36): when a known tool comes back with a different description,
- * annotations or inputSchema (ADR-0031, canonical JSON), `changedAt` is set
+ * annotations, inputSchema (ADR-0031, canonical JSON) or MCP Apps view
+ * reference (`uiMeta`, ADR-0038: resourceUri / visibility), `changedAt` is set
  * and its acknowledgement withdrawn, so the UI says "Geändert" and the policy
  * engine treats it as changed: ASK ("changed-tool") whatever the upstream
  * default says, and an explicit tool- or client-level ALLOW (or AUTO) no
@@ -112,8 +104,8 @@ export function onToolsSynced(l: SyncListener): () => void {
  * (first change wins until acknowledged) for the Regeln diff and the hint.
  *
  * ADR-0031 exceptions, both without any model:
- * - First sight of an inputSchema on a row recorded before the column existed
- *   (NULL): stored silently, not a change.
+ * - First sight of an inputSchema (or uiMeta, ADR-0038) on a row recorded
+ *   before the column existed (NULL): stored silently, not a change.
  * - Cosmetic: only the description changed, and only in whitespace,
  *   punctuation or case (toolhint/defs.ts isCosmetic). Not a change: the new
  *   text is stored; on an acknowledged tool this is the auto-acknowledgement
@@ -130,7 +122,7 @@ export async function syncKnownTools(
   const current = usableTools(tools);
   const existingRows = await prisma.knownTool.findMany({
     where: { upstreamId },
-    select: { id: true, name: true, description: true, annotations: true, inputSchema: true, acknowledgedAt: true, changedAt: true },
+    select: { id: true, name: true, description: true, annotations: true, inputSchema: true, uiMeta: true, acknowledgedAt: true, changedAt: true },
   });
   const byName = new Map(existingRows.map((r) => [r.name, r]));
   const acknowledgedAt = existingRows.length === 0 && ACKNOWLEDGE_INITIAL_TOOLS ? now : null;
@@ -140,13 +132,16 @@ export async function syncKnownTools(
     const description = typeof t.description === 'string' ? t.description.slice(0, MAX_DESCRIPTION) : null;
     const annotations = t.annotations ? JSON.stringify(t.annotations) : null;
     const inputSchema = schemaText((t as { inputSchema?: unknown }).inputSchema);
+    // ADR-0038: the view reference is part of the definition.
+    const uiMeta = uiMetaText(t);
+    const uiResourceUri = uiResourceUriOf(t);
     const prev = byName.get(t.name);
     if (!prev) {
       changedAny = true;
       await prisma.knownTool.upsert({
         where: { upstreamId_name: { upstreamId, name: t.name } },
-        create: { upstreamId, name: t.name, description, annotations, inputSchema, firstSeenAt: now, lastSeenAt: now, acknowledgedAt },
-        update: { description, annotations, inputSchema, lastSeenAt: now },
+        create: { upstreamId, name: t.name, description, annotations, inputSchema, uiMeta, uiResourceUri, firstSeenAt: now, lastSeenAt: now, acknowledgedAt },
+        update: { description, annotations, inputSchema, uiMeta, uiResourceUri, lastSeenAt: now },
       });
       continue;
     }
@@ -155,25 +150,30 @@ export async function syncKnownTools(
     const schemaChanged = prevSchema !== null && prevSchema !== inputSchema;
     const descChanged = prev.description !== description;
     const annChanged = !sameAnnotations(prev.annotations, annotations);
+    // ADR-0038: NULL = recorded before the column existed (stored below).
+    const prevUi = prev.uiMeta ?? null;
+    const uiChanged = prevUi !== null && prevUi !== uiMeta;
     // Conditional on the row still holding the old definition, so a
     // concurrent sync that already handled it doesn't do it twice (and undo
     // an acknowledgement given for the new definition meanwhile).
-    const unchangedSince = { id: prev.id, description: prev.description, annotations: prev.annotations, inputSchema: prevSchema };
-    if (!descChanged && !annChanged && !schemaChanged) {
-      await prisma.knownTool.update({ where: { id: prev.id }, data: { description, annotations, inputSchema, lastSeenAt: now } });
+    const unchangedSince = { id: prev.id, description: prev.description, annotations: prev.annotations, inputSchema: prevSchema, uiMeta: prevUi };
+    if (!descChanged && !annChanged && !schemaChanged && !uiChanged) {
+      await prisma.knownTool.update({ where: { id: prev.id }, data: { description, annotations, inputSchema, uiMeta, uiResourceUri, lastSeenAt: now } });
       continue;
     }
     changedAny = true;
-    if (!annChanged && !schemaChanged && isCosmetic(prev.description, description)) {
+    if (!annChanged && !schemaChanged && !uiChanged && isCosmetic(prev.description, description)) {
       const acknowledged = prev.acknowledgedAt !== null && prev.changedAt === null;
       await prisma.knownTool.updateMany({
         where: unchangedSince,
         data: {
           description,
           inputSchema,
+          uiMeta,
+          uiResourceUri,
           lastSeenAt: now,
           ...(acknowledged
-            ? { prevDescription: prev.description, prevAnnotations: prev.annotations, prevInputSchema: prevSchema ?? inputSchema, cosmeticAckAt: now }
+            ? { prevDescription: prev.description, prevAnnotations: prev.annotations, prevInputSchema: prevSchema ?? inputSchema, prevUiMeta: prevUi ?? uiMeta, cosmeticAckAt: now }
             : {}),
         },
       });
@@ -189,11 +189,13 @@ export async function syncKnownTools(
         description,
         annotations,
         inputSchema,
+        uiMeta,
+        uiResourceUri,
         lastSeenAt: now,
         acknowledgedAt: null,
         changedAt: now,
         cosmeticAckAt: null,
-        ...(keepPrev ? {} : { prevDescription: prev.description, prevAnnotations: prev.annotations, prevInputSchema: prevSchema }),
+        ...(keepPrev ? {} : { prevDescription: prev.description, prevAnnotations: prev.annotations, prevInputSchema: prevSchema, prevUiMeta: prevUi }),
       },
     });
     const owner = await prisma.upstream.findUnique({ where: { id: upstreamId }, select: { userId: true } });

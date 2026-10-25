@@ -20,6 +20,8 @@ import { upstreamStates } from './upstream/stateEvents.js';
 import { wireIntents } from './intent/index.js';
 import { wirePauseCheckPush } from './pausecheck/index.js';
 import { wireToolHints } from './clef/index.js';
+import { onToolsSynced } from './upstream/tools.js';
+import { pageReader } from './upstream/uiPages.js';
 import { mountMcp } from './mcp/mount.js';
 import { INSTANCE_HEADER, isOwnRequest } from './lib/selfLoop.js';
 import { mountStatic } from './static.js';
@@ -89,6 +91,8 @@ wireIntents();
 wirePauseCheckPush();
 // ADR-0031: advisory Clef label of new/changed tools, in the background.
 wireToolHints();
+// ADR-0038: MCP Apps pages of the synced tools are read in the background.
+onToolsSynced((upstreamId) => void pageReader.run(upstreamId));
 
 app.onError((err, c) => {
   console.error(err);

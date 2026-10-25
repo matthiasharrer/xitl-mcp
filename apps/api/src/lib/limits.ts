@@ -184,3 +184,17 @@ export const AUTO_DRAFT_DESCRIPTION_CHARS = 300;
 export const MAX_PAUSE_PURPOSE_CHARS = 200;
 /** ADR-0036: the human's optional deny reason handed to the agent. */
 export const MAX_DENY_REASON_CHARS = 200;
+
+// ---- MCP Apps (ADR-0038) -------------------------------------------------------
+
+/** A view's `ui://` URI: longer ones are no view at all. */
+export const MAX_UI_URI_CHARS = 512;
+/** One page as an upstream answers resources/read (all content items): larger
+ * is a failed read, never served. */
+export const MAX_UI_PAGE_BYTES = 2 * 1024 * 1024;
+/** Characters of a tool's canonical `{resourceUri, visibility}` kept on
+ * KnownTool.uiMeta (over it: prefix plus sha256, like inputSchema). */
+export const MAX_UI_META_CHARS = 2000;
+/** The stored CSP of a page (display only): entries per list, chars each. */
+export const MAX_UI_CSP_ENTRIES = 20;
+export const MAX_UI_CSP_ENTRY_CHARS = 200;

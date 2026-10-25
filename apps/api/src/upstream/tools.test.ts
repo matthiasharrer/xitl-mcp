@@ -30,8 +30,8 @@ describe('usableTools (TC-48)', () => {
 
 const withMeta = (name: string, _meta: unknown) => ({ name, inputSchema: { type: 'object' }, _meta }) as never;
 
-describe('MCP Apps view-only tools (TC-240, ADR-0038)', () => {
-  test('visibility without "model" is app-only and not usable', () => {
+describe('MCP Apps view-only tools (TC-241, ADR-0038)', () => {
+  test('view-only tools are usable (recorded); listFor/callTool decide per client', () => {
     const out = usableTools([
       withMeta('app', { ui: { resourceUri: 'ui://x/a.html', visibility: ['app'] } }),
       withMeta('both', { ui: { resourceUri: 'ui://x/a.html', visibility: ['model', 'app'] } }),
@@ -39,7 +39,8 @@ describe('MCP Apps view-only tools (TC-240, ADR-0038)', () => {
       withMeta('plain', { ui: { resourceUri: 'ui://x/a.html' } }),
       tool('none'),
     ]);
-    expect(out.map((t) => t.name)).toEqual(['both', 'model', 'plain', 'none']);
+    expect(out.map((t) => t.name)).toEqual(['app', 'both', 'model', 'plain', 'none']);
+    expect(out.filter((t) => isAppOnly(t)).map((t) => t.name)).toEqual(['app']);
   });
 
   test('a malformed visibility fails closed (app-only)', () => {

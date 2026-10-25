@@ -10,6 +10,9 @@ import { toolHint } from '../lib/proxyText.js';
 import { UpstreamNeedsReconnect, UpstreamNotConnected, UpstreamPaused } from '../upstream/connection.js';
 import { errorTag } from '../upstream/oauthClient.js';
 import { refreshToolsFromUpstream } from '../upstream/tools.js';
+import { acknowledgePage } from '../upstream/uiPages.js';
+import { appOnlyFromUiMeta, parseCsp, uiState } from '../upstream/uiViews.js';
+import { toolEvents } from '../lib/toolEvents.js';
 import { clefConfig } from '../clef/index.js';
 import { paramList, parseJson, parseStoredSchema, versionKey } from '../toolhint/defs.js';
 import { hintOfRow, type ReviewHint } from '../toolhint/hint.js';
@@ -26,6 +29,13 @@ import type { KnownTool } from '../generated/prisma/client.js';
 // unchanged; the view's `upstream.pausedAt` says it is paused).
 // "Tools aktualisieren" on a paused upstream is refused (409) without
 // contacting it (ADR-0033).
+// ADR-0038 (MCP Apps): each tool's view state (`ui`), the switch
+// "Oberfläche anzeigen" (PATCH …/tools/:toolId {uiEnabled}) and "Neue
+// Version anzeigen" (POST …/tools/:toolId/ui/acknowledge). Turning a view on
+// and "Neue Version anzeigen" read the page from the upstream right then and
+// acknowledge exactly that hash (a failed read: 502, nothing changed); off
+// keeps the acknowledgement. Only here, with Authelia identity, never by an
+// agent.
 // Every sync answers with the stored rows; a sync that changed something
 // also pings open Regeln pages (`tools` on the approval stream, ADR-0034).
 // Mounted under /api (identity). Every handler first resolves the upstream
@@ -102,6 +112,28 @@ export function unremarkable(t: KnownTool, clefOn: boolean): boolean {
   return h.review && !h.attention && !h.pending;
 }
 
+type PageRow = { uri: string; contentHash: string | null; acknowledgedHash: string | null; lastReadFailed: boolean; csp: string | null };
+
+/** ADR-0038: what Regeln shows about a tool's view; null when the tool has
+ * none and is not view-only. `changed` shows on every tool using the page. */
+function uiView(t: KnownTool, all: KnownTool[], pageOf: Map<string, PageRow>) {
+  const appOnly = appOnlyFromUiMeta(t.uiMeta);
+  const uri = t.uiResourceUri;
+  if (!uri && !appOnly) return null;
+  const page = uri ? pageOf.get(uri) : undefined;
+  return {
+    uri,
+    state: uri ? uiState(t.uiEnabled, page) : ('off' as const),
+    /** The tool's own switch (shown also needs the page acknowledged). */
+    enabled: t.uiEnabled,
+    /** The page was read successfully at least once (its CSP is known). */
+    read: !!page?.contentHash,
+    sharedWith: uri ? all.filter((o) => o.id !== t.id && o.uiResourceUri === uri).map((o) => o.name) : [],
+    csp: parseCsp(page?.csp),
+    appOnly,
+  };
+}
+
 /** The whole policy view of one upstream; with `forClientId` (already checked
  * to be the caller's and to reach the upstream) also that client's effective
  * policy per tool (ADR-0032 client view). */
@@ -110,7 +142,7 @@ async function toolsView(upstreamId: number, userId: number, forClientId: number
   const clefOn = clefConfig !== null && owner?.pauseCheck === true;
   const upstream = await ownUpstream(upstreamId, userId);
   if (!upstream) return null;
-  const [tools, clients, defaults] = await Promise.all([
+  const [tools, clients, defaults, pages] = await Promise.all([
     prisma.knownTool.findMany({
       where: { upstreamId },
       include: { clientPolicies: { where: { mcpClient: { userId } } } },
@@ -130,7 +162,10 @@ async function toolsView(upstreamId: number, userId: number, forClientId: number
       select: { mcpClientId: true, policy: true },
       orderBy: { mcpClientId: 'asc' },
     }),
+    // ADR-0038: the upstream's MCP Apps pages.
+    prisma.uiResource.findMany({ where: { upstreamId, upstream: { userId } } }),
   ]);
+  const pageOf = new Map(pages.map((p) => [p.uri, p]));
   const defaultOf = new Map(defaults.map((d) => [d.mcpClientId, d.policy as Policy]));
   return {
     upstream: {
@@ -201,6 +236,7 @@ async function toolsView(upstreamId: number, userId: number, forClientId: number
         // masked (ADR-0032): stored, but the client's default hides the upstream.
         clientPolicies: t.clientPolicies.map((cp) => ({ mcpClientId: cp.mcpClientId, policy: cp.policy, masked: hidesUpstream(defaultOf.get(cp.mcpClientId)) })),
         ...(forClient ? { forClient } : {}),
+        ui: uiView(t, tools, pageOf),
       };
     }),
   };
@@ -253,12 +289,66 @@ upstreamTools.patch('/:id/tools/:toolId', async (c) => {
   if (!upstream) return c.json(NOT_FOUND, 404);
   const tool = await ownTool(upstream.id, parseId(c.req.param('toolId')));
   if (!tool) return c.json(NOT_FOUND, 404);
-  const parsed = policyOrNull.safeParse(await c.req.json().catch(() => null));
+  const body: unknown = await c.req.json().catch(() => null);
+  // ADR-0038: the view switch (a body with `uiEnabled`, nothing else).
+  if (body && typeof body === 'object' && 'uiEnabled' in body) {
+    const ui = uiSwitch.safeParse(body);
+    if (!ui.success) return c.json({ error: 'Die Einstellung ist ungültig.' }, 400);
+    if (!tool.uiResourceUri) return c.json(NO_VIEW, 400);
+    if (ui.data.uiEnabled) {
+      const failed = await readAndAcknowledge(upstream, userId, tool.uiResourceUri);
+      if (failed) return c.json(failed.body, failed.status);
+    }
+    await prisma.knownTool.updateMany({ where: { id: tool.id, upstreamId: upstream.id }, data: { uiEnabled: ui.data.uiEnabled } });
+    toolEvents.emit({ userId });
+    return c.json(await toolsView(upstream.id, userId));
+  }
+  const parsed = policyOrNull.safeParse(body);
   if (!parsed.success) return c.json({ error: 'Die Regel ist ungültig.' }, 400);
   await prisma.knownTool.updateMany({
     where: { id: tool.id, upstreamId: upstream.id },
     data: { policy: parsed.data.policy, ...acknowledged() },
   });
+  return c.json(await toolsView(upstream.id, userId));
+});
+
+const uiSwitch = z.strictObject({ uiEnabled: z.boolean() });
+const NO_VIEW = { error: 'Dieses Tool hat keine Oberfläche.' };
+const PAGE_UNREADABLE = { error: 'Die Oberfläche konnte nicht vom Upstream geladen werden. Versuche es später noch einmal.' };
+
+/** ADR-0038: reads the page now and acknowledges that hash. null when done;
+ * else the answer (nothing was changed). Never contacts a paused upstream. */
+async function readAndAcknowledge(
+  upstream: { id: number; pausedAt: Date | null },
+  userId: number,
+  uri: string,
+): Promise<{ status: 409 | 502; body: { error: string } } | null> {
+  if (upstream.pausedAt !== null) return { status: 409, body: PAUSED_UPSTREAM };
+  try {
+    await acknowledgePage(upstream.id, userId, uri, clock);
+    toolEvents.emit({ userId });
+    return null;
+  } catch (e) {
+    if (e instanceof UpstreamPaused) return { status: 409, body: PAUSED_UPSTREAM };
+    if (e instanceof UpstreamNotConnected) return { status: 409, body: { error: 'Der Upstream ist noch nicht verbunden.' } };
+    if (e instanceof UpstreamNeedsReconnect) return { status: 409, body: { error: 'Der Upstream muss neu verbunden werden.' } };
+    console.warn(`upstream ${upstream.id}: page read failed: ${errorTag(e)}`);
+    return { status: 502, body: PAGE_UNREADABLE };
+  }
+}
+
+// ADR-0038 "Neue Version anzeigen": re-read the page now and acknowledge it;
+// the tools' switches stay as they are.
+upstreamTools.post('/:id/tools/:toolId/ui/acknowledge', async (c) => {
+  noStore(c);
+  const userId = c.get('user').id;
+  const upstream = await ownUpstream(parseId(c.req.param('id')), userId);
+  if (!upstream) return c.json(NOT_FOUND, 404);
+  const tool = await ownTool(upstream.id, parseId(c.req.param('toolId')));
+  if (!tool) return c.json(NOT_FOUND, 404);
+  if (!tool.uiResourceUri) return c.json(NO_VIEW, 400);
+  const failed = await readAndAcknowledge(upstream, userId, tool.uiResourceUri);
+  if (failed) return c.json(failed.body, failed.status);
   return c.json(await toolsView(upstream.id, userId));
 });
 
@@ -271,6 +361,7 @@ const acknowledged = () => ({
   prevDescription: null,
   prevAnnotations: null,
   prevInputSchema: null,
+  prevUiMeta: null,
   cosmeticAckAt: null,
 });
 
@@ -297,6 +388,7 @@ upstreamTools.post('/:id/tools/acknowledge-unremarkable', async (c) => {
         description: t.description,
         annotations: t.annotations,
         inputSchema: t.inputSchema,
+        uiMeta: t.uiMeta,
         changedAt: t.changedAt,
         urlChanged: t.urlChanged,
         hintRisk: t.hintRisk,

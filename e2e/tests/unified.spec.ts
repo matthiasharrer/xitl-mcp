@@ -61,7 +61,7 @@ test('TC-61 initialize auf /mcp: Präfix-Zeile + Abschnitt je Upstream; tools/li
   const init = await mcp(request, null, token, 'initialize', INITIALIZE.params);
   const text: string = init.result.instructions;
   expect(text.startsWith('Über xitl vermittelt')).toBe(true);
-  expect(Object.keys(init.result.capabilities)).toEqual(['tools']);
+  expect(Object.keys(init.result.capabilities)).toEqual(['tools', 'resources']); // ADR-0038: MCP Apps pages only
   // exactly one section per upstream, naming its slug prefix
   expect(sections(text)).toHaveLength(2);
   for (const up of [ua, ub]) {

@@ -134,6 +134,14 @@ Forces:
   every view reference is stripped and every view-only tool dropped in
   `usableTools` (not recorded at all; slice 2 must record them again once
   views can be shown).
+- Slices 2–3 (items 1–5 with the amendment below) **built 2026-10-25**
+  (TC-243…251): `upstream/uiViews.ts` (pure), `upstream/uiPages.ts` (reads,
+  background reader), `mcp/server.ts` (listFor, callTool, `resources/*`),
+  `routes/upstreamTools.ts`, Regeln `lib/ToolUiRow.svelte`. One SDK detail:
+  `@modelcontextprotocol/server` 2.3 maps a thrown -32002 to **-32602** on
+  the wire (with `data.uri`, the 2026-07-28 spec's resource-not-found); the
+  refusal uses `ResourceNotFoundError` with one fixed message, so the code
+  the host sees is -32602, not -32002.
 - Matthias decides per tool whether its view is worth it; a new or changed
   page is never shown before he tapped it. On `/mcp` a shown view can reach
   other upstreams' tools through the host (gated by policy); the switch's
@@ -194,7 +202,7 @@ Refinements found while specifying; none changes what Matthias decided.
   while the upstream has at least one tool whose view is shown to this
   client; otherwise not listed and refused as unknown (`unknown-tool`, as in
   slice 1). Policy applies to them like to every tool.
-- **Error code** of every refused `resources/read`: JSON-RPC `-32002`
+- **Error code** of every refused `resources/read`: JSON-RPC `-32002` (on the wire `-32602`, see Consequences)
   "Resource not found", one text for all reasons (no oracle).
 - **Token scope** (ADR-0018) applies to resources exactly as to tools: a
   page of an upstream outside the token's scope does not exist.

@@ -44,7 +44,7 @@ test('TC-19 initialize mit Upstream-Instructions; tools/list: ask mit Stempel, d
   expect(init.result.serverInfo.name).toBe(`xitl/${up.slug}`);
   expect(init.result.instructions).toContain(`Fake-Upstream ${up.tenant}: Einkaufsliste.`);
   expect(init.result.instructions.startsWith('Über xitl vermittelt')).toBe(true);
-  expect(Object.keys(init.result.capabilities)).toEqual(['tools']);
+  expect(Object.keys(init.result.capabilities)).toEqual(['tools', 'resources']); // ADR-0038: MCP Apps pages only
   // remembered for when the upstream is unreachable
   expect(dbAll('select instructions from Upstream where id = ?', up.id)[0].instructions).toContain(`Fake-Upstream ${up.tenant}`);
 

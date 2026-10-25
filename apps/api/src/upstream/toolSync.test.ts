@@ -191,3 +191,67 @@ describe('toolsSyncedAt and the tools event (ADR-0034)', () => {
     }
   });
 });
+
+// ADR-0038 (TC-243 unit part): the view reference is part of the definition.
+describe('MCP Apps view reference (TC-243)', () => {
+  const VIEW = 'ui://fake/chart.html';
+  const withUi = (description: string, _meta: unknown) => ({ name: 'add_item', description, inputSchema: schemaA, _meta }) as never;
+
+  test('recorded canonically, with the derived URI (flat key when ui.resourceUri is absent)', async () => {
+    await syncKnownTools(UP, [withUi('Adds an item.', { ui: { visibility: ['model', 'app'], resourceUri: VIEW } })], clock);
+    expect(row()).toMatchObject({ uiMeta: `{"resourceUri":"${VIEW}","visibility":["model","app"]}`, uiResourceUri: VIEW });
+    db.tools = [];
+    await syncKnownTools(UP, [withUi('Adds an item.', { 'ui/resourceUri': VIEW })], clock);
+    expect(row()).toMatchObject({ uiMeta: `{"resourceUri":"${VIEW}"}`, uiResourceUri: VIEW });
+  });
+
+  test.each([
+    ['not ui://', 'https://x/a.html'],
+    ['not a string', 42],
+    ['too long', `ui://${'x'.repeat(600)}`],
+  ])('no view when the URI is %s', async (_, uri) => {
+    await syncKnownTools(UP, [withUi('Adds an item.', { ui: { resourceUri: uri } })], clock);
+    expect(row().uiResourceUri).toBeNull();
+    expect(row().uiMeta).not.toBe('null');
+  });
+
+  test('no _meta at all: "null"', async () => {
+    await seedAcknowledged();
+    expect(row()).toMatchObject({ uiMeta: 'null', uiResourceUri: null });
+  });
+
+  test('a row with NULL uiMeta (before the column) gets it silently', async () => {
+    await seedAcknowledged();
+    row().uiMeta = null;
+    await syncKnownTools(UP, [withUi('Adds an item.', { ui: { resourceUri: VIEW } })], clock);
+    expect(row()).toMatchObject({ changedAt: null, uiResourceUri: VIEW, uiMeta: `{"resourceUri":"${VIEW}"}` });
+    expect(row().acknowledgedAt).toBeInstanceOf(Date);
+    expect(db.snoozes).toHaveLength(1);
+  });
+
+  test.each([
+    ['resourceUri', { ui: { resourceUri: 'ui://fake/other.html' } }],
+    ['visibility', { ui: { resourceUri: VIEW, visibility: ['app'] } }],
+    ['removed', { other: 1 }],
+  ])('a changed %s is a change: changedAt, ack withdrawn, prevUiMeta, snoozes dropped', async (_, meta) => {
+    await syncKnownTools(UP, [withUi('Adds an item.', { ui: { resourceUri: VIEW } })], clock);
+    expect(row().acknowledgedAt).toBeInstanceOf(Date);
+    await syncKnownTools(UP, [withUi('Adds an item.', meta)], clock);
+    expect(row()).toMatchObject({ acknowledgedAt: null, prevUiMeta: `{"resourceUri":"${VIEW}"}`, prevDescription: 'Adds an item.' });
+    expect(row().changedAt).toBeInstanceOf(Date);
+    expect(db.snoozes).toEqual([]);
+  });
+
+  test('never cosmetic: a punctuation edit plus a view change is a change', async () => {
+    await syncKnownTools(UP, [withUi('Adds an item.', { ui: { resourceUri: VIEW } })], clock);
+    await syncKnownTools(UP, [withUi('adds an item', { ui: { resourceUri: VIEW, visibility: ['app'] } })], clock);
+    expect(row().changedAt).toBeInstanceOf(Date);
+    expect(row().cosmeticAckAt).toBeNull();
+  });
+
+  test('other _meta keys are not part of it', async () => {
+    await syncKnownTools(UP, [withUi('Adds an item.', { ui: { resourceUri: VIEW }, 'x/y': 1 })], clock);
+    await syncKnownTools(UP, [withUi('Adds an item.', { ui: { resourceUri: VIEW }, 'x/y': 2 })], clock);
+    expect(row().changedAt).toBeNull();
+  });
+});

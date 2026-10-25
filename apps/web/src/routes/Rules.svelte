@@ -21,9 +21,13 @@
   // stream and re-reads its view on `tools` (a sync changed a tool list,
   // e.g. a proxied tools/list or the call-time re-check) and on `running`
   // (the upstream may have been paused or resumed elsewhere).
+  // ADR-0038 (TC-251): a tool with an MCP Apps view gets the row
+  // „Oberfläche“ (lib/ToolUiRow.svelte) and the list one help line about the
+  // cross-upstream reach of a view on „Alle Upstreams“.
   import { onDestroy } from 'svelte';
   import Spinner from '../lib/Spinner.svelte';
   import ToolReview from '../lib/ToolReview.svelte';
+  import ToolUiRow from '../lib/ToolUiRow.svelte';
   import Switch from '../lib/Switch.svelte';
   import ConfirmDialog from '../lib/ConfirmDialog.svelte';
   import UpstreamSheet from '../lib/UpstreamSheet.svelte';
@@ -422,6 +426,10 @@
 
   const setTool = (t: ToolRow, policy: Policy | null) => apply(() => api.setToolPolicy(upstreamId, t.id, policy));
   const acknowledge = (t: ToolRow) => apply(() => api.acknowledgeTool(upstreamId, t.id));
+  // ADR-0038: the view switch and "Neue Version anzeigen" (both read the page now).
+  const setUi = (t: ToolRow, on: boolean) => apply(() => api.setToolUi(upstreamId, t.id, on), on ? 'Oberfläche wird angezeigt' : 'Oberfläche aus');
+  const acknowledgeUi = (t: ToolRow) => apply(() => api.acknowledgeToolUi(upstreamId, t.id), 'Neue Version wird angezeigt');
+  const hasViews = $derived(!!view && view.tools.some((t) => t.ui?.uri));
 
   function setClient(t: ToolRow, clientId: number, value: string) {
     if (value === '') return apply(() => api.clearClientPolicy(upstreamId, t.id, clientId));
@@ -687,6 +695,11 @@
       {#if view.tools.length === 0}
         <p class="empty">Noch keine Tools bekannt. „Tools aktualisieren“ holt sie vom Upstream.</p>
       {:else}
+        {#if hasViews}
+          <p class="hint section-hint" data-testid="ui-help">
+            Oberflächen: Über „Alle Upstreams“ kann eine angezeigte Oberfläche auch Tools anderer Upstreams aufrufen – jeder Aufruf läuft durch deine Regeln.
+          </p>
+        {/if}
         <ul class="list" aria-label="Tools">
           {#each sortedTools as t (t.id)}
             <li class="item tool" class:attention={t.review.attention} data-tool={t.name}>
@@ -700,6 +713,9 @@
               </div>
               {#if t.description}<p class="tool-desc">{t.description}</p>{/if}
               <ToolReview tool={t} />
+              {#if t.ui}
+                <ToolUiRow tool={t} ui={t.ui} {busy} ontoggle={(on) => setUi(t, on)} onacknowledge={() => acknowledgeUi(t)} />
+              {/if}
 
               {#if selected && t.forClient}
                 {@const f = t.forClient}

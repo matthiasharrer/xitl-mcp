@@ -44,6 +44,8 @@ export interface HintTool {
   prevInputSchema: unknown;
   /** True when prev* were recorded (a definition change happened). */
   hasPrev: boolean;
+  /** ADR-0038: the view reference (uiMeta) differs from the acknowledged one. */
+  uiChanged?: boolean;
   /** Clef label, if any. */
   hintRisk: string | null;
   hintInjection: number | null;
@@ -103,6 +105,7 @@ export function reviewHint(t: HintTool): ReviewHint {
       const after = t.inputSchema === undefined ? null : paramList(t.inputSchema);
       reasons.push(...paramReasons(before, after));
     }
+    if (t.uiChanged) reasons.push('Verweis auf die Oberfläche geändert');
     const was = (t.prevDescription ?? '').length;
     const is = (t.description ?? '').length;
     if (is > was * HINT_GROWTH_RATIO || is - was > HINT_GROWTH_CHARS) reasons.push('Beschreibung stark gewachsen');
@@ -138,6 +141,9 @@ export interface HintRow {
   prevDescription: string | null;
   prevAnnotations: string | null;
   prevInputSchema: string | null;
+  /** ADR-0038 (absent on rows read without them). */
+  uiMeta?: string | null;
+  prevUiMeta?: string | null;
   hintRisk: string | null;
   hintInjection: number | null;
 }
@@ -157,6 +163,7 @@ export function hintOfRow(r: HintRow): ReviewHint {
     prevAnnotations: parseJson(r.prevAnnotations),
     prevInputSchema: parseStoredSchema(r.prevInputSchema),
     hasPrev,
+    uiChanged: typeof r.prevUiMeta === 'string' && typeof r.uiMeta === 'string' && r.prevUiMeta !== r.uiMeta,
     hintRisk: r.hintRisk,
     hintInjection: r.hintInjection,
   });

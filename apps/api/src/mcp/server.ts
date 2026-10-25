@@ -5,13 +5,18 @@
 //   (fetched live when the upstream is usable, else the last seen ones / the
 //   description), prefixed by one line saying this is xitl. `/mcp`: generated,
 //   one section per upstream with its state line (proxyText.unifiedInstructions,
-//   ADR-0022: the live contact decides, else the stored state). Only the `tools`
-//   capability is advertised: resources and prompts are not proxied (yet).
+//   ADR-0022: the live contact decides, else the stored state). Advertises
+//   `tools` and `resources` (ADR-0038: MCP Apps pages only; prompts and data
+//   resources are not proxied).
 // - tools/list: fetches the upstream's list, records it (KnownTool), applies
 //   the policy for THIS client: DENY tools are dropped, ASK tools get the
 //   approval stamp in their description; name/inputSchema/annotations pass
-//   through unchanged; MCP Apps view references (`_meta.ui`) are removed
-//   and view-only tools are not listed at all (ADR-0038, slice 1). `/mcp` does this for every usable upstream in parallel,
+//   through unchanged. ADR-0038: a tool whose view is shown to this client
+//   (uiViews.shownViews: switch on, page acknowledged with its current hash,
+//   not DENY) keeps `_meta.ui` (on `/mcp` the URI rewritten to
+//   `ui://<slug>/…`); every other tool loses it (withoutUiMeta). A view-only
+//   tool is listed only while the upstream has a shown model-visible tool
+//   (the anchor). `/mcp` does this for every usable upstream in parallel,
 //   prefixes the names `<slug>_` and leaves out an upstream that fails
 //   (ADR-0017 degrade). No tool is added for a failing upstream: the user is
 //   told by push and on Freigaben (ADR-0022, upstream/stateEvents.ts), the
@@ -27,7 +32,21 @@
 //   `/mcp` first splits the name (lib/unifiedNames.ts) and resolves the slug
 //   among the user's own upstreams; anything unresolved is denied and audited.
 //   Both endpoints then take the same path (callTool), so rules, snoozes and
-//   approvals are one set per user.
+//   approvals are one set per user. ADR-0038: a view-only tool while no view
+//   of its upstream is shown to this client is refused at once like an
+//   unknown tool (`unknown-tool`), never forwarded; otherwise it is a call
+//   like any other (a call from a view is never told apart).
+// - resources/list, resources/templates/list, resources/read (ADR-0038):
+//   only MCP Apps pages that a tool shown to THIS client references. A read
+//   resolves the URI (on `/mcp`: `ui://<slug>/<rest>`, the slug only among
+//   this user's upstreams; a one-upstream token never reaches `/mcp`, mount.ts)
+//   and checks, before contacting anything: not paused, not hidden for this
+//   client, usable, a shown tool references exactly that page. Then it reads
+//   the page now (uiPages.fetchPage: scrubbed, validated) and serves it only
+//   if its hash is the acknowledged one; a different hash is recorded (the
+//   page counts as changed, Regeln is pinged) and refused. Every refusal is
+//   the same "resource not found" (no oracle); one log line (upstream id +
+//   URI), no AuditEntry (not a call).
 // - ADR-0032: an upstream whose default for THIS client is DENY (or garbage)
 //   is hidden from it everywhere: listFor returns [] without contacting the
 //   upstream, `/mcp`'s instructions have no section/state line for it,
@@ -57,9 +76,9 @@
 // that user's own upstreams, or the `unified` marker) fill after the token is
 // verified - never from anything the caller sends. Every query below is scoped
 // by that userId.
-import { ProtocolError, ProtocolErrorCode, Server } from '@modelcontextprotocol/server';
+import { ProtocolError, ProtocolErrorCode, ResourceNotFoundError, Server } from '@modelcontextprotocol/server';
 import type { McpRequestContext } from '@modelcontextprotocol/server';
-import type { CallToolResult, Tool } from '@modelcontextprotocol/client';
+import type { CallToolResult, ReadResourceResult, Tool } from '@modelcontextprotocol/client';
 import { prisma } from '../db.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { awaitingReview, evaluatePolicy, hidesUpstream, type Policy, type PolicyTool } from '../lib/policy.js';
@@ -86,6 +105,20 @@ import {
   withUpstream,
 } from '../upstream/connection.js';
 import { refreshToolsFromUpstream, syncKnownTools, usableTools, withoutUiMeta } from '../upstream/tools.js';
+import {
+  UI_MIME,
+  appOnlyFromUiMeta,
+  isAppOnly,
+  isUiUri,
+  shownViews,
+  splitUnifiedUiUri,
+  uiResourceUriOf,
+  unifiedUiUri,
+  withUnifiedUiUri,
+  type PageState,
+  type ShownViews,
+} from '../upstream/uiViews.js';
+import { fetchPage, recordPage } from '../upstream/uiPages.js';
 import { SingleFlight, toolsFreshFromEnv, toolsStale, vanished } from '../upstream/freshness.js';
 import { errorTag } from '../upstream/oauthClient.js';
 import { approvals, ApprovalHub, type Decision } from '../approval/pending.js';
@@ -280,6 +313,18 @@ function checkView(r: GateResult | null): PauseCheckView | undefined {
   return undefined;
 }
 
+/** UiResource rows by URI, as uiViews reads them (ADR-0038). */
+function pageStates(rows: { uri: string; contentHash: string | null; acknowledgedHash: string | null }[]): Map<string, PageState> {
+  return new Map(rows.map((r) => [r.uri, { contentHash: r.contentHash, acknowledgedHash: r.acknowledgedHash }]));
+}
+
+/** ADR-0038: the one text of every refused resources/read, whatever the
+ * reason (no oracle). */
+export const PAGE_NOT_FOUND = 'Resource not found';
+
+/** A caller- or upstream-controlled URI in a log line: clipped, quoted. */
+const logUri = (uri: unknown) => JSON.stringify(String(uri).slice(0, 200));
+
 export function makeBuildMcpServer(deps: ProxyDeps = {}) {
   const clock = deps.clock ?? systemClock;
   const hub = deps.hub ?? approvals;
@@ -351,9 +396,10 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
   }
 
   /** One upstream's tools as THIS client may see them: DENY dropped, ASK
-   * stamped, names unchanged. [] when the upstream isn't usable; throws (a
-   * ProtocolError with a generic text) when the upstream fails. */
-  async function listFor(upstream: Upstream, mcpClientId: number, displayName: string): Promise<Tool[]> {
+   * stamped, names unchanged, views per ADR-0038 (`unified`: the `/mcp`
+   * URI form). [] when the upstream isn't usable; throws (a ProtocolError
+   * with a generic text) when the upstream fails. */
+  async function listFor(upstream: Upstream, mcpClientId: number, displayName: string, unified = false): Promise<Tool[]> {
     const userId = upstream.userId;
     // ADR-0033: paused: hidden from every client, nothing contacted. First,
     // before any other read or contact.
@@ -379,7 +425,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
     }
     await syncKnownTools(upstream.id, tools, clock);
     const now = clock.now();
-    const [known, current, snoozes] = await Promise.all([
+    const [known, current, snoozes, pages] = await Promise.all([
       prisma.knownTool.findMany({
         where: { upstreamId: upstream.id, upstream: { userId } },
         include: { clientPolicies: { where: { mcpClientId } } },
@@ -387,10 +433,10 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
       // The default may have changed since the factory ran; read it fresh.
       prisma.upstream.findFirst({ where: { id: upstream.id, userId }, select: { defaultPolicy: true, pausedAt: true } }),
       liveSnoozesFor({ userId, upstreamId: upstream.id, mcpClientId }, now),
+      prisma.uiResource.findMany({ where: { upstreamId: upstream.id, upstream: { userId } } }),
     ]);
     const byName = new Map(known.map((k) => [k.name, k]));
-    const listed: Tool[] = [];
-    for (const t of usableTools(tools)) {
+    const decided = usableTools(tools).map((t) => {
       const k = byName.get(t.name);
       const decision = evaluatePolicy({
         upstreamDefault: (current?.defaultPolicy ?? 'DENY') as Policy,
@@ -402,14 +448,128 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         snoozedUntil: snoozes(t.name, isReadOnly(k?.annotations)),
         now,
       });
+      return { t, k, decision };
+    });
+    // ADR-0038: which views this client is shown. The URI must be the one the
+    // tool carries in THIS list and the one recorded (a concurrent sync could
+    // have changed the row).
+    const views = shownViews(
+      decided.map(({ t, k, decision }) => {
+        const uri = uiResourceUriOf(t);
+        return {
+          name: t.name,
+          uiResourceUri: uri !== null && k?.uiResourceUri === uri ? uri : null,
+          uiEnabled: k?.uiEnabled === true,
+          appOnly: isAppOnly(t),
+          denied: decision.policy === 'DENY',
+          vanished: false,
+        };
+      }),
+      pageStates(pages),
+    );
+    const listed: Tool[] = [];
+    for (const { t, decision } of decided) {
       if (decision.policy === 'DENY') continue;
-      // ADR-0038 slice 1: no MCP Apps views are served yet, so no tool
-      // points at one.
-      const shown = withoutUiMeta(t);
+      // A view-only tool exists only while a view of this upstream is shown.
+      if (isAppOnly(t) && !views.anchor) continue;
+      const shown = !views.shown.has(t.name) ? withoutUiMeta(t) : unified ? withUnifiedUiUri(t, upstream.slug) : t;
       // AUTO may be asked (ADR-0030): stamped like ASK. Only plain ALLOW is not.
       listed.push(decision.policy !== 'ALLOW' ? { ...shown, description: stampedDescription(t.description, displayName) } : shown);
     }
     return listed;
+  }
+
+  /** ADR-0038: the views of one upstream shown to this client, from the
+   * stored rows (nothing is contacted): the same policy evaluation as
+   * listFor, rows the latest list did not contain left out (ADR-0034). None
+   * for a paused, hidden or unusable upstream. A failed read throws. */
+  async function viewsFor(upstreamId: number, userId: number, mcpClientId: number): Promise<ShownViews> {
+    const none: ShownViews = { shown: new Set(), anchor: false, uris: new Map() };
+    const current = await prisma.upstream.findFirst({ where: { id: upstreamId, userId } });
+    if (!current || current.pausedAt !== null || !isUsable(current)) return none;
+    const clientUpstream = await clientUpstreamOf(userId, mcpClientId, upstreamId);
+    if (hidesUpstream(clientUpstream)) return none;
+    const now = clock.now();
+    const [known, pages, snoozes] = await Promise.all([
+      prisma.knownTool.findMany({
+        where: { upstreamId, upstream: { userId } },
+        include: { clientPolicies: { where: { mcpClientId } } },
+      }),
+      prisma.uiResource.findMany({ where: { upstreamId, upstream: { userId } } }),
+      liveSnoozesFor({ userId, upstreamId, mcpClientId }, now),
+    ]);
+    return shownViews(
+      known.map((k) => ({
+        name: k.name,
+        uiResourceUri: k.uiResourceUri,
+        uiEnabled: k.uiEnabled,
+        appOnly: appOnlyFromUiMeta(k.uiMeta),
+        denied:
+          evaluatePolicy({
+            upstreamDefault: current.defaultPolicy as Policy,
+            tool: policyTool(k),
+            clientOverride: (k.clientPolicies[0]?.policy as Policy | undefined) ?? null,
+            clientUpstream,
+            upstreamPaused: false,
+            snoozedUntil: snoozes(k.name, isReadOnly(k.annotations)),
+            now,
+          }).policy === 'DENY',
+        vanished: vanished(k.lastSeenAt, current.toolsSyncedAt),
+      })),
+      pageStates(pages),
+    );
+  }
+
+  /** ADR-0038: a refused resources/read, logged; the same error for every
+   * reason. */
+  function pageRefused(requestedUri: string, upstreamId: number | null, why: string): ResourceNotFoundError {
+    console.log(`proxy: resources/read upstream ${upstreamId ?? '-'} ${logUri(requestedUri)}: refused (${why})`);
+    return new ResourceNotFoundError(requestedUri, PAGE_NOT_FOUND);
+  }
+
+  /** ADR-0038: resources/read of `originalUri` (the upstream's own URI) of
+   * one of this user's upstreams, answered with the URI as requested. Every
+   * check before anything is contacted; the hash after the read. */
+  async function readPage(call: McpCallContext, upstreamId: number | null, originalUri: string | null, requestedUri: string) {
+    const { userId, mcpClientId } = call;
+    if (upstreamId === null || originalUri === null) throw pageRefused(requestedUri, null, 'unresolved');
+    const views = await viewsFor(upstreamId, userId, mcpClientId);
+    if (!views.uris.has(originalUri)) throw pageRefused(requestedUri, upstreamId, 'not shown');
+    const ack = await prisma.uiResource.findFirst({ where: { upstreamId, uri: originalUri, upstream: { userId } }, select: { acknowledgedHash: true } });
+    if (!ack?.acknowledgedHash) throw pageRefused(requestedUri, upstreamId, 'not acknowledged');
+    let page;
+    try {
+      page = await fetchPage(upstreamId, userId, originalUri, clock);
+    } catch (e) {
+      console.warn(`proxy: upstream ${upstreamId}: page read failed: ${errorTag(e)}`);
+      throw pageRefused(requestedUri, upstreamId, 'read failed');
+    }
+    if (page.hash !== ack.acknowledgedHash) {
+      // Changed since the tap: recorded (stripped from the next tools/list,
+      // "Geändert" in Regeln), never served.
+      try {
+        await recordPage(upstreamId, originalUri, page, clock.now());
+      } catch (e) {
+        console.warn(`proxy: upstream ${upstreamId}: page state not stored: ${errorTag(e)}`);
+      }
+      throw pageRefused(requestedUri, upstreamId, 'changed');
+    }
+    console.log(`proxy: resources/read upstream ${upstreamId} ${logUri(requestedUri)}: served`);
+    // Exactly the validated fields (uiViews.validatePage: text XOR blob).
+    return { contents: page.items.map((i) => ({ ...i, uri: requestedUri })) as ReadResourceResult['contents'] };
+  }
+
+  /** ADR-0038: resources/list entries of one upstream's shown pages
+   * (`slug` given: the `/mcp` form). */
+  async function pagesOf(upstreamId: number, call: McpCallContext, slug: string | null) {
+    const views = await viewsFor(upstreamId, call.userId, call.mcpClientId);
+    return [...views.uris.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([uri, names]) => ({
+        uri: slug === null ? uri : unifiedUiUri(slug, uri),
+        name: slug === null ? names[0]! : `${slug}_${names[0]!}`,
+        mimeType: UI_MIME,
+      }));
   }
 
   /** A `/mcp` call whose name resolves to no upstream of this user: denied
@@ -652,6 +812,11 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
       (first.base.policy === 'DENY' && (upstreamPaused || hidesUpstream(clientUpstream)))
     ) {
       return refuseAtOnce(first.base.path, unknownText);
+    }
+    // ADR-0038: a view-only tool exists only while a view of its upstream is
+    // shown to this client; otherwise it is an unknown tool (never forwarded).
+    if (tool && appOnlyFromUiMeta(tool.uiMeta) && !(await viewsFor(upstream.id, userId, mcpClientId)).anchor) {
+      return refuseAtOnce('unknown-tool', unknownText);
     }
     // ADR-0029: an ALLOW that only an allow pause gave goes through the AI
     // check, under the access's serial lock, re-evaluated there (an earlier
@@ -935,11 +1100,18 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
     const server = new Server(
       { name: `xitl/${upstream.slug}`, version: APP_VERSION },
       {
-        capabilities: { tools: {} },
+        // ADR-0038: resources = the MCP Apps pages of shown views only.
+        capabilities: { tools: {}, resources: {} },
         instructions: hidden ? INSTRUCTIONS_PREFIX : instructionsFor(upstreamInstructions, upstream.description?.trim() || upstream.name),
       },
     );
     server.setRequestHandler('tools/list', async () => ({ tools: await listFor(upstream, call.mcpClientId, displayName) }));
+    server.setRequestHandler('resources/list', async () => ({ resources: await pagesOf(upstream.id, call, null) }));
+    server.setRequestHandler('resources/templates/list', async () => ({ resourceTemplates: [] }));
+    server.setRequestHandler('resources/read', async (request) => {
+      const uri = request.params.uri;
+      return readPage(call, upstream.id, isUiUri(uri) ? uri : null, uri);
+    });
     server.setRequestHandler('tools/call', async (request, reqCtx) =>
       callTool({
         call,
@@ -987,13 +1159,27 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
       })),
     );
 
-    const server = new Server({ name: 'xitl', version: APP_VERSION }, { capabilities: { tools: {} }, instructions });
+    // ADR-0038: resources = the MCP Apps pages of shown views only.
+    const server = new Server({ name: 'xitl', version: APP_VERSION }, { capabilities: { tools: {}, resources: {} }, instructions });
+
+    server.setRequestHandler('resources/list', async () => {
+      const rows = await prisma.upstream.findMany({ where: { userId }, orderBy: { slug: 'asc' }, select: { id: true, slug: true } });
+      return { resources: (await Promise.all(rows.map((u) => pagesOf(u.id, call, u.slug)))).flat() };
+    });
+    server.setRequestHandler('resources/templates/list', async () => ({ resourceTemplates: [] }));
+    server.setRequestHandler('resources/read', async (request) => {
+      const uri = request.params.uri;
+      // `ui://<slug>/<rest>`; the slug resolved ONLY among this user's upstreams.
+      const split = splitUnifiedUiUri(uri);
+      const upstream = split ? await prisma.upstream.findUnique({ where: { userId_slug: { userId, slug: split.slug } }, select: { id: true } }) : null;
+      return readPage(call, upstream?.id ?? null, upstream && split ? split.uri : null, uri);
+    });
 
     server.setRequestHandler('tools/list', async () => {
       // Fresh rows (status/tokens may have changed since the factory ran).
       const rows = await prisma.upstream.findMany({ where: { userId }, orderBy: { slug: 'asc' } });
       // Degrade per upstream: one that fails is left out, the rest is listed.
-      const results = await Promise.allSettled(rows.map((u) => listFor(u, mcpClientId, displayName)));
+      const results = await Promise.allSettled(rows.map((u) => listFor(u, mcpClientId, displayName, true)));
       const tools: Tool[] = [];
       results.forEach((r, i) => {
         const u = rows[i]!;

@@ -11,7 +11,12 @@ let n = 0;
 export const newTenant = (prefix: string) => `${prefix}-${Date.now().toString(36)}${(++n).toString(36)}`;
 export const fakeMcpUrl = (tenant: string) => `${FAKE_UPSTREAM}/t/${tenant}/mcp`;
 
-export async function fakeControl(request: APIRequestContext, tenant: string, what: 'config' | 'tools' | 'remove-tool' | 'expire-access', data: unknown = {}) {
+export async function fakeControl(
+  request: APIRequestContext,
+  tenant: string,
+  what: 'config' | 'tools' | 'remove-tool' | 'resources' | 'expire-access',
+  data: unknown = {},
+) {
   const res = await request.post(`${FAKE_UPSTREAM}/control/t/${tenant}/${what}`, { data });
   expect(res.status()).toBe(200);
 }
@@ -40,6 +45,8 @@ export interface FakeState {
   tokens: string[];
   /** tools/list requests (ADR-0034). */
   lists: number;
+  /** resources/read requests per uri (ADR-0038). */
+  reads: Record<string, number>;
 }
 export async function fakeState(request: APIRequestContext, tenant: string): Promise<FakeState> {
   return (await request.get(`${FAKE_UPSTREAM}/control/t/${tenant}/state`)).json();

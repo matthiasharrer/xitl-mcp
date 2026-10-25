@@ -133,6 +133,7 @@ model Upstream {
   tokenClients   McpClient[]
   mcpSessions    McpSession[]
   clientDefaults ClientUpstreamPolicy[]
+  uiResources    UiResource[]
 
   @@unique([userId, slug])
 }
@@ -187,9 +188,54 @@ model KnownTool {
   hintInjection   Float?
   hintAt          DateTime?
   hintFor         String?
+  /// ADR-0038: the tool's MCP Apps view reference as canonical JSON of
+  /// `{resourceUri, visibility}` (only the keys the upstream sent; "null" =
+  /// no view reference). Part of the definition: a later difference is a
+  /// change (changedAt, prevUiMeta). NULL = recorded before this column
+  /// existed: the next tools/list stores it silently (like inputSchema).
+  uiMeta          String?
+  /// ADR-0038: the acknowledged uiMeta, kept like prev* above.
+  prevUiMeta      String?
+  /// ADR-0038: the view's `ui://` URI, derived from uiMeta (only `ui://`
+  /// strings of at most 512 chars; anything else = no view). What
+  /// resources/read checks a requested page against.
+  uiResourceUri   String?
+  /// ADR-0038: the user's switch "Oberfläche anzeigen" (only through /api).
+  /// The view is shown only while this is on AND the page (UiResource) is
+  /// acknowledged with its current hash.
+  uiEnabled       Boolean            @default(false)
   clientPolicies  ClientToolPolicy[]
 
   @@unique([upstreamId, name])
+}
+
+/// ADR-0038: one MCP Apps page (`ui://` URI) of an upstream, shared by every
+/// tool of it that references the URI. Read in the background after a tool
+/// sync, when the user turns a view on, and for every host read.
+model UiResource {
+  id               Int       @id @default(autoincrement())
+  upstreamId       Int
+  upstream         Upstream  @relation(fields: [upstreamId], references: [id], onDelete: Cascade)
+  /// The upstream's own URI (never the `/mcp` rewrite).
+  uri              String
+  /// sha256 (hex) of canonical JSON of the content items' {text|blob,
+  /// mimeType, meta} as last read (scrubbed); null = never read successfully.
+  contentHash      String?
+  /// The hash the user acknowledged (switch on / "Neue Version anzeigen").
+  /// The page is served only while contentHash equals it.
+  acknowledgedHash String?
+  acknowledgedAt   DateTime?
+  /// The last read attempt (success or not); background reads are skipped
+  /// within TOOLS_FRESH_MS of it.
+  readAt           DateTime?
+  /// What the page's `_meta.ui` asks for, clipped JSON {connectDomains,
+  /// resourceDomains, frameDomains, baseUriDomains, permissions} (display
+  /// only, the host enforces it); null = none read.
+  csp              String?
+  /// The last read failed (unreachable, wrong mimeType, too large, …).
+  lastReadFailed   Boolean   @default(false)
+
+  @@unique([upstreamId, uri])
 }
 
 /// Per-client override of a tool's policy (ADR-0004), e.g. stricter for one agent.

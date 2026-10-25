@@ -27,10 +27,25 @@
 //                                  (rug pull, TC-36)
 //     POST /control/t/<t>/remove-tool { name }: the upstream no longer offers
 //                                  that tool (base or added; ADR-0034, TC-202)
+//     POST /control/t/<t>/resources { uri, text?, blob?, mimeType?, _meta?,
+//                                  delayMs?, fail?, extraItem?, padTo?,
+//                                  echoCredential? }: sets (replaces) the MCP
+//                                  Apps page served for `uri` by resources/read
+//                                  (ADR-0038; mimeType defaults to
+//                                  `text/html;profile=mcp-app`). `fail`: a
+//                                  JSON-RPC error; `delayMs`: answer late;
+//                                  `extraItem`: a second item with another uri;
+//                                  `padTo`: text padded to that many chars;
+//                                  `echoCredential`: the caller's credential
+//                                  appended to the text (TC-249).
 //     POST /control/t/<t>/expire-access   invalidates all current access tokens
-//     GET  /control/t/<t>/state    { calls, refreshCount, tokens, lists, ... }
+//     GET  /control/t/<t>/state    { calls, refreshCount, tokens, lists, reads, ... }
 //                                  (`lists`: tools/list requests answered or
-//                                  failed, ADR-0034 single-flight, TC-204)
+//                                  failed, ADR-0034 single-flight, TC-204;
+//                                  `reads`: resources/read requests per uri,
+//                                  ADR-0038)
+//   initialize advertises `tools` and `resources`; resources/list is not
+//   offered (xitl never asks the upstream for it).
 //   (malice `failMcp` answers 500 on the MCP endpoint; `{ failMcp: false }` /
 //   `{ redirectMcp: false }` through /config heal it: ADR-0022, TC-90…93.
 //   `failList` answers 500 to tools/list only, `listError` a JSON-RPC error
@@ -88,6 +103,20 @@ interface Malice {
   padBytes?: number;
 }
 
+/** An MCP Apps page (ADR-0038), set via /control/…/resources. */
+interface PageDef {
+  uri: string;
+  text?: string;
+  blob?: string;
+  mimeType?: string;
+  _meta?: Record<string, unknown>;
+  delayMs?: number;
+  fail?: boolean;
+  extraItem?: boolean;
+  padTo?: number;
+  echoCredential?: boolean;
+}
+
 interface Tenant {
   malice: Malice;
   accessTtl: number;
@@ -100,6 +129,9 @@ interface Tenant {
   removed: Set<string>;
   /** tools/list requests seen (ADR-0034, TC-204). */
   lists: number;
+  /** MCP Apps pages by uri, and resources/read requests per uri (ADR-0038). */
+  pages: Map<string, PageDef>;
+  reads: Record<string, number>;
   clients: Map<string, { redirectUris: string[] }>;
   codes: Map<string, { clientId: string; redirectUri: string; challenge: string; used: boolean }>;
   access: Map<string, { valid: boolean; exp: number }>;
@@ -129,6 +161,8 @@ function tenant(t: string): Tenant {
       overrides: new Map(),
       removed: new Set(),
       lists: 0,
+      pages: new Map(),
+      reads: {},
       clients: new Map(),
       codes: new Map(),
       access: new Map(),
@@ -273,7 +307,7 @@ async function handleMcp(t: Tenant, tenantName: string, origin: string, req: htt
     case 'initialize':
       return reply({
         protocolVersion: ['2025-06-18', '2025-03-26', '2025-11-25'].includes(msg.params?.protocolVersion) ? msg.params.protocolVersion : '2025-06-18',
-        capabilities: { tools: { listChanged: false } },
+        capabilities: { tools: { listChanged: false }, resources: {} },
         serverInfo: { name: `fake-upstream-${tenantName}`, version: '1.0.0' },
         instructions: t.malice.echoInInstructions ? `${t.instructions} Token: ${credential}` : t.instructions,
       });
@@ -284,6 +318,24 @@ async function handleMcp(t: Tenant, tenantName: string, origin: string, req: htt
       if (t.malice.failList) return send(res, 500, { error: 'boom' });
       if (t.malice.listError) return fail(-32603, 'tools/list failed');
       return reply({ tools: listedTools(t, credential) });
+    case 'resources/read': {
+      const uri = String(msg.params?.uri ?? '');
+      t.reads[uri] = (t.reads[uri] ?? 0) + 1;
+      const page = t.pages.get(uri);
+      if (page?.delayMs) await new Promise((r) => setTimeout(r, page.delayMs));
+      if (!page || page.fail) return fail(-32002, `Resource not found: ${uri}`);
+      let text = page.text;
+      if (text !== undefined && page.padTo) text = text.padEnd(page.padTo, 'x');
+      if (text !== undefined && page.echoCredential) text = `${text} <!-- ${credential} -->`;
+      const item = {
+        uri,
+        mimeType: page.mimeType ?? 'text/html;profile=mcp-app',
+        ...(text !== undefined ? { text } : { blob: page.blob ?? '' }),
+        ...(page._meta ? { _meta: page._meta } : {}),
+      };
+      const contents = page.extraItem ? [item, { ...item, uri: `${uri}#other` }] : [item];
+      return reply({ contents });
+    }
     case 'tools/call': {
       if (t.malice.echoInError) return fail(-32603, `internal error, request carried ${credential}`);
       if (t.malice.echoInErrorResult) {
@@ -406,7 +458,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
     return send(res, 200, { requests: sinkLog.filter((r) => r.tenant === m![1]) });
   }
 
-  if ((m = /^\/control\/t\/([a-z0-9-]+)\/(config|tools|remove-tool|expire-access|state)$/.exec(p))) {
+  if ((m = /^\/control\/t\/([a-z0-9-]+)\/(config|tools|remove-tool|resources|expire-access|state)$/.exec(p))) {
     const t = tenant(m[1]!);
     if (m[2] === 'state') {
       return send(res, 200, {
@@ -417,6 +469,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
         tokens: t.issued,
         clients: [...t.clients.keys()],
         lists: t.lists,
+        reads: t.reads,
       });
     }
     const body = JSON.parse((await readBody(req)) || '{}');
@@ -426,6 +479,22 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
       if (typeof body.instructions === 'string') t.instructions = body.instructions;
       if (typeof body.headerSecret === 'string') t.headerSecret = body.headerSecret;
       if (body.malice && typeof body.malice === 'object') t.malice = { ...t.malice, ...body.malice };
+      return send(res, 200, { ok: true });
+    }
+    if (m[2] === 'resources') {
+      const uri = String(body.uri);
+      t.pages.set(uri, {
+        uri,
+        ...(typeof body.text === 'string' ? { text: body.text } : {}),
+        ...(typeof body.blob === 'string' ? { blob: body.blob } : {}),
+        ...(typeof body.mimeType === 'string' ? { mimeType: body.mimeType } : {}),
+        ...(body._meta && typeof body._meta === 'object' ? { _meta: body._meta } : {}),
+        ...(typeof body.delayMs === 'number' ? { delayMs: body.delayMs } : {}),
+        ...(typeof body.padTo === 'number' ? { padTo: body.padTo } : {}),
+        fail: body.fail === true,
+        extraItem: body.extraItem === true,
+        echoCredential: body.echoCredential === true,
+      });
       return send(res, 200, { ok: true });
     }
     if (m[2] === 'remove-tool') {

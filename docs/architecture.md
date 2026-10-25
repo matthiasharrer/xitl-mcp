@@ -438,14 +438,69 @@ Sperren, audit, intent, review hint and freshness. Only the connection differs.
   first (they are handed to agents, TC-48).
 - `initialize`: instructions = prefix line ("Über xitl vermittelt … / Proxied
   by xitl …") + the upstream's instructions (live, else last seen, else the
-  description, else the name). Only `tools` is advertised: **resources and
-  prompts are not proxied** (MCP Apps views: ADR-0038, slices 2–3 open;
-  data resources: ideas.md).
-- MCP Apps (ADR-0038 slice 1): `usableTools` drops view-only tools
-  (`_meta.ui.visibility` without `"model"`, malformed = view-only), so they
-  are never recorded, listed or forwarded (unknown-tool); `listFor` strips
-  `_meta.ui` and `_meta["ui/resourceUri"]` from every listed tool
-  (`withoutUiMeta`), so no client tries to render a view xitl can't serve.
+  description, else the name). `tools` and `resources` are advertised
+  (`resources: {}`, no subscribe/listChanged) on `/mcp/<slug>` and `/mcp`;
+  resources are **only MCP Apps pages of shown views** (ADR-0038); prompts
+  and data resources are not proxied (ideas.md). The built-in `xitl` server
+  (ADR-0037) advertises only tools.
+- MCP Apps (ADR-0038 + amendment 2026-10-25, slices 1–3). Pure helpers in
+  `upstream/uiViews.ts`, DB/network in `upstream/uiPages.ts`.
+  - Recorded per tool (`syncKnownTools`): `KnownTool.uiMeta` = canonical JSON
+    of the `{resourceUri, visibility}` keys the upstream sent (`"null"`
+    without; NULL = pre-column, stored silently), `uiResourceUri` (only a
+    `ui://` string ≤ 512 chars without whitespace; `ui.resourceUri` wins over
+    the flat `ui/resourceUri`). A `uiMeta` difference is a change like an
+    annotations change (`changedAt`, ack withdrawn, snoozes dropped,
+    `prevUiMeta`; hint reason „Verweis auf die Oberfläche geändert“), never
+    cosmetic. View-only tools (visibility without `"model"`, malformed =
+    view-only) are recorded like any tool.
+  - `UiResource` (upstreamId, uri unique): `contentHash` = sha256 of
+    canonical JSON of the content items' `{text|blob, mimeType, meta}`
+    (after `scrubSecrets`), `acknowledgedHash`/`acknowledgedAt`, `readAt`,
+    `csp` (clipped JSON of the items' `_meta.ui.csp` lists + permission
+    names, display only), `lastReadFailed`. A read is valid only if every
+    item has the requested uri, mimeType exactly `text/html;profile=mcp-app`,
+    a string `text` XOR `blob`, total ≤ 2 MiB (`MAX_UI_PAGE_BYTES`); a
+    JSON-RPC error from the upstream is a failed read, not a failed contact
+    (no `lastFailureAt`). Served items carry exactly those fields.
+  - Background read (`PageReader`, wired in app.ts via `onToolsSynced`):
+    after every successful sync (proxied tools/list, „Tools aktualisieren“,
+    the call-time re-check), each distinct `uiResourceUri` of the upstream's
+    non-vanished tools, single-flight per (upstream, uri), skipped while
+    `readAt` is younger than `TOOLS_FRESH_MS`; never awaited, never throws.
+    It records `contentHash`/`csp` (a failure only `lastReadFailed`, the old
+    hash stays) and emits the payload-free `tools` event when that changed.
+  - Shown (for one client, `uiViews.shownViews`): `uiResourceUri` set AND
+    `uiEnabled` AND the page's `contentHash` = `acknowledgedHash` AND the
+    tool not DENY for the client (listFor's evaluation incl. allow pauses)
+    AND not vanished; view-only tools count only while a model-visible tool
+    of the upstream is shown (the anchor), else nothing of it is shown.
+  - `listFor`: a shown tool keeps `_meta` (on `/mcp` `ui.resourceUri` and the
+    flat key rewritten to `ui://<slug>/<rest>`, `withUnifiedUiUri`), every
+    other tool is stripped (`withoutUiMeta`); a view-only tool is listed only
+    with an anchor. `callTool`: a view-only tool without an anchor is refused
+    at once (`refuseAtOnce('unknown-tool')`, unknown-tool text, never
+    forwarded); otherwise ordinary policy (a view's calls are calls).
+  - `resources/list`: the shown pages (name = first shown tool using it,
+    prefixed on `/mcp`); `resources/templates/list`: `[]`. `resources/read`:
+    resolve (`/mcp`: `splitUnifiedUiUri`, slug only among the token user's
+    upstreams; a one-upstream access token never reaches `/mcp` nor another
+    upstream's `/mcp/<slug>`, mount.ts gate) → `viewsFor` from the stored
+    rows (paused / hidden / unusable = nothing; nothing contacted) must
+    contain the uri → read now (`fetchPage`) → hash ≠ acknowledged: recorded
+    (`recordPage`, Regeln pinged), refused; equal: served with item `uri` =
+    the uri as requested, `_meta` unchanged. Every refusal is the same
+    `ResourceNotFoundError` („Resource not found“, `data.uri`); the SDK puts
+    -32002 on the wire as -32602 (spec 2026-07-28). One console line per read
+    (upstream id + clipped uri), no AuditEntry.
+  - API (`routes/upstreamTools.ts`): the tools view carries per tool `ui:
+    {uri, state new|shown|off|changed|unreadable, enabled, read, sharedWith,
+    csp, appOnly}` (null without view and not view-only); `PATCH
+    …/tools/:toolId {uiEnabled}` (true: `acknowledgePage` reads now and
+    acknowledges that hash, failure 502 / paused 409 / no view 400, nothing
+    changed; false: off, ack kept); `POST …/tools/:toolId/ui/acknowledge`
+    („Neue Version anzeigen“, switches unchanged). UI: `lib/ToolUiRow.svelte`
+    in Regeln.
 - `tools/list`: not usable (OAUTH not connected / needs reconnect) -> `[]`
   without contacting the upstream; otherwise fetch, scrub our credentials out
   of the list (`scrubSecrets`, also in "Tools aktualisieren"), `syncKnownTools`,
