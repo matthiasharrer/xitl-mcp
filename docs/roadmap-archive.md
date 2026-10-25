@@ -3,6 +3,14 @@
 Shipped roadmap entries, newest first. The reasoning is in `decisions/`, the
 test evidence in `testing.md`'s run log.
 
+## 2026-10-25 (`v0.16.1`)
+
+- **MCP Apps slice 1 (ADR-0038).** No view references leave xitl:
+  `_meta.ui` / `_meta["ui/resourceUri"]` stripped from tools/list, view-only
+  tools (`visibility` without `"model"`) not listed, recorded or forwarded.
+  Ends the endless „Verbindung … wird hergestellt“ box in Claude.ai (Grafana
+  upstream). TC-240…242.
+
 ## 2026-10-21 (`v0.16.0`)
 
 - **Built-in upstream `xitl` (ADR-0037, Matthias's idea).** Opt-in per

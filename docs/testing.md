@@ -613,6 +613,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 45 | 2026-10-25 (release) | `v0.16.1`: same code as run 44 (only docs changed since) | unit 657, e2e 299, all passed (run 44). |
 | 44 | 2026-10-25 | TC-01…242, unit 657 (api 622 + web 35), e2e 299 (ADR-0038 slice 1: TC-240…242 new) | all passed (lead; first e2e run blocked by the browser path, rerun with `PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright`). Mutation: `listFor` without `withoutUiMeta` → TC-240 fails. Not covered: Claude.ai with the Grafana upstream (no more spinner) after deploy. |
 | 43 | 2026-10-21 (release) | `v0.16.0`: same code as run 42 (only docs changed since) | unit 651, e2e 296, all passed (run 42). |
 | 42 | 2026-10-21 | TC-01…239, unit 651 (api 616 + web 35), e2e 296 (ADR-0037 built-in upstream: TC-228…239 new; `outbound`/`upstreams-ui` add-button locators made exact) | all passed (developer agent, then lead independently: unit 651, e2e 296). Mutations (developer, reported): BUILTIN not routed in-process → TC-230 fails; `userId` dropped from the history `where` → TC-232 fails (e2e + 2 unit); `get_history_entry` by id only → TC-232 fails. Lead reviewed the security paths line by line. Eyes at 390×844: Einstellungen with „xitl als Upstream hinzufügen“, upstream page „xitl · Eingebaut“ without address/Verbinden. Not covered: real Claude.ai connector + phone approval of an `xitl_*` call (after deploy). |
