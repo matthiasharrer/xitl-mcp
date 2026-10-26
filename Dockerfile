@@ -4,8 +4,9 @@
 # index.html fallback for client-side routes), so there is one process, one
 # port and no nginx sidecar.
 #
-# The runtime image is distroless (ADR-0039): Node, glibc, libstdc++ and
-# OpenSSL, nothing else — no shell, no apt, no npm, no perl. That removes most
+# The runtime image is distroless (ADR-0039): glibc, libstdc++ and OpenSSL
+# (`distroless/cc-debian12`) plus the Node binary from the official image —
+# no shell, no apt, no npm, no perl. That removes most
 # of what Trivy used to flag. glibc-based (not Alpine) on purpose: Prisma's
 # schema engine and better-sqlite3 are built against glibc.
 #
@@ -73,6 +74,14 @@ COPY apps/web/package.json apps/web/
 # rather than a dev one because the entrypoint applies migrations on start.
 RUN npm ci --omit=dev
 
+# This stage's node binary is the one the runtime runs (stage 3), so its
+# version is the app's Node version. Fail the build on anything older than
+# 22.23.4: earlier 22.x releases have the Brotli decoder RCE (CVE-2026-111497,
+# "Node2Shell"), and a stale cached base must not ship it.
+RUN node -e "const [maj, min, pat] = process.versions.node.split('.').map(Number); \
+  if (maj !== 22 || min < 23 || (min === 23 && pat < 4)) { \
+    console.error('Node ' + process.version + ' is older than 22.23.4 (CVE-2026-111497)'); process.exit(1); }"
+
 # Distroless has no shell to `mkdir`/`chown` with, so the mount point is made
 # here and copied in with its owner. SQLite needs the *directory* writable (not
 # just the file) for its -wal/-shm sidecars.
@@ -81,7 +90,14 @@ RUN mkdir -p /data && chown 1000:1000 /data
 # ---------------------------------------------------------------------------
 # Stage 3 — the runtime image: production deps + build output, nothing else.
 # ---------------------------------------------------------------------------
-FROM gcr.io/distroless/nodejs22-debian12 AS runtime
+# distroless/cc rather than distroless/nodejs22: the nodejs image lagged the
+# Node security release (still 22.22.0 on 2026-10-26, five days after
+# 22.23.4 fixed CVE-2026-111497). Bringing our own binary from the official
+# image (checked above) means the Node version is ours to pick. Same path as
+# in the nodejs image, so commands and docs keep working.
+FROM gcr.io/distroless/cc-debian12 AS runtime
+
+COPY --from=deps /usr/local/bin/node /nodejs/bin/node
 
 WORKDIR /app
 
@@ -89,7 +105,8 @@ WORKDIR /app
 # a UID without a passwd entry. PRISMA_SCHEMA_ENGINE_BINARY: don't depend on
 # Prisma's platform probing (part of it shells out to `uname`/`ldconfig`,
 # which don't exist here); point straight at the engine stage 2 fetched.
-ENV NODE_ENV=production \
+ENV PATH=/nodejs/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    NODE_ENV=production \
     PORT=3002 \
     DATABASE_URL=file:/data/xitl.db \
     WEB_DIST=/app/apps/web/dist \

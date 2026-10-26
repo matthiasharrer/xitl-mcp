@@ -97,6 +97,41 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=ref,event=pr
 
+      # Smoke test (ADR-0039): build the image locally and boot it before anything
+      # is pushed. Catches what the workspace can't — it can't build images, and
+      # its dev tree hides gaps in the image (xitl-mcp v0.17.1 crashlooped on a
+      # node_modules folder the image lacked; tests and typecheck were green).
+      # The push step below reuses this build from the cache.
+      - name: Build image for the smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          pull: true
+          load: true
+          tags: smoke:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test — boot the image, first deploy on an empty volume
+        run: |
+          docker run --rm --entrypoint /nodejs/bin/node smoke:ci -p process.version
+          docker volume create smoke-data
+          docker run -d --name smoke -p 3002:3002 -v smoke-data:/data smoke:ci
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:3002/api/health; then echo; break; fi
+            if [ "$(docker inspect -f '{{.State.Running}}' smoke)" != true ]; then break; fi
+            sleep 1
+          done
+          docker logs smoke
+          curl -sf http://127.0.0.1:3002/api/health >/dev/null || { echo "::error::image did not become healthy"; exit 1; }
+          # Second boot on the same volume: the snapshot + "no pending migrations" path.
+          docker restart smoke
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:3002/api/health >/dev/null && break; sleep 1; done
+          docker logs smoke 2>&1 | tail -n 5
+          docker logs smoke 2>&1 | grep -q "Snapshotting database" || { echo "::error::no snapshot on the second boot"; exit 1; }
+          curl -sf http://127.0.0.1:3002/api/health >/dev/null || { echo "::error::image did not come back after a restart"; exit 1; }
+
       - uses: docker/build-push-action@v6
         with:
           context: .
