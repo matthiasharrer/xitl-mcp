@@ -124,13 +124,16 @@ jobs:
             sleep 1
           done
           docker logs smoke
-          curl -sf http://127.0.0.1:3002/api/health >/dev/null || { echo "::error::image did not become healthy"; exit 1; }
+          # Job logs need a GitHub login; annotations don't. Put the container
+          # log in one, so a failure is readable from the run's summary.
+          fail() { echo "::error title=$1::$(docker logs smoke 2>&1 | tail -n 40 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"; exit 1; }
+          curl -sf http://127.0.0.1:3002/api/health >/dev/null || fail "image did not become healthy"
           # Second boot on the same volume: the snapshot + "no pending migrations" path.
           docker restart smoke
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:3002/api/health >/dev/null && break; sleep 1; done
           docker logs smoke 2>&1 | tail -n 5
-          docker logs smoke 2>&1 | grep -q "Snapshotting database" || { echo "::error::no snapshot on the second boot"; exit 1; }
-          curl -sf http://127.0.0.1:3002/api/health >/dev/null || { echo "::error::image did not come back after a restart"; exit 1; }
+          docker logs smoke 2>&1 | grep -q "Snapshotting database" || fail "no snapshot on the second boot"
+          curl -sf http://127.0.0.1:3002/api/health >/dev/null || fail "image did not come back after a restart"
 
       - uses: docker/build-push-action@v6
         with:
