@@ -63,3 +63,7 @@ Same as haushalts-todos ADR-0014: npm removal only (keeps perl etc.), Alpine
   (snapshot path) and must answer `/api/health` both times. xitl-mcp
   `v0.17.1` crashlooped in production on a nested `node_modules` the image
   lacked; this step would have stopped it in CI.
+- **`/data` owned by UID 1000 in the image itself** (copied via a staging
+  parent with `--chown`). Before, `COPY /data /data` left `/data` owned by
+  root: invisible in production (the PVC was already 1000's), fatal on a
+  fresh volume. The smoke test found it on its first run.

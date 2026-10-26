@@ -85,7 +85,7 @@ RUN node -e "const [maj, min, pat] = process.versions.node.split('.').map(Number
 # Distroless has no shell to `mkdir`/`chown` with, so the mount point is made
 # here and copied in with its owner. SQLite needs the *directory* writable (not
 # just the file) for its -wal/-shm sidecars.
-RUN mkdir -p /data && chown 1000:1000 /data
+RUN mkdir -p /staging/data && chown 1000:1000 /staging/data
 
 # ---------------------------------------------------------------------------
 # Stage 3 — the runtime image: production deps + build output, nothing else.
@@ -127,7 +127,11 @@ COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/web/dist ./apps/web/dist
 COPY docker-entrypoint.mjs ./
 
-COPY --from=deps /data /data
+# Copy the *parent* so /data itself is an item of the copy and gets the owner:
+# `COPY /data /data` copies only its contents and creates /data as root, which
+# a fresh volume inherits (found by the CI smoke test: "unable to open
+# database file" on a first deploy).
+COPY --from=deps --chown=1000:1000 /staging/ /
 # UID 1000 (`node` in the old node:22-slim image), not distroless's `nonroot`
 # (65532): the existing PVC data is owned by 1000.
 USER 1000:1000
