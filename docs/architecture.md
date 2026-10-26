@@ -14,6 +14,10 @@
 
 Copied and adapted from `haushalts-todos` (ADR-0002, ADR-0012):
 
+**Image (ADR-0039):** one container on `gcr.io/distroless/nodejs22-debian12`
+(no shell, no npm), UID 1000. `docker-entrypoint.mjs` snapshots the DB, runs
+`prisma migrate deploy`, then starts the server in the same process.
+
 ```
 apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
             In production also serves the built SPA (static.ts, WEB_DIST).

@@ -101,6 +101,9 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
+          # Always resolve the base images afresh, so a rebuild picks up their
+          # security fixes instead of a cached layer (ADR-0039).
+          pull: true
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

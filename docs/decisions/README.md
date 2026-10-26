@@ -40,3 +40,4 @@
 | 0036 | [An optional reason when denying, passed to the agent](0036-deny-reason.md) | Accepted |
 | 0037 | [A built-in upstream `xitl`: read the Verlauf and the upstreams over MCP (read only)](0037-builtin-xitl-upstream.md) | Accepted |
 | 0038 | [MCP Apps: an upstream's UI resources, opt-in per upstream](0038-mcp-apps.md) | Accepted |
+| 0039 | [Distroless runtime image, entrypoint in Node](0039-distroless-runtime-image.md) | Accepted |

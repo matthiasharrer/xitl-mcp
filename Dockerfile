@@ -4,13 +4,18 @@
 # index.html fallback for client-side routes), so there is one process, one
 # port and no nginx sidecar.
 #
-# Debian-based (not Alpine) on purpose: Prisma's query engine is built against
-# glibc, and a musl image needs a different binaryTarget in schema.prisma.
+# The runtime image is distroless (ADR-0039): Node, glibc, libstdc++ and
+# OpenSSL, nothing else — no shell, no apt, no npm, no perl. That removes most
+# of what Trivy used to flag. glibc-based (not Alpine) on purpose: Prisma's
+# schema engine and better-sqlite3 are built against glibc.
+#
+# All Debian stages are pinned to bookworm so the native modules they compile
+# link against the same glibc/OpenSSL as distroless's debian12.
 
 # ---------------------------------------------------------------------------
 # Stage 1 — build the SPA and compile the API to plain JS.
 # ---------------------------------------------------------------------------
-FROM node:22-slim AS build
+FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
 
@@ -37,75 +42,78 @@ COPY . .
 # Prisma 7 reads apps/api/prisma.config.ts, whose datasource url is env("DATABASE_URL")
 # and is resolved eagerly at config load — so `generate` (which never connects)
 # still needs *some* value. Give it a throwaway; the real URL is set at runtime.
+#
+# No `prisma generate` in the runtime image: the `prisma-client` generator
+# writes to apps/api/src/generated/prisma, tsc compiles that into
+# apps/api/dist/generated/prisma, and the runtime copies dist — self-contained,
+# no node_modules involvement for the generated code.
 RUN DATABASE_URL=file:/tmp/build.db npx prisma generate --config apps/api/prisma.config.ts \
  && npm run build
 
 # ---------------------------------------------------------------------------
-# Stage 2 — the runtime image: production deps + build output, nothing else.
+# Stage 2 — production node_modules, installed where npm and apt exist.
 # ---------------------------------------------------------------------------
-FROM node:22-slim AS runtime
+FROM node:22-bookworm-slim AS deps
 
-# openssl is needed by the Prisma CLI's migration engine, which the entrypoint
-# runs on start (the query engine itself is gone in v7).
+# openssl lets Prisma's postinstall detect OpenSSL 3 and fetch the matching
+# schema engine (debian-openssl-3.0.x); without it, it guesses 1.1.x. The
+# toolchain is better-sqlite3's compile fallback (see stage 1). This stage is
+# discarded; only node_modules and the empty /data leave it.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && apt-get install -y --no-install-recommends openssl ca-certificates python3 make g++ \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
-ENV NODE_ENV=production \
-    PORT=3002 \
-    DATABASE_URL=file:/data/xitl.db \
-    WEB_DIST=/app/apps/web/dist
 
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 
 # Production dependencies only. `prisma` (the CLI) is a runtime dependency
-# rather than a dev one because the entrypoint applies migrations on start —
-# see the entrypoint. better-sqlite3 (the SQLite driver adapter) is native:
-# install a toolchain so its compile fallback works if the prebuild can't be
-# fetched, then purge it in the same layer so the runtime image stays lean —
-# the compiled .node binary remains and links only against libstdc++6/libc,
-# which are already in the base image.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 make g++ \
- && npm ci --omit=dev \
- && npm cache clean --force \
- && apt-get purge -y --auto-remove python3 make g++ \
- && rm -rf /var/lib/apt/lists/*
+# rather than a dev one because the entrypoint applies migrations on start.
+RUN npm ci --omit=dev
 
+# Distroless has no shell to `mkdir`/`chown` with, so the mount point is made
+# here and copied in with its owner. SQLite needs the *directory* writable (not
+# just the file) for its -wal/-shm sidecars.
+RUN mkdir -p /data && chown 1000:1000 /data
+
+# ---------------------------------------------------------------------------
+# Stage 3 — the runtime image: production deps + build output, nothing else.
+# ---------------------------------------------------------------------------
+FROM gcr.io/distroless/nodejs22-debian12 AS runtime
+
+WORKDIR /app
+
+# HOME: the Prisma CLI resolves a cache dir from os.homedir(), which throws for
+# a UID without a passwd entry. PRISMA_SCHEMA_ENGINE_BINARY: don't depend on
+# Prisma's platform probing (part of it shells out to `uname`/`ldconfig`,
+# which don't exist here); point straight at the engine stage 2 fetched.
+ENV NODE_ENV=production \
+    PORT=3002 \
+    DATABASE_URL=file:/data/xitl.db \
+    WEB_DIST=/app/apps/web/dist \
+    HOME=/tmp \
+    CHECKPOINT_DISABLE=1 \
+    PRISMA_HIDE_UPDATE_MESSAGE=1 \
+    PRISMA_SCHEMA_ENGINE_BINARY=/app/node_modules/@prisma/engines/schema-engine-debian-openssl-3.0.x
+
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+COPY --from=deps /app/node_modules ./node_modules
+# The entrypoint's `prisma migrate deploy` needs the schema, the migrations
+# and the datasource config, but not the generated client.
 COPY apps/api/prisma ./apps/api/prisma
 COPY apps/api/prisma.config.ts ./apps/api/prisma.config.ts
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/web/dist ./apps/web/dist
+COPY docker-entrypoint.mjs ./
 
-# No `prisma generate` here (unlike the build stage) — and deliberately so.
-# The old `prisma-client-js` generator wrote into node_modules/@prisma/client,
-# a path this stage's own `npm ci --omit=dev` above doesn't populate (it
-# doesn't run `generate`), so a runtime generate used to be required to make
-# `require('@prisma/client')` resolve at all. The `prisma-client` generator
-# (schema.prisma) has no such gap: it writes to the fixed, explicit path
-# apps/api/src/generated/prisma, tsc compiles that into
-# apps/api/dist/generated/prisma alongside the rest of the server, and that
-# compiled output is already in the `COPY --from=build .../dist` line above —
-# self-contained, no node_modules involvement for the generated code itself.
-# Regenerating here would be a no-op at best (nothing in this stage imports
-# from apps/api/src, which isn't even copied in) and silently wrong at worst
-# if it ever diverged from what was actually compiled and shipped.
-#
-# apps/api/prisma + prisma.config.ts ARE still copied above — the entrypoint's
-# `prisma migrate deploy` / `prisma db execute` (docker-entrypoint.sh) need
-# the schema and datasource config, but not the generated client.
-
-COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
-# The DB lives on the mounted volume. SQLite needs the *directory* writable
-# (not just the file) for its -wal/-shm sidecars.
-RUN mkdir -p /data && chown -R node:node /data
-USER node
+COPY --from=deps /data /data
+# UID 1000 (`node` in the old node:22-slim image), not distroless's `nonroot`
+# (65532): the existing PVC data is owned by 1000.
+USER 1000:1000
 
 # Stamped by CI from the git tag; surfaced at /api/health.
 ARG APP_VERSION=dev
@@ -113,7 +121,8 @@ ENV APP_VERSION=$APP_VERSION
 
 EXPOSE 3002
 
+# Exec form: there is no shell to run a string form in.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3002)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD ["/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3002)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
 
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+ENTRYPOINT ["/nodejs/bin/node", "/app/docker-entrypoint.mjs"]
