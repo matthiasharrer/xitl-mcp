@@ -98,10 +98,10 @@ ENV NODE_ENV=production \
     PRISMA_HIDE_UPDATE_MESSAGE=1 \
     PRISMA_SCHEMA_ENGINE_BINARY=/app/node_modules/@prisma/engines/schema-engine-debian-openssl-3.0.x
 
-COPY package.json package-lock.json ./
-COPY apps/api/package.json apps/api/
-COPY apps/web/package.json apps/web/
-COPY --from=deps /app/node_modules ./node_modules
+# The whole install tree from stage 2, not just /app/node_modules: npm puts a
+# package under apps/<workspace>/node_modules when it can't hoist it (xitl
+# 0.17.1 crashlooped on a nested undici that a node_modules-only copy left out).
+COPY --from=deps /app ./
 # The entrypoint's `prisma migrate deploy` needs the schema, the migrations
 # and the datasource config, but not the generated client.
 COPY apps/api/prisma ./apps/api/prisma
