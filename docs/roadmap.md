@@ -5,17 +5,21 @@
 > being ticked off here. Ideas that aren't scheduled live in `ideas.md`; the
 > reasoning behind decisions lives in `decisions/`.
 
-_Last updated: 2026-10-25 (`v0.17.0` released)_
+_Last updated: 2026-10-26 (`v0.17.1` released: distroless image, ADR-0039)_
 
 ## Next
 
 State 2026-10-25: **`v0.17.0` released** (MCP Apps views per tool, ADR-0038 slices 2–3; `v0.16.1`: slice 1, no view references, ends the Claude.ai spinner; `v0.16.0`: built-in upstream `xitl`, ADR-0037; `v0.15.0`: optional deny reason, ADR-0036; `v0.14.0`: resume a Zeitfreigabe the KI-Prüfung interrupted, ADR-0029 amendment; new-version banner ADR-0035; `v0.13.0`: Einstellungen rework: switches, own upstream and client pages; `v0.13.1` fixes a tab-bar tap toggling a switch; `v0.12.0`: per-client default per upstream ADR-0032, pause an upstream ADR-0033, tool freshness on call ADR-0034; `v0.10.0`: live Verlauf ADR-0028,
 Zeitfreigabe / Sperre wording, Zeitfreigabe AI check ADR-0029, tool review
 hint ADR-0031, AUTO ADR-0030, purpose line; `v0.11.0`: purpose suggestion
-chips, "Läuft gerade" overview). Deployed: every release (released = deployed, Matthias 2026-10-20). GitOps has `INTENT_LLM_URL` (qwen) and `PAUSE_CHECK_URL`
+chips, "Läuft gerade" overview). Deployed: every release (released = deployed, Matthias 2026-10-20), once Matthias has merged the Flux image-update PR in the GitOps repo (found 2026-10-26). GitOps has `INTENT_LLM_URL` (qwen) and `PAUSE_CHECK_URL`
 (Clef 27B, alias `clef`) with NetworkPolicies.
 
 **Open, in order:**
+
+-2. **MG-13 after the `v0.17.1` deploy** (distroless image, ADR-0039): pod
+   up, a connector call still works, Trivy report free of the Debian/npm
+   findings. The deploy waits on a Flux image-update PR that Matthias merges.
 
 -1. **MCP Apps (ADR-0038, Accepted 2026-10-25).** Claude.ai shows an endless
    "Verbindung … wird hergestellt" box when an upstream's tool carries

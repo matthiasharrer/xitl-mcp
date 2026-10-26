@@ -3,6 +3,19 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-26 — distroless image (ADR-0039)
+
+- Trivy cleanup across the three apps (Trivy Operator in the cluster, read
+  via the Grafana upstream's Prometheus). Ported from haushalts-todos
+  (ADR-0014 there, in production 2026-10-26), released directly on
+  Matthias's call as `v0.17.1`.
+- Checked first: xitl starts no subprocesses (upstreams are HTTP only) and
+  has no CLI that is run in the container, so dropping the shell costs
+  nothing operational.
+- **Trap:** a deploy waits on the Flux image-update PR in the GitOps repo,
+  which Matthias merges. "Released = deployed" only holds after that.
+- **Next:** MG-13 once the Flux PR is merged.
+
 ## 2026-10-24/25 — MCP Apps (ADR-0038), slice 1
 
 - Matthias (Claude.ai, „XITL Proxy All“, a RAM question answered by the

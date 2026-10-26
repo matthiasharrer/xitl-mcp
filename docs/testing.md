@@ -632,6 +632,7 @@ milestone 1 done:
 | MG-11 | Deployed (ADR-0030): Matthias writes an Auto-Regel for Haushalt (or takes the "Vorschlag"), runs "Mit Verlauf testen" on his real calls, checks what would pass/ask; then a few real AUTO calls from Claude.ai (Verlauf scores, asked ones with the card note). |
 | MG-12 | Deployed (ADR-0038): in Regeln turn on the Grafana tool's „Oberfläche“; in Claude.ai ask for RAM usage: the Grafana view renders (no endless box); a button in the view that calls a tool shows up in xitl like any call (held if ASK). Note which `_meta` keys / headers Claude.ai sends on a view-initiated call (Verlauf diagnostics). Turn the switch off: next chat shows text only. |
 | MG-05 | Tina: her own consent, her own Haushalt connection; she sees none of Matthias's calls, and he none of hers. |
+| MG-13 | Deployed `v0.17.1` (ADR-0039, distroless): the pod runs `0.17.1` with 0 restarts; logs show the snapshot, „No pending migrations“, „API listening“; a call through the Claude.ai connector still works (held and approved if ASK); the Trivy report for `0.17.1` has none of the Debian/npm findings. |
 
 ## Run log
 
@@ -640,6 +641,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 48 | 2026-10-26 (release) | `v0.17.1`: distroless runtime image, `docker-entrypoint.mjs` (ADR-0039), undici 6.29.1, zod 4.6.7 | unit 707 (api 672 + web 35), e2e 308, all passed (lead); tsc + svelte-check clean. Entrypoint run with an empty environment (no PATH) against a copy of the dev DB: snapshot + retention to 5, first deploy (all migrations), recorded failed migration (no snapshot, P3009, exit 1), unwritable backup dir (fails closed, no migration), SIGTERM → clean exit 0. Image not buildable here; CI builds it. **MG-13 after deploy open.** |
 | 47 | 2026-10-25 (release) | `v0.17.0`: same code as run 46 (only docs changed since) | unit 707, e2e 308, all passed (run 46). |
 | 46 | 2026-10-25 | TC-01…251, unit 707 (api 672 + web 35), e2e 308 (ADR-0038 slices 2–3: TC-243…251 new, TC-240…242 adapted; TC-19/TC-61 expect `resources` in the capabilities) | all passed (developer agent, then lead independently; build ok). Mutations (developer, reported): no "shown" check in `readPage` → TC-247 fails; no hash comparison → TC-248, TC-251 fail; view-only tools listed unconditionally → TC-246 (+241, 248) fail. Lead reviewed `uiViews.ts`, `uiPages.ts`, the `server.ts` resources/view paths and the routes line by line. Eyes at 390×844 (developer screenshot, lead looked): „Oberfläche“ row with switch, CSP line, shared-page line, „Nur für die Oberfläche“. Not covered: Claude.ai rendering the Grafana view (MG-12). |
 | 45 | 2026-10-25 (release) | `v0.16.1`: same code as run 44 (only docs changed since) | unit 657, e2e 299, all passed (run 44). |

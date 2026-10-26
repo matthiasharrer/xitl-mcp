@@ -3,6 +3,14 @@
 Shipped roadmap entries, newest first. The reasoning is in `decisions/`, the
 test evidence in `testing.md`'s run log.
 
+## 2026-10-26 (`v0.17.1`)
+
+- **Distroless runtime image (ADR-0039).** Trivy flagged 1 Critical / 20
+  High in `0.17.0`, nearly all from `node:22-slim` and its bundled npm.
+  Runtime is now `distroless/nodejs22-debian12`, the entrypoint is
+  `docker-entrypoint.mjs`, undici 6.29.1, zod 4.6.7. Same change as
+  haushalts-todos ADR-0014.
+
 ## 2026-10-25 (`v0.17.0`)
 
 - **MCP Apps views per tool (ADR-0038 slices 2–3 + amendment).** Switch
