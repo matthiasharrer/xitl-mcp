@@ -17,7 +17,11 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
 
 **Open, in order:**
 
--2. **MG-13 after the `v0.17.1` deploy** (distroless image, ADR-0039): pod
+-2. **MG-13 after the `v0.17.2` deploy** (`v0.17.1` crashlooped: nested
+   undici missing from the image, fixed). Then a **CI smoke test**: run the
+   built image with a temp volume and curl `/api/health` before pushing, in
+   all three repos (that would have caught it).
+   Original entry: (distroless image, ADR-0039): pod
    up, a connector call still works, Trivy report free of the Debian/npm
    findings. The deploy waits on a Flux image-update PR that Matthias merges.
 

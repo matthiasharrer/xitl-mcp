@@ -14,7 +14,16 @@
   nothing operational.
 - **Trap:** a deploy waits on the Flux image-update PR in the GitOps repo,
   which Matthias merges. "Released = deployed" only holds after that.
-- **Next:** MG-13 once the Flux PR is merged.
+- **`v0.17.1` crashlooped in production** (Matthias pasted the log):
+  `ERR_MODULE_NOT_FOUND: undici`. The new Dockerfile copied only
+  `/app/node_modules`; a clean prod install puts undici under
+  `apps/api/node_modules`. Invisible locally because that folder exists in the
+  workspace. Reproduced with the image's exact file layout in a temp dir,
+  fixed by copying the whole deps-stage `/app`, released as `v0.17.2`. Same
+  fix committed to rezepte and haushalt (not affected yet: nothing
+  production-relevant nested there).
+- **Next:** MG-13 once the Flux PR is merged; a CI smoke test that boots the
+  built image would have caught this (roadmap).
 
 ## 2026-10-24/25 — MCP Apps (ADR-0038), slice 1
 

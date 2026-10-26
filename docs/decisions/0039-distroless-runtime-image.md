@@ -38,6 +38,12 @@ production 2026-10-26, Critical 4 → 1, High 21 → 6).
 - Left: OpenSSL in distroless until rebuilt upstream, mysql2/deepmerge-ts under
   the Prisma CLI.
 
+- **Trap (found in production, `v0.17.1`):** copy the *whole* deps-stage
+  `/app`, not just `/app/node_modules`. npm leaves packages it can't hoist in
+  `apps/<workspace>/node_modules` (undici here), and the workspace's own tree
+  has those folders anyway, so neither tests nor the entrypoint check against
+  the dev tree can see the gap. Fixed in `v0.17.2`.
+
 ## Alternatives considered
 
 Same as haushalts-todos ADR-0014: npm removal only (keeps perl etc.), Alpine
