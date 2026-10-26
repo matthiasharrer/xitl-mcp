@@ -3,6 +3,15 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-10-26 — Node2Shell: own Node binary, CI smoke test (`v0.17.3`)
+
+- `v0.17.2` runs (0 restarts). CVE-2026-111497 (Brotli RCE in Node's zlib,
+  reachable through `fetch()` responses, i.e. every upstream call) hit the
+  image's Node 22.22.0: `distroless/nodejs22` lagged the fix. Now
+  `distroless/cc` plus the official image's node binary, floor 22.23.4
+  enforced in the build. The CI smoke test from the roadmap is built: it boots
+  the image twice before pushing.
+
 ## 2026-10-26 — distroless image (ADR-0039)
 
 - Trivy cleanup across the three apps (Trivy Operator in the cluster, read

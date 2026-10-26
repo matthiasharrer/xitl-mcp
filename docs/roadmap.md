@@ -17,13 +17,11 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
 
 **Open, in order:**
 
--2. **MG-13 after the `v0.17.2` deploy** (`v0.17.1` crashlooped: nested
-   undici missing from the image, fixed). Then a **CI smoke test**: run the
-   built image with a temp volume and curl `/api/health` before pushing, in
-   all three repos (that would have caught it).
-   Original entry: (distroless image, ADR-0039): pod
-   up, a connector call still works, Trivy report free of the Debian/npm
-   findings. The deploy waits on a Flux image-update PR that Matthias merges.
+-2. **MG-13 after the `v0.17.3` deploy** (distroless image, ADR-0039, with
+   Node 22.23.4+ against CVE-2026-111497): pod up, a connector call still
+   works. `0.17.2` already runs cleanly (Trivy 1 Critical / 6 High). The CI
+   smoke test is built (boots the image before every push). The deploy waits
+   on a Flux image-update PR that Matthias merges.
 
 -1. **MCP Apps (ADR-0038, Accepted 2026-10-25).** Claude.ai shows an endless
    "Verbindung … wird hergestellt" box when an upstream's tool carries
