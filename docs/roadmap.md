@@ -17,6 +17,21 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
 
 **Open, in order:**
 
+-3. **Stateful upstreams (ADR-0040, Accepted 2026-11-06, not built).**
+   Playwright MCP (cluster) loses its browser between calls through xitl:
+   `withUpstream` initializes a new upstream session per call (measured
+   2026-11-06, see the ADR). Build: the opt-in switch per upstream, the
+   `xitl_session` parameter, handles, the end tool („Beendet die Sitzung“, e.g.
+   `browser_close`), the kept-connection pool (no GET stream: Playwright
+   heartbeat), the audit column, plus tests with a stateful fake upstream. Then,
+   after Matthias releases: acceptance through xitl in the cluster (tab and
+   cookie survive, also across an approval; two clients separate; the Booking
+   test from Nextcloud `Claude/stealth-browser-mcp/SMOKE-TEST.md` incl. UA
+   without `HeadlessChrome` and time zone `Europe/Berlin`). Write the results to
+   that SMOKE-TEST.md (new section „Playwright MCP im Cluster über xitl“) and
+   update „Nächste Schritte“ in `STATUS.md` there. Fallback, only to propose:
+   `--shared-browser-context` in home-server.
+
 -2. **MG-13 after the `v0.17.3` deploy** (distroless image, ADR-0039, with
    Node 22.23.4+ against CVE-2026-111497): pod up, a connector call still
    works. `0.17.2` already runs cleanly (Trivy 1 Critical / 6 High). The CI
