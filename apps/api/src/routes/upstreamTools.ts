@@ -63,7 +63,7 @@ const policyOnly = z.object({ policy: z.enum(['ALLOW', 'ASK', 'DENY', 'AUTO']) }
 /** The MCP clients (of a user, scoped by the caller) that can call this
  * upstream: OAuth clients reach all of the user's upstreams, a token either
  * this one upstream or all (ADR-0015, ADR-0018). */
-const reachesUpstream = (upstreamId: number) => [
+export const reachesUpstream = (upstreamId: number) => [
   { kind: 'OAUTH' as const },
   { upstreamId },
   { kind: 'TOKEN' as const, allUpstreams: true },

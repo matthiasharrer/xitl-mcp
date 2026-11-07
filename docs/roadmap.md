@@ -53,6 +53,10 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
    Next: slice 4 phone check in Claude.ai with **Grafana** (MG-12: view
    renders, a view-initiated call is still held, which `_meta`/headers mark
    it).
+-0. **„+ Zeitfreigabe“ on Freigaben (ADR-0041): built 2026-11-07, not
+   released.** Button beside „Freigaben“, dialog Upstream / Zugang / Dauer,
+   always the whole upstream, no KI-Prüfung. TC-281/282. Next: Matthias tries
+   it on the phone; release when he says so.
 0. **Zeitfreigabe only checked with a purpose (ADR-0029 amendment
    2026-11-07): released in `v0.18.0`.**
    The Richtungswechsel cases (#362–#385) showed Clef cannot judge multi-step

@@ -429,6 +429,14 @@ export interface Running {
   pausedUpstreams: { id: number; name: string; pausedAt: string }[];
 }
 
+/** TC-281: an upstream a Zeitfreigabe can be started on, with its accesses. */
+export interface PauseTarget {
+  id: number;
+  name: string;
+  clients: { id: number; name: string }[];
+}
+export type PauseDuration = { snoozeMinutes: number } | { snoozeUntilMidnight: true };
+
 /** What a snooze covers (TC-76). */
 export type SnoozeScope = 'tool' | 'readonly' | 'upstream';
 
@@ -597,6 +605,9 @@ export const api = {
   getRunning: () => request<Running>('GET', '/api/running'),
   endAllPauses: () => request<{ ended: number }>('DELETE', '/api/running/pauses'),
   /** ADR-0029 amendment: "Fortsetzen" of an interrupted Zeitfreigabe. */
+  pauseTargets: () => request<PauseTarget[]>('GET', '/api/running/targets'),
+  startPause: (upstreamId: number, clientId: number, duration: PauseDuration) =>
+    request<Running>('POST', '/api/running/pauses', { upstreamId, clientId, ...duration }),
   resumePause: (id: number) => request<Running>('POST', `/api/running/pauses/${id}/resume`),
   listApprovals: () => request<PendingApproval[]>('GET', '/api/approvals'),
   listUpstreamFaults: () => request<UpstreamFault[]>('GET', '/api/upstreams/faults'),

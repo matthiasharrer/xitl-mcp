@@ -35,7 +35,10 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
     /api/running         routes/running.ts: "Läuft gerade" (TC-178…183):
                          GET my live Snooze rows (all upstreams/accesses,
                          soonest end first) + paused accesses + paused
-                         upstreams (`pausedUpstreams`, ADR-0033); DELETE
+                         upstreams (`pausedUpstreams`, ADR-0033); GET
+                         /targets + POST /pauses = „+ Zeitfreigabe“ without
+                         a held call (ADR-0041: whole upstream, one access,
+                         no anchor/purpose → blind); DELETE
                          /pauses = "Alle beenden" (every Snooze of the
                          caller; paused accesses and upstreams stay). Changes are announced
                          by lib/pauseEvents.ts (emitted in createSnooze, the

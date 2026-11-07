@@ -42,3 +42,4 @@
 | 0038 | [MCP Apps: an upstream's UI resources, opt-in per upstream](0038-mcp-apps.md) | Accepted |
 | 0039 | [Distroless runtime image, entrypoint in Node](0039-distroless-runtime-image.md) | Accepted |
 | 0040 | [Stateful upstreams: a session handle as a tool parameter, an end tool per upstream](0040-upstream-sessions-by-parameter.md) | Accepted |
+| 0041 | [Start a Zeitfreigabe from Freigaben without a held call](0041-start-zeitfreigabe-without-call.md) | Accepted |

@@ -3,6 +3,18 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-11-07 — „+ Zeitfreigabe“ without a held call (ADR-0041)
+
+- Matthias: start a Zeitfreigabe from the start page, button + dialog, pick
+  an upstream, all tools of it for now. Built directly by the lead (small).
+- Decided by the lead (in ADR-0041, for Matthias to confirm): a Snooze needs an
+  access, so the dialog has a „Zugang“ select (first preselected); no
+  „Wofür?“ since there is no anchor for the KI-Prüfung; durations as on the
+  card. `reachesUpstream` is now exported from routes/upstreamTools.ts and
+  reused.
+- Dev DB has no upstreams for the dev user, so the dialog shows „Noch kein
+  Upstream angelegt.“ there; screenshots were taken against the e2e DB.
+
 ## 2026-11-07 — No purpose, no check (ADR-0029 amendment)
 
 - Matthias decided after the Richtungswechsel bench (`clef_purpose_fit.py`,

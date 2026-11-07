@@ -660,6 +660,13 @@ purpose now).
 | TC-277 | Zeitfreigabe with purpose: the same call is held as mismatch, the pause interrupted, one Clef request. | e2e |
 | TC-278 | 390×844 card: „Wofür?“ shows the hint („Mit Zweck prüft die KI …“) only when the check is configured and the switch is on; the counter „n/200“ counts and is emphasised at 200; no horizontal scroll. | e2e |
 
+### Start a Zeitfreigabe without a held call (ADR-0041): `e2e/tests/new-pause.spec.ts`
+
+| ID    | Case | How |
+| ----- | ---- | --- |
+| TC-281 | ⚡ `GET /api/running/targets` lists the caller's upstreams with the accesses that reach each (a token for another upstream only there; another user sees none of it). `POST /api/running/pauses` → 201, an ALLOW row with scope UPSTREAM, no anchor, no purpose, the chosen duration; an ASK call then goes through without a card. Bad body (no / two durations, 0, > 24 h, `false`, extra keys such as `purpose` or `scope`) → 400; foreign upstream, foreign access, an access that cannot reach the upstream, unknown id → 404; nothing written. | e2e |
+| TC-282 | 390×844: „+ Zeitfreigabe“ beside „Freigaben“ also when nothing runs; dialog with Upstream, Zugang (preselected), Dauer, the hint „Ohne KI-Prüfung“; Starten → „Läuft gerade“ shows it, the row lasts 60 min for „1 Std.“; Abbrechen writes nothing; no horizontal scroll. | e2e |
+
 ## Manual gates
 
 Things no script can prove. Run on the deployed instance before calling
@@ -689,6 +696,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 57 | 2026-11-07 | TC-281/282 new (ADR-0041 „+ Zeitfreigabe“); unit 736 (api 699 + web 37); e2e `new-pause` 3, `running` + `approval` + `ui` + `pause-check` 35 | all passed (lead). Screenshots of dialog and „Läuft gerade“ at 390×844 checked. |
 | 56 | 2026-11-07 (release) | `v0.18.1`: 6-character session handles + collision check (ADR-0040 amendment) | same code as run 55 (only docs changed since): unit 736, e2e `upstream-sessions` 8, all passed. |
 | 55 | 2026-11-07 | TC-279/280 new (ADR-0040 amendment: 6-character handles, collision check), TC-252/265/270 adapted; unit 736 (api 699 + web 37), e2e `upstream-sessions.spec.ts` 8 | all passed (lead); mutations (no collision check / no owner check in `open()`) caught by TC-279 / TC-280. Full e2e not rerun: only handle code changed, no other spec references handles. |
 | 54 | 2026-11-07 (deployed `v0.18.0`) | MG-14 (ADR-0040) in the cluster via the XITL connector | **passed** (lead): handle `A8Kl…` kept `httpbin.org/cookies` + `probe=1` across an approval; without handle `about:blank` + new handle; Booking direct URL green, 477 results, top 5 with prices, UA `Chrome/155`, `Europe/Berlin`, `de-DE`; `browser_close` → „beendet“, the handle then unknown → new session. 7 calls, no snapshot/find. Two Claude.ai chats at once not tried (covered by TC-270). |

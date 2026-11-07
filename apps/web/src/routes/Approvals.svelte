@@ -5,6 +5,7 @@
   import ApprovalCard from '../lib/ApprovalCard.svelte';
   import FaultCard from '../lib/FaultCard.svelte';
   import PauseCheckFaultCard from '../lib/PauseCheckFaultCard.svelte';
+  import NewPauseDialog from '../lib/NewPauseDialog.svelte';
   import RunningOverview from '../lib/RunningOverview.svelte';
   import { groupCalls } from '../lib/grouping';
   import Spinner from '../lib/Spinner.svelte';
@@ -26,6 +27,8 @@
   let checkFailing = $state(false);
   /** "Läuft gerade" re-reads on every bump (stream ping, reconnect). */
   let runningTick = $state(0);
+  /** TC-281: "Neue Zeitfreigabe" dialog. */
+  let newPause = $state(false);
 
   const loadFaults = () =>
     api.listUpstreamFaults().then(
@@ -80,8 +83,14 @@
 
 <div class="approvals">
   {#if me}<p class="greeting">Hallo, {me.displayName}</p>{/if}
-  <h2 class="section-title">Freigaben</h2>
+  <div class="section-head">
+    <h2 class="section-title">Freigaben</h2>
+    <button type="button" class="btn new-pause-btn" onclick={() => (newPause = true)} data-testid="new-pause-open">+ Zeitfreigabe</button>
+  </div>
   <RunningOverview refresh={runningTick} />
+  {#if newPause}
+    <NewPauseDialog ondone={() => ((newPause = false), runningTick++)} oncancel={() => (newPause = false)} />
+  {/if}
   {#if !live}
     <p class="hint" role="status">Verbindung unterbrochen, verbinde neu…</p>
   {/if}
@@ -115,6 +124,10 @@
 </div>
 
 <style>
+  .new-pause-btn {
+    padding: 0 0.75rem;
+    font-size: 0.875rem;
+  }
   .group-head {
     display: flex;
     justify-content: space-between;
