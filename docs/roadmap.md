@@ -9,7 +9,7 @@ _Last updated: 2026-10-26 (`v0.17.1` released: distroless image, ADR-0039)_
 
 ## Next
 
-State 2026-10-25: **`v0.17.0` released** (MCP Apps views per tool, ADR-0038 slices 2–3; `v0.16.1`: slice 1, no view references, ends the Claude.ai spinner; `v0.16.0`: built-in upstream `xitl`, ADR-0037; `v0.15.0`: optional deny reason, ADR-0036; `v0.14.0`: resume a Zeitfreigabe the KI-Prüfung interrupted, ADR-0029 amendment; new-version banner ADR-0035; `v0.13.0`: Einstellungen rework: switches, own upstream and client pages; `v0.13.1` fixes a tab-bar tap toggling a switch; `v0.12.0`: per-client default per upstream ADR-0032, pause an upstream ADR-0033, tool freshness on call ADR-0034; `v0.10.0`: live Verlauf ADR-0028,
+State 2026-11-07: **`v0.18.0` released** (stateful upstreams via `xitl_session`, ADR-0040; Zeitfreigabe checked only with a purpose, ADR-0029 amendment 2026-11-07; `/data` owned by UID 1000 in the image). Before: **`v0.17.0`** (MCP Apps views per tool, ADR-0038 slices 2–3; `v0.16.1`: slice 1, no view references, ends the Claude.ai spinner; `v0.16.0`: built-in upstream `xitl`, ADR-0037; `v0.15.0`: optional deny reason, ADR-0036; `v0.14.0`: resume a Zeitfreigabe the KI-Prüfung interrupted, ADR-0029 amendment; new-version banner ADR-0035; `v0.13.0`: Einstellungen rework: switches, own upstream and client pages; `v0.13.1` fixes a tab-bar tap toggling a switch; `v0.12.0`: per-client default per upstream ADR-0032, pause an upstream ADR-0033, tool freshness on call ADR-0034; `v0.10.0`: live Verlauf ADR-0028,
 Zeitfreigabe / Sperre wording, Zeitfreigabe AI check ADR-0029, tool review
 hint ADR-0031, AUTO ADR-0030, purpose line; `v0.11.0`: purpose suggestion
 chips, "Läuft gerade" overview). Deployed: every release (released = deployed, Matthias 2026-10-20), once Matthias has merged the Flux image-update PR in the GitOps repo (found 2026-10-26). GitOps has `INTENT_LLM_URL` (qwen) and `PAUSE_CHECK_URL`
@@ -17,8 +17,7 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
 
 **Open, in order:**
 
--3. **Stateful upstreams (ADR-0040): built 2026-11-07, waits for Matthias's
-   release.** Switch „Sitzungen über Parameter“ per upstream, `xitl_session`,
+-3. **Stateful upstreams (ADR-0040): released in `v0.18.0` (2026-11-07).** Switch „Sitzungen über Parameter“ per upstream, `xitl_session`,
    handles, end tool („Beendet die Sitzung“), kept-session pool, audit column;
    TC-252…273. After the release: in the cluster turn the switch on for
    Playwright and mark `browser_close`, then acceptance through xitl in the cluster (tab and
@@ -57,7 +56,7 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
    renders, a view-initiated call is still held, which `_meta`/headers mark
    it).
 0. **Zeitfreigabe only checked with a purpose (ADR-0029 amendment
-   2026-11-07): built, waits for Matthias's release** (together with -3).
+   2026-11-07): released in `v0.18.0`.**
    The Richtungswechsel cases (#362–#385) showed Clef cannot judge multi-step
    tasks (0/11 real ok cases pass, see the amendment). Decided: without
    „Wofür?“ the Zeitfreigabe is blind, with it unchanged; a hint under the

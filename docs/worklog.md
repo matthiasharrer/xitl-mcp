@@ -24,6 +24,9 @@
   and the bench summary lives in the amendment.
 - Parked: „Für diese Sitzung“ approval bound to an ADR-0040 handle; wait until
   ADR-0040 is released and agents are seen carrying the handle.
+- Matthias: "release alles" → `v0.18.0` (ADR-0040 + this + the `/data` UID
+  fix). Next: after the deploy, MG-14 (Playwright in the cluster, roadmap -3)
+  and the phone check of hint/counter (roadmap 0).
 
 ## 2026-11-06/07 — Stateful upstreams: session handles (ADR-0040)
 

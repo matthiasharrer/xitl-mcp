@@ -1,6 +1,6 @@
 # 0040. Stateful upstreams: a session handle as a tool parameter, an end tool per upstream
 
-- **Status:** Accepted (Matthias 2026-11-06), built 2026-11-07 (not released yet)
+- **Status:** Accepted (Matthias 2026-11-06), built 2026-11-07, released in `v0.18.0`
 - **Date:** 2026-11-06
 
 ## Context
