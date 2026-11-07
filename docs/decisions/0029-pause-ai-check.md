@@ -1,6 +1,6 @@
 # 0029. Pause with AI check: Clef narrows an allow pause, a mismatch ends it
 
-- **Status:** Accepted (2026-10-07, Matthias)
+- **Status:** Accepted (2026-10-07, Matthias); amended 2026-10-07, 2026-10-15, 2026-11-07 (no purpose, no check)
 - **Date:** 2026-10-07
 
 ## Context
@@ -214,3 +214,45 @@ held call meant typing everything again.
 - A resumed pause that mismatches again is interrupted again (a new card).
 - Data: `Snooze.suspendedAt DateTime?` (null = active). `GET /api/running` and
   the upstream's pause list carry `suspendedAt`.
+
+## Amendment 2026-11-07: no purpose, no check
+
+Decided by Matthias on 2026-11-07, after the Richtungswechsel cases of
+2026-10-21 (n8n migration, rows #362–#385, states reconstructed byte for
+byte). The bench `scripts/bench/clef_purpose_fit.py` with 14 synthetic and
+13 real cases showed:
+
+- The production prompt (P0) separates the synthetic cases (gap +0.72), but
+  passes **0 of 11 real ok cases**. The purpose-centred variants P1/P2 pass 1–2
+  and soften the synthetic ones.
+- Neither the full purpose, a fixed anchor nor the real call order helps.
+  Clef cannot judge multi-step tasks; threshold and prompt are not the cause.
+- Qwen with reasoning (`qwen_purpose_fit.py`) does better (real 8/13 with the
+  purpose question), but takes a median of 25 s per call and passes #385. As a
+  blocking check that is no option either.
+
+Decision:
+
+- **A Zeitfreigabe without a purpose is not checked.** It is blind, as before
+  this ADR: path `snooze`, Clef is never called, and no score, choice or input
+  is stored. "No purpose" means `purposeText(purpose) === null`, so
+  whitespace and control characters only count as none (`PauseGate.evaluate`,
+  before the user switch and before any DB read).
+- **With a purpose, nothing changes:** §1–§8 and the amendments above apply.
+  A mismatch interrupts the Zeitfreigabe, and resuming works as before.
+- Live purposeless pauses simply become blind on deploy. Matthias accepted
+  this: there are few, and they are short-lived.
+- **Security argument:** "blind" never allows more than the pause itself
+  allows; the check only ever narrowed. The human chooses the check by typing
+  a purpose. The known gap "more of the same" (§Consequences) is open again
+  **without a purpose**, as it was before this ADR. The card says so.
+- **Card ("Wofür?" field):** label and placeholder stay. Under the input there
+  is a grey hint: „Mit Zweck prüft die KI jeden Aufruf dagegen. Ohne Zweck:
+  Zeitfreigabe lässt alles durch, Sperre blockt alles.“ It is shown only when
+  the check is configured and the user's switch is on, because otherwise
+  neither sentence holds. A counter "n/200" is emphasised at 200 (Matthias's
+  purpose of 2026-10-21 was cut silently by the input's `maxlength` on paste).
+  The Einstellungen text now reads "Zeitfreigaben mit Zweck".
+- **Unchanged:** AUTO (ADR-0030), Sperre with purpose (ADR-0026 amendment),
+  tool labels (ADR-0031), the per-user switch, and `PAUSE_CHECK_URL`. Clef stays
+  deployed.

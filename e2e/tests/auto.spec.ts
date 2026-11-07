@@ -202,7 +202,8 @@ test.describe('TC-158 Vorrang unverändert', () => {
     // Zeitfreigabe on add_item: hold one (0.2), approve with 15 min.
     const held = startCall(request, ctx.up.slug, ctx.token, 'add_item', { item: 'Anker', __auto: '0.2' });
     const p = await waitHeld(request, ctx, 'add_item');
-    expect((await decide(request, p.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: 'tool' }, ctx.user)).status()).toBe(200);
+    // With a purpose: only then is it checked (ADR-0029 amendment 2026-11-07).
+    expect((await decide(request, p.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: 'tool', purpose: 'Einkäufe anlegen' }, ctx.user)).status()).toBe(200);
     expect((await held).isError).toBeFalsy();
     const before = (await autoLog(request, ctx)).length;
     expect((await callTool(request, ctx.up.slug, ctx.token, 'add_item', { item: 'B', __auto: '0.0', __check: 'gleich:0.95' })).isError).toBeFalsy();

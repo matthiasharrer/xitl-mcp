@@ -569,7 +569,9 @@ Sperren, audit, intent, review hint and freshness. Only the connection differs.
   (`PauseGate.serial`), the pauses are read and the policy evaluated again,
   and `PauseGate.evaluate` decides:
   - blind: the matched pause has no `anchorAuditId` (granted before the
-    check) or `User.pauseCheck` is off;
+    check), has no purpose (`purposeText` null: empty, whitespace or control
+    characters only; ADR-0029 amendment 2026-11-07, checked before any DB
+    read) or `User.pauseCheck` is off;
   - otherwise one Clef `/v1/systemone` request (timeout
     `PAUSE_CHECK_TIMEOUT_MS`) with state = the anchor call (its audit row:
     tool, arguments, intent summary if DONE) + the calls forwarded under

@@ -50,11 +50,14 @@ const activeSnoozes = (ctx: Ctx) => snoozes(ctx).filter((s) => s.suspendedAt ===
 const upstreamCalls = async (request: APIRequestContext, ctx: Ctx, tool: string) => (await fakeState(request, ctx.up.tenant)).calls[tool] ?? 0;
 const auditOf = (approvalId: string) => dbAll('select * from AuditEntry where approvalId = ?', approvalId)[0];
 
-/** Holds `tool` for `client`, approves it with a 15-min Zeitfreigabe; returns the anchor's audit row. */
+// ADR-0029 amendment 2026-11-07: only a Zeitfreigabe with a purpose is
+// checked, so every grant here carries one (without: pause-purpose TC-276).
+const PURPOSE = 'Einkäufe für die Woche anlegen';
+/** Holds `tool` for `client`, approves it with a 15-min Zeitfreigabe (+ PURPOSE); returns the anchor's audit row. */
 async function grant(request: APIRequestContext, ctx: Ctx, client: Client = ctx.A, tool = 'add_item', args: Record<string, unknown> = { item: 'Anker' }, scope = 'tool') {
   const held = startCall(request, ctx.up.slug, client.token, tool, args);
   const p = await waitPending(request, ctx.up.id, tool, ctx.user);
-  const res = await decide(request, p.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: scope }, ctx.user);
+  const res = await decide(request, p.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: scope, purpose: PURPOSE }, ctx.user);
   expect(res.status(), await res.text()).toBe(200);
   expect((await held).isError).toBeFalsy();
   return auditOf(p.id);
@@ -138,7 +141,7 @@ test.describe('TC-138 Abweichung', () => {
     expect((await c).isError).toBe(true);
 
     // Approving B with a new Zeitfreigabe: B is its anchor.
-    expect((await decide(request, pb.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: 'tool' }, ctx.user)).status()).toBe(200);
+    expect((await decide(request, pb.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: 'tool', purpose: PURPOSE }, ctx.user)).status()).toBe(200);
     expect((await b).isError).toBeFalsy();
     expect(auditOf(pb.id)).toMatchObject({ decisionPath: 'snooze-ki-mismatch+approved:page', outcome: 'FORWARDED' });
     expect(activeSnoozes(ctx)).toEqual([expect.objectContaining({ anchorAuditId: auditOf(pb.id).id })]);
@@ -382,7 +385,7 @@ test.describe('TC-144 Aufrufe seither und Trennung', () => {
     log = await clefLog(request, ctx);
     expect(items(log[log.length - 1]!)).toEqual(['X0', 'X1', 'X2', 'X3']);
     // A new pause anchored on the held call: its "calls since" start empty.
-    expect((await decide(request, p.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: 'tool' }, ctx.user)).status()).toBe(200);
+    expect((await decide(request, p.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: 'tool', purpose: PURPOSE }, ctx.user)).status()).toBe(200);
     await h;
     expect((await callTool(request, ctx.up.slug, ctx.A.token, 'add_item', { item: 'A13' })).isError).toBeFalsy();
     log = await clefLog(request, ctx);
@@ -399,7 +402,7 @@ test.describe('TC-145 Wartende Aufrufe beim Erteilen (TC-128-Pfad)', () => {
     const p2 = await waitHeld(request, ctx, [p1.id]);
     const h3 = startCall(request, ctx.up.slug, ctx.A.token, 'add_item', { item: 'H3', __check: 'wechsel:0.9' });
     const p3 = await waitHeld(request, ctx, [p1.id, p2.id]);
-    const res = await decide(request, p1.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: 'tool' }, ctx.user);
+    const res = await decide(request, p1.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: 'tool', purpose: PURPOSE }, ctx.user);
     expect(res.status()).toBe(200);
     expect((await h1).isError).toBeFalsy();
     expect((await h2).isError).toBeFalsy();

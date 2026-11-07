@@ -207,7 +207,7 @@ test.describe('TC-181 Live und Ablauf', () => {
       await step('Zugang pausiert', () => pauseClient(request, ctx, ctx.B.id, true));
       await step('Zugang fortgesetzt', () => pauseClient(request, ctx, ctx.B.id, false));
       // ADR-0029 (amended 2026-10-15): the AI check interrupts the Zeitfreigabe on a mismatch.
-      await step('erneut angelegt', () => grantAllow(request, ctx));
+      await step('erneut angelegt', () => grantAllow(request, ctx, 'Einkäufe anlegen')); // checked only with a purpose
       await step('KI-Abbruch', async () => {
         const c = startCall(request, ctx.up.slug, ctx.A.token, 'add_item', { item: 'B', __check: 'wechsel:0.9' });
         await expect.poll(() => snoozes(ctx).filter((s) => s.suspendedAt === null).length, { timeout: 6000 }).toBe(0);

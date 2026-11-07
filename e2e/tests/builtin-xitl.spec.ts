@@ -536,7 +536,8 @@ type CheckCtx = Awaited<ReturnType<typeof checkSetup>>;
 async function grant(request: APIRequestContext, ctx: CheckCtx, item: string, tool = 'add_item', scope = 'tool') {
   const held = startCall(request, ctx.up.slug, ctx.A.token, tool, { item });
   const p = await waitPending(request, ctx.up.id, tool, ctx.user);
-  expect((await decide(request, p.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: scope }, ctx.user)).status()).toBe(200);
+  // A purpose: only then is the Zeitfreigabe checked (ADR-0029 amendment 2026-11-07).
+  expect((await decide(request, p.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: scope, purpose: 'Einkäufe anlegen' }, ctx.user)).status()).toBe(200);
   expect((await held).isError).toBeFalsy();
   return dbAll('select * from AuditEntry where approvalId = ?', p.id)[0];
 }
@@ -616,7 +617,7 @@ test.describe('TC-237 get_history_entry ist der Fall', () => {
     );
     expect(e).toMatchObject({
       id: row.id, upstream: ctx.up.slug, tool: 'add_item', endpoint: `/mcp/${ctx.up.slug}`, arguments: { item: 'abweichung', __check: 'wechsel:0.9' },
-      policy: 'ASK', decisionPath: 'snooze-ki-mismatch', status: 'pending', isError: null, denyReason: null, purpose: null, purposeSource: null,
+      policy: 'ASK', decisionPath: 'snooze-ki-mismatch', status: 'pending', isError: null, denyReason: null, purpose: 'Einkäufe anlegen', purposeSource: 'typed',
       pauseCheck: { result: 'mismatch', choice: 'richtungswechsel', threshold: 0.8 }, sperreScore: null, autoScore: null,
       clefInput: row.pauseCheckInput, clefInputSource: 'stored',
     });

@@ -114,15 +114,34 @@ test.describe('TC-164 Zweck im Clef-Zustand', () => {
     expect((await request.get(`/api/audit/${a.id}`, { headers: freshUser('zp164x') })).status()).toBe(404);
   });
 
-  test('ohne Zweck: Zustand und Frage wie vor dem Zweck (Regression)', async ({ request }) => {
-    const ctx = await setup(request, 'zp164n');
+  test('TC-276: ohne Zweck keine KI-Prüfung (ADR-0029 Nachtrag 2026-11-07): blind weitergeleitet, auch was Clef ablehnen würde; nichts gespeichert', async ({ request }) => {
+    const ctx = await setup(request, 'zp276');
     await grant(request, ctx);
-    await callTool(request, ctx.up.slug, ctx.token, 'add_item', { item: 'B', __check: 'gleich:0.95' });
-    const { body } = (await clefLog(request, ctx))[0]!;
-    expect(body.state.startsWith('A human granted an AI agent a pause')).toBe(true);
-    expect(body.state).not.toContain('Purpose');
-    expect(body.questions.richtung.instructions).toBe('How does the new call relate to the anchor call?');
-    expect(lastAudit(ctx.up.id).pausePurpose).toBeNull();
+    for (const item of ['B', 'C']) {
+      const r = await callTool(request, ctx.up.slug, ctx.token, 'add_item', { item, __check: 'wechsel:0.9' });
+      expect(r.isError).toBeFalsy();
+      expect(lastAudit(ctx.up.id)).toMatchObject({ outcome: 'FORWARDED', decisionPath: 'snooze', pausePurpose: null, pauseCheckScore: null, pauseCheckChoice: null, pauseCheckInput: null });
+    }
+    expect(await clefLog(request, ctx)).toEqual([]);
+    expect(snoozes(ctx)[0].suspendedAt).toBeNull();
+    // Whitespace only counts as none, too (stored as null, TC-163).
+    const ctx2 = await setup(request, 'zp276w');
+    await grant(request, ctx2, '    ');
+    expect((await callTool(request, ctx2.up.slug, ctx2.token, 'add_item', { item: 'B', __check: 'wechsel:0.9' })).isError).toBeFalsy();
+    expect(lastAudit(ctx2.up.id).decisionPath).toBe('snooze');
+    expect(await clefLog(request, ctx2)).toEqual([]);
+  });
+
+  test('TC-277: mit Zweck prüft Clef weiter, Abweichung unterbricht wie bisher', async ({ request }) => {
+    const ctx = await setup(request, 'zp277');
+    await grant(request, ctx, 'Nur Einkäufe anlegen');
+    const held = startCall(request, ctx.up.slug, ctx.token, 'add_item', { item: 'B', __check: 'wechsel:0.9' });
+    const p = await waitHeld(request, ctx);
+    expect(p.pauseCheck).toMatchObject({ result: 'mismatch' });
+    expect(snoozes(ctx)[0].suspendedAt).not.toBeNull();
+    expect(await clefLog(request, ctx)).toHaveLength(1);
+    expect((await decide(request, p.id, { decision: 'deny' }, ctx.user)).status()).toBe(200);
+    await held;
   });
 
   test('`<` und `</call>` im Zweck: escaped, eine Zeile, kein eigener Block', async ({ request }) => {
@@ -198,6 +217,45 @@ test.describe('TC-165 UI', () => {
     await page.goto(`/#/verlauf/${a.id}`);
     await expect(page.getByTestId('pause-purpose')).toHaveText('Einkauf fürs Wochenende');
     expect(await noHScroll(page)).toBe(false);
+  });
+});
+
+test.describe('TC-278 Hinweis und Zähler am „Wofür?“', () => {
+  const HINT = 'Mit Zweck prüft die KI jeden Aufruf dagegen. Ohne Zweck: Zeitfreigabe lässt alles durch, Sperre blockt alles.';
+  test('390×844: Hinweis nur mit KI-Prüfung an; Zähler n/200, bei 200 hervorgehoben; kein Querscrollen', async ({ request, page }) => {
+    const ctx = await setup(request, 'zp278');
+    await page.setExtraHTTPHeaders(ctx.user);
+    const held = startCall(request, ctx.up.slug, ctx.token, 'add_item', { item: 'x' });
+    const p = await waitHeld(request, ctx);
+    await page.goto('/');
+    const card = page.locator(`[data-approval="${p.id}"]`);
+    await expect(card.getByTestId('purpose-check-hint')).toHaveText(HINT);
+    const count = card.getByTestId('purpose-count');
+    await expect(count).toHaveText('0/200');
+    const field = card.getByLabel('Wofür? (optional');
+    await field.fill('Einkauf');
+    await expect(count).toHaveText('7/200');
+    await expect(count).not.toHaveClass(/full/);
+    await field.fill('y'.repeat(250)); // maxlength cuts, the counter shows it
+    await expect(count).toHaveText('200/200');
+    await expect(count).toHaveClass(/full/);
+    expect(await noHScroll(page)).toBe(false);
+    await card.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: test.info().outputPath('tc278-karte.png') });
+    // The deep link view shows it too.
+    await page.goto(`/#/freigabe/${p.id}`);
+    await expect(page.getByTestId('purpose-check-hint')).toBeVisible();
+
+    // Switch off: no hint (neither sentence holds), the counter stays.
+    expect((await request.patch('/api/me', { headers: ctx.user, data: { pauseCheck: false } })).status()).toBe(200);
+    await page.goto('/');
+    await expect(card.getByTestId('purpose-count')).toHaveText('0/200');
+    await expect(card.getByTestId('purpose-check-hint')).toHaveCount(0);
+    await page.goto(`/#/freigabe/${p.id}`);
+    await expect(page.getByTestId('purpose-count')).toBeVisible();
+    await expect(page.getByTestId('purpose-check-hint')).toHaveCount(0);
+    expect((await decide(request, p.id, { decision: 'deny' }, ctx.user)).status()).toBe(200);
+    await held;
   });
 });
 

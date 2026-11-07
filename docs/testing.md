@@ -644,6 +644,20 @@ HTTP; `apps/api/src/mcp/sessionParam.test.ts`) and e2e
 | TC-272 | Upstream lost the session → reopened under the same handle, call repeated, notice „unter derselben ID neu aufgebaut“; audit FORWARDED with h; next call without notice. | e2e |
 | TC-273 | Switch off: unchanged (no handle, no notice, a session per request, no DELETE). | e2e |
 
+### Zeitfreigabe only checked with a purpose (ADR-0029 amendment 2026-11-07)
+
+Unit (`apps/api/src/pausecheck/gate.test.ts`) and e2e
+(`e2e/tests/pause-purpose.spec.ts`; other pause-check specs grant with a
+purpose now).
+
+| ID    | Case | How |
+| ----- | ---- | --- |
+| TC-274 | ⚡ A pause with anchor but without purpose (null, absent, empty, whitespace, control characters only) → blind; Clef never called, no audit/snooze read, never interrupted. Mutation: without the guard → fails. | unit |
+| TC-275 | With a purpose the check runs as before: the purpose is in the state, a mismatch interrupts. | unit |
+| TC-276 | ⚡ Zeitfreigabe without purpose (also whitespace only): even a call Clef would reject (`wechsel:0.9`) is forwarded, path `snooze`, score/choice/input null, no Clef request, pause not interrupted. | e2e |
+| TC-277 | Zeitfreigabe with purpose: the same call is held as mismatch, the pause interrupted, one Clef request. | e2e |
+| TC-278 | 390×844 card: „Wofür?“ shows the hint („Mit Zweck prüft die KI …“) only when the check is configured and the switch is on; the counter „n/200“ counts and is emphasised at 200; no horizontal scroll. | e2e |
+
 ## Manual gates
 
 Things no script can prove. Run on the deployed instance before calling
@@ -658,7 +672,7 @@ milestone 1 done:
 | MG-06 | Sessions: open two Claude.ai chats using the connector, one call each; then one Claude Code session. Does each chat get its own session in "Sitzungen"? Result decides the grouping (ADR-0016). |
 | MG-07 | Claude.ai adds `https://<xitl>/mcp` as a second connector: both upstreams' tools appear prefixed; a call to each works; the instructions name both upstreams. |
 | MG-08 | Deployed with `INTENT_LLM_URL` = the cluster llama.cpp: Claude.ai makes 3+ calls in one chat; each gets a German summary within ~10 s; from the 2nd call on the API log (or llama `timings.cache_n`) shows a prefix cache hit; the held call's notification is silently replaced by the summary; a destructive call reads as destructive. |
-| MG-09 | Deployed with `PAUSE_CHECK_URL` = the cluster Clef: grant a Zeitfreigabe on one call, let Claude continue the same task (forwarded, Verlauf "KI-Prüfung: passt (…)"), then let it switch to a different action (held, card and push "KI-Prüfung: weicht ab (…) – Zeitfreigabe beendet", pause gone in Regeln). Scale Clef to 0: the next paused call is held with "KI-Prüfung nicht erreichbar", one push, the Störung card; "KI-Prüfung ausschalten" makes pauses blind again. |
+| MG-09 | Deployed with `PAUSE_CHECK_URL` = the cluster Clef: grant a Zeitfreigabe **with a purpose** on one call (without one it is blind since 2026-11-07; the card hint says so), let Claude continue the same task (forwarded, Verlauf "KI-Prüfung: passt (…)"), then let it switch to a different action (held, card and push "KI-Prüfung: weicht ab (…) – Zeitfreigabe beendet", pause gone in Regeln). Scale Clef to 0: the next paused call is held with "KI-Prüfung nicht erreichbar", one push, the Störung card; "KI-Prüfung ausschalten" makes pauses blind again. |
 | MG-10 | Deployed (ADR-0031): a real upstream adds a tool / changes a description: Regeln shows "Genauer ansehen"/"Unauffällig" with sensible reasons and a KI label within seconds; "Alle unauffälligen bestätigen" leaves the remarkable ones. |
 | MG-11 | Deployed (ADR-0030): Matthias writes an Auto-Regel for Haushalt (or takes the "Vorschlag"), runs "Mit Verlauf testen" on his real calls, checks what would pass/ask; then a few real AUTO calls from Claude.ai (Verlauf scores, asked ones with the card note). |
 | MG-12 | Deployed (ADR-0038): in Regeln turn on the Grafana tool's „Oberfläche“; in Claude.ai ask for RAM usage: the Grafana view renders (no endless box); a button in the view that calls a tool shows up in xitl like any call (held if ASK). Note which `_meta` keys / headers Claude.ai sends on a view-initiated call (Verlauf diagnostics). Turn the switch off: next chat shows text only. |
@@ -673,6 +687,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 52 | 2026-11-07 | TC-274…278 new (ADR-0029 amendment: no purpose, no check; hint + counter at „Wofür?“). Grants in pause-check/pause-resume/builtin-xitl/auto/running now carry a purpose; approval/deny-pause/unified/grouping expect `snooze` instead of `snooze+ki` for purposeless pauses. Unit 733 (api 696 + web 37), e2e 318 | all passed after the adaptations (lead): full run had 5 failures, 4 of them expected `snooze+ki` (fixed), TC-105 flaky (timeout on a switch click; passed in two reruns). TC-135 passed this time (see roadmap -2a). Mutation: without the purpose guard in `PauseGate.evaluate` → both TC-274 unit cases fail. Eyes: TC-278 card screenshot at 390×844 (hint grey, wraps; counter red at 200/200). |
 | 51 | 2026-11-07 | TC-252…273 new (ADR-0040 session handles), TC-07 key list + `sessionParam`; unit 730 (api 693 + web 37), e2e 316 | 315 passed, **TC-135 failed, pre-existing**: it fails the same way on clean `main` (6ed62f3) with the changes stashed (53 rows expected after „Ältere laden“, 51 seen); not caused by this change, on the roadmap. Mutations (lead): no client check in `take` → TC-254 + TC-270 fail; parameter not split off → TC-267 + TC-268 fail. Against real Playwright MCP 0.0.83 (local, headless, temporary spec): handle keeps `https://httpbin.org/cookies` + cookie `probe=1`, also across an approval after 20 s idle; client B with A's handle → `about:blank` + „unbekannt oder beendet“; `browser_close` marked → „beendet“. Eyes at 390×844 (developer screenshots, lead looked): upstream sheet switch, Regeln „Beendet die Sitzung“. Not covered: the card's „Sitzung …“ line in a browser (API asserted in TC-268); MG-14. |
 | 50 | 2026-10-26 (release) | `v0.17.3`: Node 22.23.4+ in the image (ADR-0039 amendment) | Dockerfile + CI only (runtime base `distroless/cc-debian12` with the Node binary from `node:22-bookworm-slim`, ≥ 22.23.4 enforced in the build, CVE-2026-111497; CI smoke test boots the image before pushing). App code unchanged since the last full run. Verification is the new CI smoke step (first boot on an empty volume + restart with snapshot, `/api/health` both times) plus the post-deploy check. `0.17.2` is running in production (0 restarts, Trivy 1 Critical / 6 High). |
 | 49 | 2026-10-26 (release) | `v0.17.2`: hotfix for `v0.17.1`, which crashlooped in production (`ERR_MODULE_NOT_FOUND: undici`): the runtime image copied only `/app/node_modules`, but a clean `npm ci --omit=dev` puts undici 6.29.1 under `apps/api/node_modules`. Now the whole deps-stage `/app` is copied. | **Reproduced locally**: built the image's file layout in a temp dir (clean `npm ci --omit=dev` from the manifests + exactly what the Dockerfile copies) and ran the entrypoint with an empty environment: with `apps/api/node_modules` → health ok, „API listening“; without it → the same `ERR_MODULE_NOT_FOUND` as production. Code unchanged since run 48 (unit 707, e2e 308). **MG-13 after deploy open.** |

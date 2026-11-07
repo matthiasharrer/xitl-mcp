@@ -12,6 +12,10 @@
   import { openApprovalStream } from '../lib/approvalStream';
 
   let { me }: { me: Me | null } = $props();
+  // ADR-0029 amendment 2026-11-07: the card's "Wofür?" hint. Fetched here
+  // (not App's `me`) so a switch flipped in Regeln since is seen.
+  let purposeChecked = $state(false);
+  api.me().then((m) => (purposeChecked = m.pauseCheckAvailable && m.pauseCheck), () => undefined);
 
   let list = $state<PendingApproval[]>([]);
   let loaded = $state(false);
@@ -83,7 +87,7 @@
   {/if}
   <!-- ADR-0022: faults first; they are not approvals (no decision, no deadline). -->
   {#if checkFailing}
-    <PauseCheckFaultCard onoff={() => (checkFailing = false)} />
+    <PauseCheckFaultCard onoff={() => ((checkFailing = false), (purposeChecked = false))} />
   {/if}
   {#each faults as fault (fault.id)}
     <FaultCard {fault} onchange={loadFaults} />
@@ -104,7 +108,7 @@
         </p>
       {/if}
       {#each g.items as approval (approval.id)}
-        <ApprovalCard {approval} ondone={remove} />
+        <ApprovalCard {approval} {purposeChecked} ondone={remove} />
       {/each}
     {/each}
   {/if}

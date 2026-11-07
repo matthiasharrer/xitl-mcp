@@ -53,7 +53,7 @@ async function grant(request: APIRequestContext, ctx: Ctx, opts: { client?: Clie
   const tool = opts.tool ?? 'add_item';
   const held = startCall(request, ctx.up.slug, client.token, tool, { item: 'Anker' });
   const p = await waitPending(request, ctx.up.id, tool, ctx.user);
-  const res = await decide(request, p.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: opts.scope ?? 'tool', ...(opts.purpose ? { purpose: opts.purpose } : {}) }, ctx.user);
+  const res = await decide(request, p.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: opts.scope ?? 'tool', purpose: opts.purpose ?? 'Einkäufe für die Woche anlegen' }, ctx.user); // checked only with a purpose (2026-11-07)
   expect(res.status(), await res.text()).toBe(200);
   expect((await held).isError).toBeFalsy();
   return auditOf(p.id);
@@ -197,7 +197,7 @@ test.describe('TC-220 Nur erlauben / Ablehnen', () => {
     const c = startCall(request, ctx.up.slug, ctx.A.token, 'add_item', { item: 'C', __check: 'gleich:0.99' });
     const pc = await waitHeld(request, ctx);
     expect(pc.rulePath).toBe('policy:upstream-default');
-    expect((await decide(request, pc.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: 'tool' }, ctx.user)).status()).toBe(200);
+    expect((await decide(request, pc.id, { decision: 'approve', snoozeMinutes: 15, snoozeScope: 'tool', purpose: 'Einkäufe für die Woche anlegen' }, ctx.user)).status()).toBe(200);
     await c;
     const rows = snoozes(ctx);
     expect(rows).toHaveLength(2);

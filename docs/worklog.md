@@ -3,6 +3,28 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-11-07 — No purpose, no check (ADR-0029 amendment)
+
+- Matthias decided after the Richtungswechsel bench (`clef_purpose_fit.py`,
+  `qwen_purpose_fit.py`; Clef 0/11 real ok cases): a Zeitfreigabe without
+  „Wofür?“ is not checked. Guard in `PauseGate.evaluate` (`purposeText` null
+  → blind, before any DB read). Clef, `PAUSE_CHECK_URL`, AUTO, Sperre with
+  purpose and tool labels stay.
+- A Sonnet subagent had started gate.ts/gate.test.ts and stopped on
+  permission prompts. Its TC-274 loop passed `undefined` through a default
+  parameter (so it tested the purpose case), and TC-138 still expected
+  `purpose: null`. Fixed both.
+- UI: hint under „Wofür?“ only when check configured + switch on (the views
+  fetch `/api/me` themselves, since App's `me` would be stale after flipping the
+  switch in Einstellungen); counter „n/200“, red at 200 (his n8n purpose was
+  cut silently by `maxlength`). Einstellungen text: „Zeitfreigaben mit Zweck“.
+- e2e: ~15 tests relied on purposeless grants being checked. The Clef specs now
+  grant with a purpose; the pure pause specs expect `snooze`.
+- `docs/NEXT-SESSION.md` (temporary handover) removed: the lever is decided
+  and the bench summary lives in the amendment.
+- Parked: „Für diese Sitzung“ approval bound to an ADR-0040 handle; wait until
+  ADR-0040 is released and agents are seen carrying the handle.
+
 ## 2026-11-06/07 — Stateful upstreams: session handles (ADR-0040)
 
 - Matthias: Playwright MCP in the cluster loses its browser between calls

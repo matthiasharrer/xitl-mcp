@@ -29,11 +29,13 @@ const fakeCheck = (impl: (state: string, signal: AbortSignal) => Promise<PauseCh
   return { check: { check } as PauseCheck, spy: check };
 };
 const config = (c: PauseCheck, timeoutMs = 1000) => ({ check: c, threshold: 0.8, timeoutMs, host: 'clef' });
-const input = (anchorAuditId: number | null = 7) => ({
+// ADR-0029 amendment 2026-11-07: the check only runs for a pause WITH purpose,
+// so the default input has one.
+const input = (anchorAuditId: number | null = 7, purpose: string | null = 'Nur Aufgaben anlegen') => ({
   userId: 1,
   mcpClientId: 10,
   upstreamId: 5,
-  pause: { id: 42, until: new Date(Date.UTC(2026, 9, 7, 13)), anchorAuditId },
+  pause: { id: 42, until: new Date(Date.UTC(2026, 9, 7, 13)), anchorAuditId, purpose },
   call: { upstream: 'Haushalt', tool: 'add_item', args: { item: 'neu' } },
 });
 const quiet = { log: () => {} };
@@ -91,6 +93,35 @@ describe('PauseGate.evaluate', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it('TC-274: a pause with anchor but WITHOUT purpose -> blind, model never called, nothing read', async () => {
+    const { check, spy } = fakeCheck(async () => answer(0.01));
+    const g = new PauseGate(config(check), quiet);
+    for (const p of [null, undefined, '']) {
+      const i = input(7);
+      i.pause.purpose = p as string | null; // not via the default parameter
+      expect(await g.evaluate(i)).toEqual({ kind: 'blind' });
+    }
+    expect(spy).not.toHaveBeenCalled();
+    expect(auditFindFirst).not.toHaveBeenCalled();
+    expect(snoozeUpdate).not.toHaveBeenCalled(); // a blind pause is never interrupted
+  });
+
+  it('TC-274: a whitespace-only / control-character-only purpose counts as none -> blind', async () => {
+    const { check, spy } = fakeCheck(async () => answer(0.01));
+    const g = new PauseGate(config(check), quiet);
+    for (const p of ['   ', '\n\t ', '\u0000\u0007']) expect(await g.evaluate(input(7, p))).toEqual({ kind: 'blind' });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('TC-275: with a purpose the check runs as before (mismatch still interrupts, the purpose is in the state)', async () => {
+    const { check, spy } = fakeCheck(async () => answer(0.1, 0.85, 0.05));
+    const res = await new PauseGate(config(check), quiet).evaluate(input(7, 'Nur Aufgaben anlegen'));
+    expect(res.kind).toBe('mismatch');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]![0]).toContain('Nur Aufgaben anlegen');
+    expect(snoozeUpdate).toHaveBeenCalled();
+  });
+
   it('TC-142: the user switch off -> blind, model never called', async () => {
     userFind.mockResolvedValue({ pauseCheck: false });
     const { check, spy } = fakeCheck(async () => answer(0.99));
@@ -124,7 +155,7 @@ describe('PauseGate.evaluate', () => {
       score: 0.1,
       choice: 'richtungswechsel',
       input: expect.any(String),
-      interrupted: { ids: [42, 43], until, purpose: null },
+      interrupted: { ids: [42, 43], until, purpose: 'Nur Aufgaben anlegen' },
     });
     const where = { userId: 1, mcpClientId: 10, upstreamId: 5, effect: 'ALLOW', suspendedAt: null, until: { gt: expect.any(Date) } };
     expect(snoozeFind).toHaveBeenCalledWith({ where, select: { id: true } });

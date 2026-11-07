@@ -305,7 +305,7 @@
           <span>KI-Prüfung (Clef)</span>
         </label>
         <p class="hint">
-          Prüft Aufrufe unter Zeitfreigaben und mit Auto-Regel und schätzt neue oder geänderte Tools ein.
+          Prüft Aufrufe unter Zeitfreigaben mit Zweck und mit Auto-Regel und schätzt neue oder geänderte Tools ein.
           Ausgeschaltet gelten Zeitfreigaben ohne Prüfung, Auto-Regeln fragen nach und Tools bekommen
           keine KI-Einschätzung.
         </p>

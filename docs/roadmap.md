@@ -31,8 +31,9 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
 
 -2a. **TC-135 fails on `main`** (found 2026-11-07, run 51): after „Ältere
    laden“ the Verlauf shows 51 rows instead of 53. Reproduces with the ADR-0040
-   changes stashed, so older than them; maybe time-dependent. Look before the
-   next release.
+   changes stashed, so older than them; maybe time-dependent. Passed in
+   run 52 (same day), so flaky rather than broken. Look before the next
+   release.
 
 -2. **MG-13 after the `v0.17.3` deploy** (distroless image, ADR-0039, with
    Node 22.23.4+ against CVE-2026-111497): pod up, a connector call still
@@ -55,15 +56,16 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
    Next: slice 4 phone check in Claude.ai with **Grafana** (MG-12: view
    renders, a view-initiated call is still held, which `_meta`/headers mark
    it).
-0. **Richtungswechsel cases (ADR-0037 shipped in `v0.16.0`).** Matthias opts
-   in to „xitl als Upstream hinzufügen“ and works normally for a few days.
-   Then pull his mismatches via the XITL connector (`xitl_list_history`
-   `pause_check=mismatch`, `xitl_get_history_entry` → `clefInput`), ask him
-   what he meant for each, add them to `clef_bench.py` /
-   `clef_pause_intent.py`, and pick the lever (threshold, prompt, anchor on
-   the purpose, "nur hinweisen"). He calls the check "für komplexere Dinge
-   aktuell echt unbrauchbar". Pre-`v0.16.0` mismatches mostly have no
-   reconstructable input (no `pauseSnoozeId` on held rows).
+0. **Zeitfreigabe only checked with a purpose (ADR-0029 amendment
+   2026-11-07): built, waits for Matthias's release** (together with -3).
+   The Richtungswechsel cases (#362–#385) showed Clef cannot judge multi-step
+   tasks (0/11 real ok cases pass, see the amendment). Decided: without
+   „Wofür?“ the Zeitfreigabe is blind, with it unchanged; a hint under the
+   field (only when the check is on) and a counter „n/200“. TC-274…278.
+   After the deploy: on the phone, check the hint and the counter on a real
+   card (MG-09 now needs a purpose). Later, maybe: Qwen instead of Clef for
+   AUTO to save RAM (Matthias, mid-term); the parked „Für diese Sitzung“
+   approval on ADR-0040 handles (worklog 2026-11-07).
 1. **Phone checks of `v0.14.0`/`v0.15.0`** (released = deployed, Matthias
    2026-10-20): „Erlauben & fortsetzen“ / „Fortsetzen“ with real Clef, a deny
    with a reason chip from Claude.ai. Then the manual gates MG-09…11:

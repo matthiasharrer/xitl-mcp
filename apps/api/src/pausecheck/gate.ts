@@ -6,7 +6,11 @@
 //
 // `evaluate` (IO):
 //   - feature off (no PAUSE_CHECK_URL), pause without anchor (granted before
-//     the check existed), or the user's switch off      -> blind (as before)
+//     the check existed), the user's switch off, or a pause WITHOUT PURPOSE
+//     ("Wofür?" empty or whitespace only, `purposeText` null; ADR-0029
+//     amendment 2026-11-07: no purpose, no check)     -> blind (as before
+//     ADR-0029): the call is forwarded under path `snooze`, Clef is never
+//     called and no score/choice/input is stored
 //   - otherwise: state = anchor (tool, arguments, its intent summary if DONE)
 //     + the calls forwarded under THIS pause since (same snooze id, user,
 //     client, upstream; newest N, oldest first) + the new call; one Clef
@@ -134,6 +138,10 @@ export class PauseGate {
   async evaluate(input: GateInput): Promise<GateResult> {
     const config = this.config;
     if (!config || input.pause.anchorAuditId === null) return { kind: 'blind' };
+    // ADR-0029 amendment 2026-11-07: a purpose is the opt-in for the check.
+    // Blind can only mean "as before ADR-0029" (never more than the pause
+    // itself allows): the check never widened anything.
+    if (purposeText(input.pause.purpose ?? null) === null) return { kind: 'blind' };
     if (!(await this.active(input.userId))) return { kind: 'blind' };
 
     const anchor = await prisma.auditEntry.findFirst({

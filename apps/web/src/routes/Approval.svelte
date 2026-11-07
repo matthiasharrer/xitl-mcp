@@ -13,6 +13,9 @@
   import { openApprovalStream } from '../lib/approvalStream';
 
   let { id }: { id: string } = $props();
+  // ADR-0029 amendment 2026-11-07: the card's "Wofür?" hint.
+  let purposeChecked = $state(false);
+  api.me().then((m) => (purposeChecked = m.pauseCheckAvailable && m.pauseCheck), () => undefined);
 
   let item = $state<PendingApproval | ResolvedApproval | null>(null);
   let missing = $state(false);
@@ -59,7 +62,7 @@
   {:else if !item}
     <Spinner />
   {:else if item.state === 'pending'}
-    {#key item.id}<ApprovalCard approval={item} ondone={() => load()} />{/key}
+    {#key item.id}<ApprovalCard approval={item} {purposeChecked} ondone={() => load()} />{/key}
   {:else}
     {@const r = item}
     <article class="approval card resolved" aria-label={`Freigabe: ${r.tool}`}>

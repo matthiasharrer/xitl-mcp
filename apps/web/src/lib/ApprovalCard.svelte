@@ -15,8 +15,12 @@
   let {
     approval,
     ondone,
+    purposeChecked = false,
   }: {
     approval: PendingApproval;
+    /** ADR-0029 amendment 2026-11-07: the KI-Prüfung is configured and the
+     * user's switch is on, so a purpose decides whether it runs (hint line). */
+    purposeChecked?: boolean;
     /** Called once the call left the "open" state from this card. */
     ondone?: (id: string, result: 'approved' | 'denied' | 'gone') => void;
   } = $props();
@@ -45,6 +49,8 @@
    * Sperre (≤ 200). With a Sperre, Clef may ask (never allow) calls clearly
    * outside it. */
   let purpose = $state('');
+  /** Shown as "n/200"; the input's maxlength cuts a paste silently otherwise. */
+  const PURPOSE_MAX = 200;
   /** TC-172…174: the AI suggestion chip last tapped (null: none). The field
    * counts as suggested only while it holds exactly that text. Chips only
    * where a Zeitfreigabe is possible, and only once the summary is there. */
@@ -279,7 +285,7 @@
     <span class="hint">Wofür? (optional, für Zeitfreigabe oder Sperre)</span>
     <input
       type="text"
-      maxlength="200"
+      maxlength={PURPOSE_MAX}
       bind:value={purpose}
       disabled={busy || expired}
       placeholder="z. B. nur Putzaufgaben anlegen"
@@ -287,6 +293,13 @@
       autocomplete="off"
       data-source={fromChip ? 'suggested' : 'typed'}
     />
+    <span class="purpose-meta">
+      {#if purposeChecked}
+        <!-- ADR-0029 amendment 2026-11-07: no purpose, no check. -->
+        <span class="hint purpose-check-hint" data-testid="purpose-check-hint">Mit Zweck prüft die KI jeden Aufruf dagegen. Ohne Zweck: Zeitfreigabe lässt alles durch, Sperre blockt alles.</span>
+      {/if}
+      <span class="purpose-count" class:full={purpose.length >= PURPOSE_MAX} data-testid="purpose-count" aria-live="polite">{purpose.length}/{PURPOSE_MAX}</span>
+    </span>
   </label>
   {#if chips.length > 0}
     <!-- TC-172: AI purpose suggestions (model output: text only), for the
@@ -477,6 +490,27 @@
     gap: 0.25rem;
     margin: 0.5rem 0;
     min-width: 0;
+  }
+  .purpose-meta {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  .purpose-check-hint {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.75rem;
+  }
+  .purpose-count {
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .purpose-count.full {
+    color: var(--danger);
+    font-weight: 600;
   }
   .purpose-field input {
     width: 100%;
