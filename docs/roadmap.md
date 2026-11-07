@@ -9,7 +9,7 @@ _Last updated: 2026-10-26 (`v0.17.1` released: distroless image, ADR-0039)_
 
 ## Next
 
-State 2026-11-07: **`v0.18.1` released** (6-character session handles with a collision check, ADR-0040 amendment). Before: **`v0.18.0`** (stateful upstreams via `xitl_session`, ADR-0040; Zeitfreigabe checked only with a purpose, ADR-0029 amendment 2026-11-07; `/data` owned by UID 1000 in the image). Before: **`v0.17.0`** (MCP Apps views per tool, ADR-0038 slices 2–3; `v0.16.1`: slice 1, no view references, ends the Claude.ai spinner; `v0.16.0`: built-in upstream `xitl`, ADR-0037; `v0.15.0`: optional deny reason, ADR-0036; `v0.14.0`: resume a Zeitfreigabe the KI-Prüfung interrupted, ADR-0029 amendment; new-version banner ADR-0035; `v0.13.0`: Einstellungen rework: switches, own upstream and client pages; `v0.13.1` fixes a tab-bar tap toggling a switch; `v0.12.0`: per-client default per upstream ADR-0032, pause an upstream ADR-0033, tool freshness on call ADR-0034; `v0.10.0`: live Verlauf ADR-0028,
+State 2026-11-07: **`v0.19.0` released** („+ Zeitfreigabe“ on Freigaben without a held call, ADR-0041). Before: **`v0.18.1`** (6-character session handles with a collision check, ADR-0040 amendment). Before: **`v0.18.0`** (stateful upstreams via `xitl_session`, ADR-0040; Zeitfreigabe checked only with a purpose, ADR-0029 amendment 2026-11-07; `/data` owned by UID 1000 in the image). Before: **`v0.17.0`** (MCP Apps views per tool, ADR-0038 slices 2–3; `v0.16.1`: slice 1, no view references, ends the Claude.ai spinner; `v0.16.0`: built-in upstream `xitl`, ADR-0037; `v0.15.0`: optional deny reason, ADR-0036; `v0.14.0`: resume a Zeitfreigabe the KI-Prüfung interrupted, ADR-0029 amendment; new-version banner ADR-0035; `v0.13.0`: Einstellungen rework: switches, own upstream and client pages; `v0.13.1` fixes a tab-bar tap toggling a switch; `v0.12.0`: per-client default per upstream ADR-0032, pause an upstream ADR-0033, tool freshness on call ADR-0034; `v0.10.0`: live Verlauf ADR-0028,
 Zeitfreigabe / Sperre wording, Zeitfreigabe AI check ADR-0029, tool review
 hint ADR-0031, AUTO ADR-0030, purpose line; `v0.11.0`: purpose suggestion
 chips, "Läuft gerade" overview). Deployed: every release (released = deployed, Matthias 2026-10-20), once Matthias has merged the Flux image-update PR in the GitOps repo (found 2026-10-26). GitOps has `INTENT_LLM_URL` (qwen) and `PAUSE_CHECK_URL`
@@ -29,7 +29,8 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
 -2a. **TC-135 fails on `main`** (found 2026-11-07, run 51): after „Ältere
    laden“ the Verlauf shows 51 rows instead of 53. Reproduces with the ADR-0040
    changes stashed, so older than them; maybe time-dependent. Passed in
-   run 52 (same day), so flaky rather than broken. Look before the next
+   run 52 (same day), so flaky rather than broken. Failed again in run 58
+   (same 51/53), passed alone right after. Look before the next
    release.
 
 -2. **MG-13 after the `v0.17.3` deploy** (distroless image, ADR-0039, with
@@ -53,10 +54,9 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
    Next: slice 4 phone check in Claude.ai with **Grafana** (MG-12: view
    renders, a view-initiated call is still held, which `_meta`/headers mark
    it).
--0. **„+ Zeitfreigabe“ on Freigaben (ADR-0041): built 2026-11-07, not
-   released.** Button beside „Freigaben“, dialog Upstream / Zugang / Dauer,
+-0. **„+ Zeitfreigabe“ on Freigaben (ADR-0041): released in `v0.19.0`.** Button beside „Freigaben“, dialog Upstream / Zugang / Dauer,
    always the whole upstream, no KI-Prüfung. TC-281/282. Next: Matthias tries
-   it on the phone; release when he says so.
+   it on the phone.
 0. **Zeitfreigabe only checked with a purpose (ADR-0029 amendment
    2026-11-07): released in `v0.18.0`.**
    The Richtungswechsel cases (#362–#385) showed Clef cannot judge multi-step

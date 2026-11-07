@@ -14,6 +14,8 @@
   reused.
 - Dev DB has no upstreams for the dev user, so the dialog shows „Noch kein
   Upstream angelegt.“ there; screenshots were taken against the e2e DB.
+- Matthias: release once done, without asking → `v0.19.0` after a full e2e
+  run (320/321; TC-135 flaky again, passed alone).
 
 ## 2026-11-07 — No purpose, no check (ADR-0029 amendment)
 
