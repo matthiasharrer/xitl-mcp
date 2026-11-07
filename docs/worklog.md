@@ -25,8 +25,10 @@
 - Parked: „Für diese Sitzung“ approval bound to an ADR-0040 handle; wait until
   ADR-0040 is released and agents are seen carrying the handle.
 - Matthias: "release alles" → `v0.18.0` (ADR-0040 + this + the `/data` UID
-  fix). Next: after the deploy, MG-14 (Playwright in the cluster, roadmap -3)
-  and the phone check of hint/counter (roadmap 0).
+  fix). Deployed 07:36 Berlin (Grafana: pod 0 restarts, migration applied).
+  MG-14 passed the same morning from this very session: the old tool list had
+  no `xitl_session`, but Claude Code passed the extra argument anyway. Results
+  in Nextcloud SMOKE-TEST.md / STATUS.md. Open: phone check of hint/counter.
 
 ## 2026-11-06/07 — Stateful upstreams: session handles (ADR-0040)
 

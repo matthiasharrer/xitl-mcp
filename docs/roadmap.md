@@ -17,16 +17,14 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
 
 **Open, in order:**
 
--3. **Stateful upstreams (ADR-0040): released in `v0.18.0` (2026-11-07).** Switch „Sitzungen über Parameter“ per upstream, `xitl_session`,
-   handles, end tool („Beendet die Sitzung“), kept-session pool, audit column;
-   TC-252…273. After the release: in the cluster turn the switch on for
-   Playwright and mark `browser_close`, then acceptance through xitl in the cluster (tab and
-   cookie survive, also across an approval; two clients separate; the Booking
-   test from Nextcloud `Claude/stealth-browser-mcp/SMOKE-TEST.md` incl. UA
-   without `HeadlessChrome` and time zone `Europe/Berlin`). Write the results to
-   that SMOKE-TEST.md (new section „Playwright MCP im Cluster über xitl“) and
-   update „Nächste Schritte“ in `STATUS.md` there. Fallback, only to propose:
-   `--shared-browser-context` in home-server.
+-3. **Stateful upstreams (ADR-0040): released in `v0.18.0`, MG-14 passed
+   2026-11-07** (cluster, Claude Code through the XITL connector): handle keeps
+   tab + cookie across an approval, no handle → fresh browser, `browser_close`
+   ends it, Booking green (477 results, UA `Chrome/155`, Europe/Berlin), 7
+   calls, written to Nextcloud SMOKE-TEST.md / STATUS.md. A client with a tool
+   list from before the switch still passes `xitl_session` (Claude Code does
+   not enforce `additionalProperties: false`). Open: two Claude.ai chats at
+   once (Matthias, when it comes up).
 
 -2a. **TC-135 fails on `main`** (found 2026-11-07, run 51): after „Ältere
    laden“ the Verlauf shows 51 rows instead of 53. Reproduces with the ADR-0040
