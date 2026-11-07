@@ -689,6 +689,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 56 | 2026-11-07 (release) | `v0.18.1`: 6-character session handles + collision check (ADR-0040 amendment) | same code as run 55 (only docs changed since): unit 736, e2e `upstream-sessions` 8, all passed. |
 | 55 | 2026-11-07 | TC-279/280 new (ADR-0040 amendment: 6-character handles, collision check), TC-252/265/270 adapted; unit 736 (api 699 + web 37), e2e `upstream-sessions.spec.ts` 8 | all passed (lead); mutations (no collision check / no owner check in `open()`) caught by TC-279 / TC-280. Full e2e not rerun: only handle code changed, no other spec references handles. |
 | 54 | 2026-11-07 (deployed `v0.18.0`) | MG-14 (ADR-0040) in the cluster via the XITL connector | **passed** (lead): handle `A8Kl…` kept `httpbin.org/cookies` + `probe=1` across an approval; without handle `about:blank` + new handle; Booking direct URL green, 477 results, top 5 with prices, UA `Chrome/155`, `Europe/Berlin`, `de-DE`; `browser_close` → „beendet“, the handle then unknown → new session. 7 calls, no snapshot/find. Two Claude.ai chats at once not tried (covered by TC-270). |
 | 53 | 2026-11-07 (release) | `v0.18.0`: ADR-0040 (run 51) + ADR-0029 amendment „no purpose, no check“ (run 52) + `/data` owned by UID 1000 | same code as run 52 (only docs changed since): unit 733, e2e 318, all passed after the run-52 adaptations. |

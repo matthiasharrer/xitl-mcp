@@ -31,7 +31,7 @@
   in Nextcloud SMOKE-TEST.md / STATUS.md. Open: phone check of hint/counter.
 - Matthias: ids too long → 6 characters + collision check (ADR-0040
   amendment). Found on the way: `open()` returned whatever sat under a pool
-  key, regardless of client; now it throws for another client's key.
+  key, regardless of client; now it throws for another client's key. Released as `v0.18.1`.
 
 ## 2026-11-06/07 — Stateful upstreams: session handles (ADR-0040)
 
