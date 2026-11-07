@@ -47,6 +47,10 @@ export interface FakeState {
   lists: number;
   /** resources/read requests per uri (ADR-0038). */
   reads: Record<string, number>;
+  /** Stateful mode (ADR-0040): initializes, ended sessions, calls per session. */
+  initializes: number;
+  deleted: string[];
+  sessionCalls: { session: string; tool: string; argNames: string[] }[];
 }
 export async function fakeState(request: APIRequestContext, tenant: string): Promise<FakeState> {
   return (await request.get(`${FAKE_UPSTREAM}/control/t/${tenant}/state`)).json();

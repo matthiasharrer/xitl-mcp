@@ -16,6 +16,7 @@ import { systemClock } from '../lib/clock.js';
 import { faultList } from '../upstream/faults.js';
 import { upstreamStates } from '../upstream/stateEvents.js';
 import { MAX_AUTO_RULE_CHARS } from '../lib/limits.js';
+import { upstreamSessions } from '../upstream/connection.js';
 
 // /api/upstreams: the user's registry of upstream MCP servers (ADR-0013).
 // Mounted under /api, so it sits behind the identity middleware. Every query is
@@ -53,6 +54,8 @@ export function serializeUpstream(row: Upstream) {
     status: row.status,
     headerName: row.headerName,
     allowInternal: row.allowInternal,
+    /** ADR-0040: calls run in kept upstream sessions, handle via `xitl_session`. */
+    sessionParam: row.sessionParam,
     /** ADR-0030: the owner's own prose rule (trusted, their text). */
     autoRule: row.autoRule,
     // The value itself is write-only: it never leaves the server.
@@ -146,6 +149,8 @@ const patchSchema = z.object({
   headerName: headerNameSchema.nullish(),
   headerValue: headerValueSchema.nullish(),
   allowInternal: z.boolean().optional(),
+  /** ADR-0040 */
+  sessionParam: z.boolean({ error: 'sessionParam muss true oder false sein.' }).optional(),
   autoRule: autoRuleSchema.optional(),
   /** ADR-0033: pause / resume for every client. */
   paused: z.boolean({ error: 'paused muss true oder false sein.' }).optional(),
@@ -358,7 +363,12 @@ upstreams.patch('/:id', async (c) => {
   if (existing.auth === 'BUILTIN' && (v.url !== undefined || v.auth !== undefined || v.headerName !== undefined || v.headerValue !== undefined || v.allowInternal !== undefined)) {
     return c.json(BUILTIN_FIXED, 400);
   }
+  // ADR-0040: the built-in upstream keeps no sessions.
+  if (existing.auth === 'BUILTIN' && v.sessionParam === true) {
+    return c.json({ error: 'Der eingebaute Upstream hat keine Sitzungen.', code: 'builtin_fixed' }, 400);
+  }
   const data: Record<string, unknown> = {};
+  if (v.sessionParam !== undefined) data.sessionParam = v.sessionParam;
   const urlChanged = v.url !== undefined && v.url !== existing.url;
   // A changed URL recomputes the flag (re-confirm); an unchanged one keeps it.
   if (urlChanged) {
@@ -442,6 +452,13 @@ upstreams.patch('/:id', async (c) => {
     // to the new one.
     if (urlChanged) pauseEvents.emit({ userId });
     if (urlChanged || authChanged) approvals.cancelWhere((call) => call.userId === userId && call.upstreamId === id);
+    // ADR-0040: kept upstream sessions belong to the old setting / server / login.
+    {
+      const switchedOff = v.sessionParam === false && existing.sessionParam;
+      // Only a switch-off with the server unchanged may DELETE the upstream sessions.
+      if (switchedOff && !urlChanged && !authChanged) upstreamSessions.endUpstream(userId, id, { terminate: true });
+      else if (switchedOff || urlChanged || authChanged) upstreamSessions.endUpstream(userId, id);
+    }
     // ADR-0033 §4: pausing refuses the held calls on it (every client), like
     // an unknown tool. The row is written first: a call evaluated after this
     // is refused by the policy itself, one held in between by the proxy's
@@ -473,6 +490,7 @@ upstreams.delete('/:id', async (c) => {
   if (res.count === 0) return c.json({ error: 'Nicht gefunden.' }, 404);
   // Its held calls end denied right away ("+revoked", TC-41).
   approvals.cancelWhere((call) => call.userId === userId && call.upstreamId === id);
+  upstreamSessions.endUpstream(userId, id);
   upstreamStates.emit({ userId, upstreamId: id, state: 'ok', cause: 'edit' });
   return c.body(null, 204);
 });

@@ -113,6 +113,8 @@ export function serializePending(call: PendingCall, now: Date) {
     upstream: { id: call.upstreamId, slug: call.upstreamSlug, name: call.upstreamName },
     tool: call.toolName,
     arguments: call.args,
+    /** ADR-0040: absent = upstream keeps no sessions; null = a NEW session; string = the handle asked for. */
+    upstreamSession: call.upstreamSession === undefined ? undefined : call.upstreamSession,
     rulePath: call.rulePath,
     receivedAt: call.receivedAt.toISOString(),
     expiresAt: call.deadline.toISOString(),
@@ -178,6 +180,7 @@ async function resolvedView(userId: number, id: string) {
     upstream: a.upstream,
     tool: a.toolName,
     arguments: parseArgs(a.arguments),
+    upstreamSession: a.upstreamSession,
     receivedAt: a.receivedAt.toISOString(),
     decidedAt: a.decidedAt?.toISOString() ?? null,
     session: a.session ? { id: a.session.id, createdAt: a.session.createdAt.toISOString() } : null,

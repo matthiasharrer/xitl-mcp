@@ -116,6 +116,11 @@ model Upstream {
   /// every AUTO decision on this upstream (default, tool or client rule).
   /// NULL/empty = AUTO behaves like ASK.
   autoRule      String?
+  /// ADR-0040: „Sitzungen über Parameter“. Every tool of this upstream gets
+  /// an optional `xitl_session` argument (tools/list); calls run in kept
+  /// upstream sessions (upstream/connection.ts upstreamSessions). Ignored for
+  /// BUILTIN. Off = one connection per request, as before.
+  sessionParam  Boolean        @default(false)
   /// ADR-0033: since when the upstream is paused (Clock); null = active. A
   /// paused upstream is hidden from every client and never contacted. Set
   /// and cleared only through /api (PATCH /api/upstreams/:id {paused}).
@@ -204,6 +209,10 @@ model KnownTool {
   /// The view is shown only while this is on AND the page (UiResource) is
   /// acknowledged with its current hash.
   uiEnabled       Boolean            @default(false)
+  /// ADR-0040: „Beendet die Sitzung“ (only meaningful while the upstream has
+  /// sessionParam): after this tool's forwarded call succeeds (not isError),
+  /// xitl ends the kept upstream session (DELETE) and invalidates the handle.
+  endsSession     Boolean            @default(false)
   clientPolicies  ClientToolPolicy[]
 
   @@unique([upstreamId, name])
@@ -421,6 +430,10 @@ model AuditEntry {
   traceId         String?
   cloudTraceId    String?
   anthropicClient String?
+  /// ADR-0040: the session handle of a call to a sessionParam upstream: the
+  /// one asked for (when handle-shaped) until forwarded, then the one it ran
+  /// in. Never a credential; display shows the first characters.
+  upstreamSession String?
 
   /// Intent summary (ADR-0025): advisory model output, never read by policy,
   /// approval or forwarding. Status OFF (feature off) | PENDING (queued) |

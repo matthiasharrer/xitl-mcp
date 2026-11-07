@@ -224,6 +224,8 @@ async function toolsView(upstreamId: number, userId: number, forClientId: number
         isNew: t.acknowledgedAt === null && t.changedAt === null,
         isChanged: t.changedAt !== null,
         lastSeenAt: t.lastSeenAt.toISOString(),
+        /** ADR-0040: a successful call ends the kept upstream session. */
+        endsSession: t.endsSession,
         // ADR-0031: review hint (advisory) and what changed.
         review: reviewView(t, clefOn),
         parameters: params(t.inputSchema),
@@ -303,6 +305,14 @@ upstreamTools.patch('/:id/tools/:toolId', async (c) => {
     toolEvents.emit({ userId });
     return c.json(await toolsView(upstream.id, userId));
   }
+  // ADR-0040: "Beendet die Sitzung" is not a policy decision: it neither
+  // acknowledges the tool nor clears its change marks.
+  if (body && typeof body === 'object' && 'endsSession' in body) {
+    const ends = endsSessionSwitch.safeParse(body);
+    if (!ends.success) return c.json({ error: 'Die Einstellung ist ungültig.' }, 400);
+    await prisma.knownTool.updateMany({ where: { id: tool.id, upstreamId: upstream.id }, data: { endsSession: ends.data.endsSession } });
+    return c.json(await toolsView(upstream.id, userId));
+  }
   const parsed = policyOrNull.safeParse(body);
   if (!parsed.success) return c.json({ error: 'Die Regel ist ungültig.' }, 400);
   await prisma.knownTool.updateMany({
@@ -312,6 +322,7 @@ upstreamTools.patch('/:id/tools/:toolId', async (c) => {
   return c.json(await toolsView(upstream.id, userId));
 });
 
+const endsSessionSwitch = z.strictObject({ endsSession: z.boolean() });
 const uiSwitch = z.strictObject({ uiEnabled: z.boolean() });
 const NO_VIEW = { error: 'Dieses Tool hat keine Oberfläche.' };
 const PAGE_UNREADABLE = { error: 'Die Oberfläche konnte nicht vom Upstream geladen werden. Versuche es später noch einmal.' };

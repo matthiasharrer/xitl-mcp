@@ -214,6 +214,12 @@
   **Built 2026-10-07** (TC-172…177, not yet committed/released at the time of
   writing): chips "Nur dies" / "Diese Art", `purposeSource` typed|suggested.
 
+- **Verlauf grouped by upstream session** (ADR-0040, 2026-11-07): the calls of
+  one `xitl_session` handle as one group (like the MCP-session grouping), so a
+  browser task reads as one story. Today only the detail shows „Sitzung …“.
+- **„Ohne Sitzung ablehnen“ + start tool** (ADR-0040 follow-up): only if agents
+  lose handles in practice; costs one call (and approval) per task and an
+  xitl-own tool with a policy exception.
 - **Data resources through xitl** (ADR-0038 leaves them out, 2026-10-24):
   files, schemas, logs, resource templates (`file:///{path}`). Model-reachable
   reads of agent-chosen URIs, so treat them like read-only tools: Erlauben /

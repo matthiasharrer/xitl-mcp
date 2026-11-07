@@ -186,6 +186,18 @@ export const MSG = {
   /** ADR-0034: the re-check of a stale tool list failed; nothing forwarded. */
   staleTools: (name: string) =>
     `[xitl] Verweigert: Die Tool-Liste von „${name}“ konnte gerade nicht geprüft werden; der Aufruf wurde nicht weitergeleitet. Bitte später erneut versuchen. / Denied: the tool list of "${name}" could not be checked right now; the call was not forwarded. Try again later.`,
+  /** ADR-0040: a new upstream session was opened for this call. */
+  sessionNew: (name: string, handle: string) =>
+    `[xitl] Sitzung: ${handle}. Bei weiteren Aufrufen von „${name}“ als \`xitl_session\` mitgeben. / Session: ${handle}. Pass it as \`xitl_session\` in further calls to "${name}".`,
+  /** ADR-0040: the passed handle was unknown, foreign or ended (one text for all). */
+  sessionReplaced: (name: string, handle: string) =>
+    `[xitl] Hinweis: Die angegebene Sitzung bei „${name}“ ist unbekannt oder beendet; vorheriger Zustand (z. B. Browser-Tabs, Cookies) ist nicht verfügbar. Neue Sitzung: ${handle}. Bei weiteren Aufrufen als \`xitl_session\` mitgeben. / Note: that session with "${name}" is unknown or has ended; earlier state (e.g. browser tabs, cookies) is not available. New session: ${handle}. Pass it as \`xitl_session\` in further calls.`,
+  /** ADR-0040: the upstream had lost the session; reopened under the same handle. */
+  sessionRestarted: (name: string) =>
+    `[xitl] Hinweis: Die Sitzung bei „${name}“ war abgelaufen und wurde unter derselben ID neu aufgebaut. Vorheriger Zustand (z. B. Browser-Tabs, Cookies, Logins) ist verloren. / Note: the session with "${name}" had expired and was started again under the same id; earlier state (e.g. browser tabs, cookies, logins) is lost.`,
+  /** ADR-0040: the end tool succeeded; the session is ended. */
+  sessionEnded: (name: string) =>
+    `[xitl] Sitzung bei „${name}“ beendet. Ein weiterer Aufruf ohne \`xitl_session\` startet eine neue. / Session with "${name}" ended; a further call without \`xitl_session\` starts a new one.`,
   upstreamError: (name: string) =>
     `[xitl] Upstream „${name}“ ist gerade nicht erreichbar oder hat einen Fehler gemeldet. / Upstream "${name}" is unavailable or returned an error.`,
 };

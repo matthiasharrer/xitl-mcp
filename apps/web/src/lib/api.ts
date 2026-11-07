@@ -118,6 +118,8 @@ export interface Upstream {
   hasHeaderValue: boolean;
   /** The user confirmed an internal address for this upstream (ADR-0020). */
   allowInternal: boolean;
+  /** ADR-0040: calls run in kept upstream sessions (`xitl_session`). */
+  sessionParam: boolean;
   /** ADR-0030: the prose rule for AUTO (own text), null = none. */
   autoRule: string | null;
   createdAt: string;
@@ -136,6 +138,8 @@ export interface UpstreamInput {
   headerValue?: string | null;
   /** "Trotzdem erlauben": confirm an internal URL (ADR-0020). */
   allowInternal?: boolean;
+  /** ADR-0040: sessions via the `xitl_session` parameter (never for BUILTIN). */
+  sessionParam?: boolean;
   /** ADR-0030: the AUTO rule text (edit only); null/"" clears it. */
   autoRule?: string | null;
 }
@@ -156,6 +160,8 @@ export interface ToolRow {
   /** Acknowledged once, then its description/annotations changed (TC-36). */
   isChanged: boolean;
   lastSeenAt: string;
+  /** ADR-0040: a successful call ends the kept upstream session (e.g. browser_close). */
+  endsSession: boolean;
   /** `masked` (ADR-0032): stored, but the client's default hides the upstream. */
   clientPolicies: { mcpClientId: number; policy: Policy; masked: boolean }[];
   /** ADR-0032: only with `?client=`: that client's effective policy and its
@@ -323,6 +329,8 @@ export interface PendingApproval extends IntentFields {
   upstream: { id: number; slug: string; name: string };
   tool: string;
   arguments: unknown;
+  /** ADR-0040: absent = upstream keeps no sessions; null = the call opens a NEW session; string = the handle it asked for. */
+  upstreamSession?: string | null;
   rulePath: string;
   receivedAt: string;
   expiresAt: string;
@@ -355,6 +363,8 @@ export interface ResolvedApproval extends AuditIntentFields {
   upstream: { id: number; slug: string; name: string } | null;
   tool: string;
   arguments: unknown;
+  /** ADR-0040: the upstream session handle (null = none). */
+  upstreamSession?: string | null;
   receivedAt: string;
   decidedAt: string | null;
   session: SessionRef;
@@ -432,6 +442,8 @@ export interface AuditRow extends AuditIntentFields {
   outcome: Outcome;
   decisionPath: string;
   isError: boolean | null;
+  /** ADR-0040: the upstream session handle (null = none). */
+  upstreamSession: string | null;
   receivedAt: string;
   session: SessionRef;
   /** ADR-0036: the reason Matthias gave when denying (or null). */
@@ -568,6 +580,9 @@ export const api = {
   /** ADR-0038: the switch "Oberfläche anzeigen" (on reads the page now). */
   setToolUi: (id: number, toolId: number, uiEnabled: boolean) =>
     request<ToolsView>('PATCH', `/api/upstreams/${id}/tools/${toolId}`, { uiEnabled }),
+  /** ADR-0040: "Beendet die Sitzung" (not a policy decision: acknowledges nothing). */
+  setToolEndsSession: (id: number, toolId: number, endsSession: boolean) =>
+    request<ToolsView>('PATCH', `/api/upstreams/${id}/tools/${toolId}`, { endsSession }),
   /** ADR-0038: "Neue Version anzeigen" (re-reads and acknowledges the page). */
   acknowledgeToolUi: (id: number, toolId: number) =>
     request<ToolsView>('POST', `/api/upstreams/${id}/tools/${toolId}/ui/acknowledge`),

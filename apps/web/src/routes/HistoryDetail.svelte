@@ -4,6 +4,7 @@
   import { openApprovalStream } from '../lib/approvalStream';
   import Spinner from '../lib/Spinner.svelte';
   import SessionLine from '../lib/SessionLine.svelte';
+  import UpstreamSessionLine from '../lib/UpstreamSessionLine.svelte';
   import IntentSummary from '../lib/IntentSummary.svelte';
   import { api, ApiError, autoLine, decisionPathText, sperreLine, messageOf, OUTCOME_LABEL, pauseCheckLine, POLICY_LABEL, type AuditDetail } from '../lib/api';
 
@@ -96,6 +97,7 @@
         <p class="reason-line" data-testid="deny-reason-line">Grund: {e.denyReason}</p>
       {/if}
       <SessionLine session={e.session} />
+      <UpstreamSessionLine handle={e.upstreamSession ?? undefined} />
       <IntentSummary intent={e} meta={{ model: e.intentModel, at: e.intentAt }} />
       <h3 class="section-title">Argumente</h3>
       <pre class="args" aria-label="Argumente">{argsText(e.arguments)}</pre>

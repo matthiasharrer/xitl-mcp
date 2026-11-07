@@ -429,6 +429,8 @@
   // ADR-0038: the view switch and "Neue Version anzeigen" (both read the page now).
   const setUi = (t: ToolRow, on: boolean) => apply(() => api.setToolUi(upstreamId, t.id, on), on ? 'Oberfläche wird angezeigt' : 'Oberfläche aus');
   const acknowledgeUi = (t: ToolRow) => apply(() => api.acknowledgeToolUi(upstreamId, t.id), 'Neue Version wird angezeigt');
+  // ADR-0040: "Beendet die Sitzung" (only for upstreams with session handles).
+  const setEnds = (t: ToolRow, on: boolean) => apply(() => api.setToolEndsSession(upstreamId, t.id, on), on ? 'Beendet die Sitzung' : 'Beendet die Sitzung nicht mehr');
   const hasViews = $derived(!!view && view.tools.some((t) => t.ui?.uri));
 
   function setClient(t: ToolRow, clientId: number, value: string) {
@@ -716,6 +718,15 @@
               {#if t.ui}
                 <ToolUiRow tool={t} ui={t.ui} {busy} ontoggle={(on) => setUi(t, on)} onacknowledge={() => acknowledgeUi(t)} />
               {/if}
+              {#if upstream?.sessionParam}
+                <div class="ends-row" data-testid="ends-session">
+                  <div class="ends-text">
+                    <span class="ends-title">Beendet die Sitzung</span>
+                    <span class="hint">Nach erfolgreichem Aufruf beendet xitl die Sitzung, z. B. browser_close.</span>
+                  </div>
+                  <Switch checked={t.endsSession} label={`Beendet die Sitzung: ${t.name}`} disabled={busy} onchange={(on) => setEnds(t, on)} />
+                </div>
+              {/if}
 
               {#if selected && t.forClient}
                 {@const f = t.forClient}
@@ -814,6 +825,28 @@
 {/if}
 
 <style>
+  .ends-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: var(--tap);
+  }
+  .ends-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .ends-title {
+    font-weight: 600;
+  }
+  .ends-text .hint {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+
   /* The upstream's general card on top (Einstellungen rework, 2026-10-07). */
   .detail-head {
     display: flex;

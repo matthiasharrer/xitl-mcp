@@ -5,6 +5,7 @@
   import { onMount } from 'svelte';
   import { ApiError, type Policy, type Upstream, type UpstreamAuth, type UpstreamInput } from './api';
   import Icon from './Icon.svelte';
+  import Switch from './Switch.svelte';
 
   interface Props {
     /** Omit to add a new upstream. */
@@ -31,6 +32,7 @@
   let auth = $state<UpstreamAuth>(u?.auth ?? 'OAUTH');
   let headerName = $state(u?.headerName ?? '');
   let headerValue = $state('');
+  let sessionParam = $state(u?.sessionParam ?? false);
   let busy = $state(false);
   let error = $state<string | null>(null);
   // The API refused the URL as internal (ADR-0020): explain, offer "Trotzdem
@@ -84,7 +86,7 @@
       description: description.trim() === '' ? null : description.trim(),
       defaultPolicy,
       // A BUILTIN edit sends no url / auth (the API answers builtin_fixed).
-      ...(builtin ? {} : { url: url.trim(), auth }),
+      ...(builtin ? {} : { url: url.trim(), auth, sessionParam }),
     } as UpstreamInput;
     if (allowInternal) input.allowInternal = true;
     if (!builtin && auth === 'HEADER') {
@@ -207,6 +209,16 @@
       </fieldset>
       {/if}
 
+      {#if !builtin}
+        <div class="field switch-field" data-testid="session-param">
+          <div class="switch-row">
+            <span class="label">Sitzungen über Parameter</span>
+            <Switch checked={sessionParam} label="Sitzungen über Parameter" disabled={busy} onchange={(on) => (sessionParam = on)} />
+          </div>
+          <span class="hint">Für Upstreams mit Zustand (z. B. Browser): Jeder Aufruf bekommt eine Sitzung, die der Agent bei weiteren Aufrufen als <code>xitl_session</code> mitgibt. Aus: jeder Aufruf startet frisch.</span>
+        </div>
+      {/if}
+
       {#if !builtin && auth === 'HEADER'}
         <label class="field">
           <span class="label">Header-Name</span>
@@ -280,3 +292,13 @@
     </footer>
   </form>
 </dialog>
+
+<style>
+  .switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: var(--tap);
+  }
+</style>

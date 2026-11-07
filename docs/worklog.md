@@ -3,6 +3,29 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-11-06/07 — Stateful upstreams: session handles (ADR-0040)
+
+- Matthias: Playwright MCP in the cluster loses its browser between calls
+  through xitl. Measured: `withUpstream` initializes a new upstream session
+  per call (H1+H3); locally with real Playwright MCP 0.0.83 `about:blank`,
+  cookie gone, also after approval. Same problem without xitl
+  (microsoft/playwright-mcp#1045, anthropics/claude-code#41836): Claude.ai /
+  Claude Code speak 2026-07-28, no sessions, nothing stable per chat.
+- Draft 1 (one kept session per MCP client) worked but Matthias rejected it
+  (all chats of a connector share one browser). Process lesson: I kept
+  building while he asked to discuss: stop and answer when he asks.
+- Decided ADR-0040 with him: opt-in switch, `xitl_session` handle parameter
+  (2026 stateless style), implicit start, end tool marked in Regeln. Built:
+  pool + handles (lead, reused draft 1's pool), routes + UI (Sonnet subagent,
+  hit a rate limit mid-way, resumed), e2e on the fake's session mode.
+- Gotchas: Playwright MCP starts a 3 s ping heartbeat once a client opens the
+  GET stream and kills the session after 5 s without pong → kept connections
+  answer GET with 405 locally. A DELETE while closing must not run the 401
+  refresh (`ctx.closing`), or a stale token at sweep time would mark the
+  upstream NEEDS_RECONNECT.
+- Next: Matthias releases; then MG-14 in the cluster and the Nextcloud
+  SMOKE-TEST.md / STATUS.md write-up (roadmap -3).
+
 ## 2026-10-26 — Node2Shell: own Node binary, CI smoke test (`v0.17.3`)
 
 - `v0.17.2` runs (0 restarts). CVE-2026-111497 (Brotli RCE in Node's zlib,

@@ -44,6 +44,13 @@
 //                                  failed, ADR-0034 single-flight, TC-204;
 //                                  `reads`: resources/read requests per uri,
 //                                  ADR-0038)
+//   Stateful mode (ADR-0040, like Playwright MCP): /config { sessions: true }.
+//     initialize issues an Mcp-Session-Id; every later request must carry a
+//     live one (else 404 "Session not found"); DELETE ends it. Tools
+//     `remember` { value } / `recall` keep a value per session (`close`, a
+//     plain tool, ends nothing itself). /config
+//     { forgetSessions: true } drops all live sessions once (a restart).
+//     /state adds { initializes, deleted, sessionCalls: [{ session, tool, argNames }] }.
 //   initialize advertises `tools` and `resources`; resources/list is not
 //   offered (xitl never asks the upstream for it).
 //   (malice `failMcp` answers 500 on the MCP endpoint; `{ failMcp: false }` /
@@ -146,6 +153,12 @@ interface Tenant {
   /** The HEADER-auth secret this tenant accepts (default FAKE_HEADER_SECRET);
    * set via /control/…/config { headerSecret } (TC-85: a new value is used). */
   headerSecret: string;
+  /** Stateful mode (ADR-0040). */
+  sessions: boolean;
+  live: Map<string, { value: string | null }>;
+  initializes: number;
+  deleted: string[];
+  sessionCalls: { session: string; tool: string; argNames: string[] }[];
 }
 
 const tenants = new Map<string, Tenant>();
@@ -173,6 +186,11 @@ function tenant(t: string): Tenant {
       mcpRequests: 0,
       authSeen: [],
       headerSecret: FAKE_HEADER_SECRET,
+      sessions: false,
+      live: new Map(),
+      initializes: 0,
+      deleted: [],
+      sessionCalls: [],
     };
     tenants.set(t, v);
   }
@@ -265,6 +283,11 @@ function callTool(t: Tenant, name: string, args: Record<string, unknown>, creden
 }
 
 async function handleMcp(t: Tenant, tenantName: string, origin: string, req: http.IncomingMessage, res: http.ServerResponse) {
+  const sessionId = typeof req.headers['mcp-session-id'] === 'string' ? req.headers['mcp-session-id'] : null;
+  if (t.sessions && req.method === 'DELETE' && sessionId) {
+    if (t.live.delete(sessionId)) t.deleted.push(sessionId);
+    return send(res, 200, undefined);
+  }
   if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' }, { Allow: 'POST' });
   t.mcpRequests++;
   if (t.malice.redirectMcp) return redirectToSink(res, tenantName, 'mcp');
@@ -298,6 +321,7 @@ async function handleMcp(t: Tenant, tenantName: string, origin: string, req: htt
     return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'parse error' } });
   }
   if (Array.isArray(msg)) return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'no batches' } });
+  if (t.sessions && msg.method !== 'initialize' && !(sessionId && t.live.has(sessionId))) return send(res, 404, { error: 'Session not found' });
   if (msg.id === undefined || msg.id === null) return send(res, 202, undefined); // notification
 
   const reply = (result: unknown) => send(res, 200, { jsonrpc: '2.0', id: msg.id, result });
@@ -305,6 +329,12 @@ async function handleMcp(t: Tenant, tenantName: string, origin: string, req: htt
 
   switch (msg.method) {
     case 'initialize':
+      if (t.sessions) {
+        const id = crypto.randomUUID();
+        t.live.set(id, { value: null });
+        t.initializes++;
+        res.setHeader('Mcp-Session-Id', id);
+      }
       return reply({
         protocolVersion: ['2025-06-18', '2025-03-26', '2025-11-25'].includes(msg.params?.protocolVersion) ? msg.params.protocolVersion : '2025-06-18',
         capabilities: { tools: { listChanged: false }, resources: {} },
@@ -342,7 +372,15 @@ async function handleMcp(t: Tenant, tenantName: string, origin: string, req: htt
         t.calls[String(msg.params?.name)] = (t.calls[String(msg.params?.name)] ?? 0) + 1;
         return reply({ content: [{ type: 'text', text: `failed for ${credential}` }], isError: true });
       }
-      const result = callTool(t, String(msg.params?.name ?? ''), msg.params?.arguments ?? {}, credential);
+      const toolName = String(msg.params?.name ?? '');
+      if (t.sessions && sessionId && (toolName === 'remember' || toolName === 'recall' || toolName === 'close')) {
+        const state = t.live.get(sessionId)!;
+        t.sessionCalls.push({ session: sessionId, tool: toolName, argNames: Object.keys(msg.params?.arguments ?? {}) });
+        if (toolName === 'remember') state.value = String(msg.params?.arguments?.value ?? '');
+        if (toolName === 'close') return reply({ content: [{ type: 'text', text: 'closed' }] });
+        return reply({ content: [{ type: 'text', text: `value=${state.value ?? ''}` }] });
+      }
+      const result = callTool(t, toolName, msg.params?.arguments ?? {}, credential);
       return result ? reply(result) : fail(-32602, `unknown tool ${msg.params?.name}`);
     }
     default:
@@ -470,6 +508,9 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
         clients: [...t.clients.keys()],
         lists: t.lists,
         reads: t.reads,
+        initializes: t.initializes,
+        deleted: t.deleted,
+        sessionCalls: t.sessionCalls,
       });
     }
     const body = JSON.parse((await readBody(req)) || '{}');
@@ -478,6 +519,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
       if (typeof body.rejectRefresh === 'boolean') t.rejectRefresh = body.rejectRefresh;
       if (typeof body.instructions === 'string') t.instructions = body.instructions;
       if (typeof body.headerSecret === 'string') t.headerSecret = body.headerSecret;
+      if (typeof body.sessions === 'boolean') t.sessions = body.sessions;
+      if (body.forgetSessions === true) t.live.clear();
       if (body.malice && typeof body.malice === 'object') t.malice = { ...t.malice, ...body.malice };
       return send(res, 200, { ok: true });
     }

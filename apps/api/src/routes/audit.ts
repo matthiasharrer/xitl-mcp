@@ -56,6 +56,8 @@ export function serializeAuditRow(a: AuditListRow) {
     outcome: a.outcome,
     decisionPath: a.decisionPath,
     isError: a.isError,
+    /** ADR-0040: the upstream session handle (null = none). */
+    upstreamSession: a.upstreamSession,
     receivedAt: a.receivedAt.toISOString(),
     session: sessionRef(a.session),
     /** ADR-0036: the human's deny reason (or null). */
@@ -125,6 +127,7 @@ audit.get('/:id', async (c) => {
     outcome: a.outcome,
     decisionPath: a.decisionPath,
     isError: a.isError,
+    upstreamSession: a.upstreamSession,
     arguments: parseArgs(a.arguments),
     resultText: a.resultText,
     receivedAt: a.receivedAt.toISOString(),

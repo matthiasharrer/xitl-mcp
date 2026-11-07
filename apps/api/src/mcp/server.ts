@@ -103,6 +103,8 @@ import {
   isUsable,
   storedState,
   withUpstream,
+  upstreamSessions,
+  type KeptSessionOutcome,
 } from '../upstream/connection.js';
 import { refreshToolsFromUpstream, syncKnownTools, usableTools, withoutUiMeta } from '../upstream/tools.js';
 import {
@@ -139,6 +141,7 @@ import { sourceKey } from '../intent/group.js';
 import { auditEvents } from '../lib/auditEvents.js';
 import { hintOfRow, type HintRow } from '../toolhint/hint.js';
 import type { RequestDiagnostics } from './sessions.js';
+import { splitSessionArg, usesSessions, withSessionParam } from './sessionParam.js';
 
 /** The running build (CI sets APP_VERSION: `0.3.1`, `main`); MCP serverInfo. */
 const APP_VERSION = process.env.APP_VERSION ?? 'dev';
@@ -431,11 +434,12 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         include: { clientPolicies: { where: { mcpClientId } } },
       }),
       // The default may have changed since the factory ran; read it fresh.
-      prisma.upstream.findFirst({ where: { id: upstream.id, userId }, select: { defaultPolicy: true, pausedAt: true } }),
+      prisma.upstream.findFirst({ where: { id: upstream.id, userId }, select: { defaultPolicy: true, pausedAt: true, sessionParam: true, auth: true } }),
       liveSnoozesFor({ userId, upstreamId: upstream.id, mcpClientId }, now),
       prisma.uiResource.findMany({ where: { upstreamId: upstream.id, upstream: { userId } } }),
     ]);
     const byName = new Map(known.map((k) => [k.name, k]));
+    const sessions = current ? usesSessions(current) : false;
     const decided = usableTools(tools).map((t) => {
       const k = byName.get(t.name);
       const decision = evaluatePolicy({
@@ -472,7 +476,9 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
       if (decision.policy === 'DENY') continue;
       // A view-only tool exists only while a view of this upstream is shown.
       if (isAppOnly(t) && !views.anchor) continue;
-      const shown = !views.shown.has(t.name) ? withoutUiMeta(t) : unified ? withUnifiedUiUri(t, upstream.slug) : t;
+      const viewed = !views.shown.has(t.name) ? withoutUiMeta(t) : unified ? withUnifiedUiUri(t, upstream.slug) : t;
+      // ADR-0040: after sync and hashing, so the stored definition stays the upstream's.
+      const shown = sessions ? withSessionParam(viewed) : viewed;
       // AUTO may be asked (ADR-0030): stamped like ASK. Only plain ALLOW is not.
       listed.push(decision.policy !== 'ALLOW' ? { ...shown, description: stampedDescription(t.description, displayName) } : shown);
     }
@@ -620,7 +626,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
     /** The JSON-RPC id of this tools/call (for `notifications/cancelled`). */
     rpcId: string | number;
   }): Promise<CallToolResult> {
-    const { call, displayName, upstream, endpoint, name, calledName, args, signal, rpcId } = p;
+    const { call, displayName, upstream, endpoint, name, calledName, signal, rpcId } = p;
     const { userId, mcpClientId } = call;
     // The 300 s budget (TC-37) counts from here.
     const receivedAt = clock.now();
@@ -636,12 +642,20 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
         }),
         prisma.upstream.findFirst({
           where: { id: upstream.id, userId },
-          select: { defaultPolicy: true, autoRule: true, pausedAt: true, toolsSyncedAt: true },
+          select: { defaultPolicy: true, autoRule: true, pausedAt: true, toolsSyncedAt: true, sessionParam: true, auth: true },
         }),
         clientUpstreamOf(userId, mcpClientId, upstream.id),
       ]);
     let [tool, current, clientUpstream] = await readState();
     if (!current) throw new Error('upstream vanished mid-request');
+    // ADR-0040: decided once, from this first read. The parameter is taken out
+    // here: policy, rules, Clef, AUTO, the card, the audit arguments and the
+    // upstream see the rest only.
+    const sessions = usesSessions(current);
+    const sessionArg = sessions ? splitSessionArg(p.args) : null;
+    const args = sessionArg ? sessionArg.rest : p.args;
+    // What the call asked for: absent = no sessions, null = a new one.
+    const askedSession = sessionArg ? sessionArg.handle : undefined;
     // ADR-0032/0033: refused like an unknown tool, with the name as called.
     const unknownText = MSG.unknownTool(calledName.slice(0, 100));
 
@@ -665,6 +679,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           decidedAt: receivedAt,
           finishedAt: receivedAt,
           sessionId: call.session?.id ?? null,
+          upstreamSession: askedSession ?? null,
           intentStatus: intents.enabled ? 'SKIPPED' : 'OFF',
           ...auditDiagnostics(call.diagnostics),
         },
@@ -774,6 +789,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           receivedAt,
           approvalId,
           sessionId: call.session?.id ?? null,
+          upstreamSession: askedSession ?? null,
           intentStatus: intents.initialStatus,
           ...(check?.kind === 'match' || check?.kind === 'mismatch'
             ? { pauseCheckScore: check.score, pauseCheckChoice: check.choice, pauseCheckInput: check.input, pausePurpose: ev.pauses.allow?.purpose ?? null, pausePurposeSource: ev.pauses.allow?.purpose ? (ev.pauses.allow.purposeSource ?? 'typed') : null }
@@ -860,6 +876,8 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
       decidedAt?: Date;
       /** ADR-0036: the human's deny reason. */
       denyReason?: string | null;
+      /** ADR-0040: the handle the call ran in. */
+      upstreamSession?: string;
     }) => {
       await prisma.auditEntry.update({
         where: { id: audit.id },
@@ -869,6 +887,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           isError: data.isError ?? null,
           resultText: data.resultText ?? null,
           ...(data.denyReason ? { denyReason: data.denyReason } : {}),
+          ...(data.upstreamSession ? { upstreamSession: data.upstreamSession } : {}),
           decidedAt: data.decidedAt ?? receivedAt,
           finishedAt: clock.now(),
         },
@@ -879,14 +898,37 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
     /** Calls the upstream; the ONLY place a call leaves xitl. */
     const forward = async (timeoutMs: number, decisionPath?: string, decidedAt?: Date): Promise<CallToolResult> => {
       try {
-        const result = await withUpstream(
+        let kept: KeptSessionOutcome | null = null;
+        let result = await withUpstream(
           upstream.id,
           userId,
           async ({ client, secrets }) =>
             scrubSecrets((await client.callTool({ name, arguments: args }, { timeout: timeoutMs })) as CallToolResult, secrets()),
-          { clock, timeoutMs },
+          {
+            clock,
+            timeoutMs,
+            // ADR-0040: in the kept session behind the handle (or a new one).
+            ...(sessions ? { kept: { mcpClientId, handle: askedSession ?? null, given: sessionArg?.given === true }, onSession: (o: KeptSessionOutcome) => (kept = o) } : {}),
+          },
         );
-        await finish({ outcome: 'FORWARDED', decisionPath, decidedAt, isError: result.isError === true, resultText: resultExcerpt(result) });
+        const ran = kept as KeptSessionOutcome | null;
+        if (ran) {
+          const shown = upstream.name.slice(0, 100);
+          // The end tool, succeeded: the session is ended (DELETE) before the
+          // agent hears so. Failed or denied calls end nothing.
+          const ended = tool?.endsSession === true && result.isError !== true && (await upstreamSessions.end(userId, upstream.id, mcpClientId, ran.handle));
+          const notice = ended
+            ? MSG.sessionEnded(shown)
+            : ran.kind === 'new'
+              ? MSG.sessionNew(shown, ran.handle)
+              : ran.kind === 'replaced'
+                ? MSG.sessionReplaced(shown, ran.handle)
+                : ran.kind === 'restarted'
+                  ? MSG.sessionRestarted(shown)
+                  : null;
+          if (notice) result = { ...result, content: [...(result.content ?? []), { type: 'text', text: notice }] };
+        }
+        await finish({ outcome: 'FORWARDED', decisionPath, decidedAt, isError: result.isError === true, resultText: resultExcerpt(result), upstreamSession: ran?.handle });
         return result;
       } catch (e) {
         // ADR-0033 backstop: paused after every check above; withUpstream
@@ -938,6 +980,7 @@ export function makeBuildMcpServer(deps: ProxyDeps = {}) {
           snoozable: !awaitingReview(toolState),
           readOnly,
           session: call.session,
+          ...(askedSession !== undefined ? { upstreamSession: askedSession } : {}),
           intent: NO_INTENT(intents.initialStatus),
           request: { endpoint, rpcId },
           // ADR-0029: why a paused call is asked after all (card, push).

@@ -53,6 +53,14 @@ export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
  * least recently seen ones first. Other users' sessions never count. */
 export const MAX_SESSIONS_PER_USER = 500;
 
+/** Upstream sessions kept open for a caller (ADR-0040): closed (DELETE) after
+ * this long without a call. */
+export const UPSTREAM_SESSION_IDLE_MS = 30 * 60 * 1000;
+
+/** Upstream sessions kept open at most (all users). A new one closes the least
+ * recently used idle one first; one in use is never closed for room. */
+export const MAX_UPSTREAM_SESSIONS = 64;
+
 // ---- Intent summary (ADR-0025) -------------------------------------------------
 // The model sees agent- and upstream-controlled text: every piece is capped.
 

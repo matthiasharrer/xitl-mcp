@@ -86,7 +86,11 @@ apps/api/   Hono on Node 22, Prisma 7 + SQLite (better-sqlite3 adapter, WAL).
   upstream/oauthClient.ts  xitl as OAuth CLIENT: discovery, DCR, PKCE, code
                          exchange, refresh (+ per-upstream refresh lock)
   upstream/connection.ts withUpstream(): one short-lived MCP client connection
-                         per request, credentials injected by our fetch wrapper
+                         per request, credentials injected by our fetch wrapper;
+                         ADR-0040: kept upstream sessions by handle
+                         (UpstreamSessionPool `upstreamSessions`)
+  mcp/sessionParam.ts    ADR-0040: `xitl_session` added to listed tools and
+                         split off call arguments (pure, tested)
   lib/outbound.ts        outbound address policy (ADR-0020): outboundFetch (the
                          only fetch), guarded DNS lookup, web-push agent,
                          save-time checkUrlHost, upstreamAllowance (the
@@ -416,7 +420,36 @@ Sperren, audit, intent, review hint and freshness. Only the connection differs.
   'error'`, timeout 15 s connect / 120 s call, every response capped at
   `MAX_UPSTREAM_RESPONSE_BYTES` = 10 MiB via `limitResponse`: a declared
   larger Content-Length is refused unread, a streamed body errors once past
-  the cap), runs `fn`, closes. ADR-0022: any failure after the connection
+  the cap), runs `fn`, closes (for an upstream with `sessionParam`: DELETE of
+  its upstream session first). **ADR-0040, kept sessions:** for an upstream
+  with `sessionParam` (never BUILTIN, `usesSessions`), `listFor` adds an
+  optional string `xitl_session` to every listed tool's inputSchema (after
+  sync/hashing; an upstream property of that name is replaced, never
+  required), and `callTool` splits it off the arguments right after its first
+  read (`splitSessionArg`): policy, rules, Clef, AUTO, the card, the audit
+  `arguments` and the upstream see the rest only; `AuditEntry.upstreamSession`
+  holds the handle asked for (handle-shaped only) and, once forwarded, the one
+  it ran in; `PendingCall.upstreamSession` (absent / null = new / handle) is
+  shown on the card. `forward` calls `withUpstream` with `kept: {mcpClientId,
+  handle, given}`: `contactKept` looks up `user:upstream:handle` in
+  `upstreamSessions` (only for the same MCP client; a changed URL/auth kind
+  drops it without contact) or opens a new session under a new handle (128
+  random bits base64url); `onSession` reports `new | replaced | restarted |
+  kept`, and forward appends `MSG.sessionNew/Replaced/Restarted` (kept: no
+  notice). Kept connections: the row re-read per call goes into the
+  connection's `FetchContext` (current credentials, timeout, 401 budget), no
+  GET stream (405 locally: Playwright's ping heartbeat would end the session),
+  concurrent calls share the connection; 404 / 400 "session" on a reused one →
+  reopened once under the same handle, `fn` repeated; a failure on a session
+  opened for this call ends it (DELETE), nothing reported. A tool with
+  `KnownTool.endsSession` whose forwarded call succeeded (not isError) →
+  `upstreamSessions.end` (DELETE) + `MSG.sessionEnded`. Also ended: 30 min idle
+  (`UPSTREAM_SESSION_IDLE_MS`, sweep on use + unref'd 60 s timer, DELETE), LRU
+  over `MAX_UPSTREAM_SESSIONS` = 64 (never one in use, DELETE),
+  `endUpstream` from routes/upstreams.ts (switch off: DELETE; URL/auth change,
+  delete: no contact). A restart drops all (handles become unknown → new
+  session + notice). `XITL_DEBUG_UPSTREAM_SESSIONS=1` logs method / JSON-RPC
+  method / status / session-id prefixes per upstream request. ADR-0022: any failure after the connection
   states (refresh, connect, `fn`, other than NotConnected/NeedsReconnect) sets
   `Upstream.lastFailureAt` (Clock), a success clears it if it was set; the
   bookkeeping write never changes the outcome. Both writes are conditional

@@ -85,6 +85,10 @@ export interface PendingCall {
   readOnly: boolean;
   /** The MCP session the call came in on (ADR-0016), null when sessionless. */
   session: { id: string; createdAt: Date } | null;
+  /** ADR-0040: absent = the upstream has no session parameter; null = the
+   * call opens a new upstream session; a string = the handle the call asked
+   * for (handle-shaped, not yet checked: an unknown one gets a new session). */
+  upstreamSession?: string | null;
   /** The advisory intent summary (ADR-0025); absent = feature off. */
   intent?: IntentView;
   /** ADR-0029: the AI check sent this call back (mismatch: the pause ended;

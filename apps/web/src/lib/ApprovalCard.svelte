@@ -7,6 +7,7 @@
   import { api, ApiError, autoCheckNote, messageOf, pauseCheckNote, sperreCheckNote, type ApprovalDecision, type PendingApproval, type SnoozeScope } from './api';
   import { showToast } from './store.svelte';
   import SessionLine from './SessionLine.svelte';
+  import UpstreamSessionLine from './UpstreamSessionLine.svelte';
   import IntentSummary from './IntentSummary.svelte';
   import CallWhat from './CallWhat.svelte';
   import { purposeChips, purposeFields } from './purpose';
@@ -163,6 +164,7 @@
     pending={approval.intentStatus === 'PENDING'}
   />
   <SessionLine session={approval.session} />
+  <UpstreamSessionLine handle={approval.upstreamSession} />
   {#if approval.pauseCheck}
     <!-- ADR-0029: why a call under a Zeitfreigabe is asked after all. -->
     <p class="pause-check-note" class:mismatch={approval.pauseCheck.result === 'mismatch'} data-pause-check={approval.pauseCheck.result}>

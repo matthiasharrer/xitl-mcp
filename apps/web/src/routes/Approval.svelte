@@ -6,6 +6,7 @@
   import ApprovalCard from '../lib/ApprovalCard.svelte';
   import Spinner from '../lib/Spinner.svelte';
   import SessionLine from '../lib/SessionLine.svelte';
+  import UpstreamSessionLine from '../lib/UpstreamSessionLine.svelte';
   import IntentSummary from '../lib/IntentSummary.svelte';
   import CallWhat from '../lib/CallWhat.svelte';
   import { api, ApiError, decisionPathText, messageOf, OUTCOME_LABEL, type PendingApproval, type ResolvedApproval } from '../lib/api';
@@ -68,6 +69,7 @@
       </div>
       <CallWhat tool={r.tool} upstream={r.upstream?.name ?? '–'} title={r.intentStatus === 'DONE' ? r.intentTitle : null} />
       <SessionLine session={r.session} />
+      <UpstreamSessionLine handle={r.upstreamSession} />
       <p class="outcome-text">Nicht mehr offen: {decisionPathText(r.decisionPath)}.</p>
       <IntentSummary intent={r} />
       <pre class="args" aria-label="Argumente">{argsText(r.arguments)}</pre>

@@ -613,6 +613,37 @@ but listed/callable only per TC-246.
 | TC-250 | **View-initiated calls are calls.** A `tools/call` of a shown view's tool and of a view-only tool goes through policy exactly like any other (ASK → held, push; DENY → denied), audited as usual. (Claude.ai's marker for such calls is measured in MG-12.) | e2e |
 | TC-251 | **Regeln UI @390×844.** A tool with a view shows a row „Oberfläche“ with a switch; states „Neu“ (not acknowledged), „Wird angezeigt“, „Aus“, „Geändert – Neue Version anzeigen“, „Nicht ladbar“; CSP line („Darf verbinden mit: …“ / „Keine externen Verbindungen“); shared pages say „Gleiche Oberfläche wie: …“; view-only tools carry „Nur für die Oberfläche“. One help line: on „Alle Upstreams“ a view can call tools of other upstreams, each through your rules. No horizontal scroll, switch reachable above the tab bar. | e2e (+ screenshot) |
 
+### Stateful upstreams: session handles (ADR-0040)
+
+Unit (`apps/api/src/upstream/sessionPool.test.ts`, a stateful fake over real
+HTTP; `apps/api/src/mcp/sessionParam.test.ts`) and e2e
+(`e2e/tests/upstream-sessions.spec.ts`, the fake's session mode).
+
+| ID    | Case | How |
+| ----- | ---- | --- |
+| TC-252 | No handle → new upstream session under a fresh 22-char handle (`new`); with the handle the state survives, one initialize, same `Mcp-Session-Id`, no DELETE. | unit |
+| TC-253 | One-shot connections (lists, instructions) DELETE their upstream session only when the upstream has `sessionParam`; unmarked: no DELETE (unchanged). | unit |
+| TC-254 | ⚡ Handles are separate; another MCP client's handle is not found (`replaced`, new handle), the owner's state untouched. | unit |
+| TC-255 | A kept connection opens no GET stream (Playwright heartbeat). | unit |
+| TC-256 | Session gone upstream (404) → reopened once under the SAME handle, call repeated (`restarted`); then kept. | unit |
+| TC-257 | A 404 on a just-opened session is not retried; nothing kept, nothing reported. | unit |
+| TC-258 | `end()` only for the owning client: DELETE; the handle is then unknown (`replaced`). | unit |
+| TC-259 | Idle `UPSTREAM_SESSION_IDLE_MS` → DELETE on the sweep; not 1 ms before. | unit |
+| TC-260 | ⚡ Credentials come from the row re-read per call (a new header value is used on the kept connection). | unit |
+| TC-261 | ⚡ Changed URL → the kept session dropped without contact (`replaced`, no DELETE); `endUpstream` without terminate contacts nothing. | unit |
+| TC-262 | Concurrent calls with one handle share the connection (one initialize). | unit |
+| TC-263 | ⚡ A paused upstream is refused before its kept session is used (nothing sent). | unit |
+| TC-264 | A call failing on a session opened for it ends that session (DELETE); nothing reported. Plus `isHandleShaped` (22 base64url chars only). | unit |
+| TC-265 | `withSessionParam`: optional string property added, an upstream one replaced and never required; `splitSessionArg`: taken out always, only handle-shaped values looked up; `usesSessions` never for BUILTIN. | unit |
+| TC-266 | tools/list on `/mcp/<slug>` and `/mcp`: `xitl_session` on every tool of a marked upstream, own properties/required kept; the stored definition unchanged (`isChanged` false); unmarked: no parameter. | e2e |
+| TC-267 | ⚡ Without a handle → result + „[xitl] Sitzung: <h>…“; with it the state is kept (both endpoints, no notice), one upstream session; `xitl_session` never reaches the upstream nor the audit `arguments`; `upstreamSession` = h on every row. | e2e |
+| TC-268 | ⚡ Across approvals (ASK): the card has `upstreamSession` null („Neue Sitzung“) then h, `arguments` without the parameter; state kept. | e2e |
+| TC-269 | ⚡ A denied call opens no upstream session (no initialize). | e2e |
+| TC-270 | ⚡ Another client's handle, an unknown one and a malformed one get the same notice („unbekannt oder beendet“, new handle); the owner keeps its state. | e2e |
+| TC-271 | ⚡ End tool (`PATCH …/tools/:id {endsSession:true}`): after success DELETE upstream, „beendet“ notice; the handle is then unknown. | e2e |
+| TC-272 | Upstream lost the session → reopened under the same handle, call repeated, notice „unter derselben ID neu aufgebaut“; audit FORWARDED with h; next call without notice. | e2e |
+| TC-273 | Switch off: unchanged (no handle, no notice, a session per request, no DELETE). | e2e |
+
 ## Manual gates
 
 Things no script can prove. Run on the deployed instance before calling
@@ -633,6 +664,7 @@ milestone 1 done:
 | MG-12 | Deployed (ADR-0038): in Regeln turn on the Grafana tool's „Oberfläche“; in Claude.ai ask for RAM usage: the Grafana view renders (no endless box); a button in the view that calls a tool shows up in xitl like any call (held if ASK). Note which `_meta` keys / headers Claude.ai sends on a view-initiated call (Verlauf diagnostics). Turn the switch off: next chat shows text only. |
 | MG-05 | Tina: her own consent, her own Haushalt connection; she sees none of Matthias's calls, and he none of hers. |
 | MG-13 | Deployed `v0.17.1` (ADR-0039, distroless): the pod runs `0.17.1` with 0 restarts; logs show the snapshot, „No pending migrations“, „API listening“; a call through the Claude.ai connector still works (held and approved if ASK); the Trivy report for `0.17.1` has none of the Debian/npm findings. |
+| MG-14 | Deployed (ADR-0040): Playwright upstream with „Sitzungen über Parameter“, `browser_close` „Beendet die Sitzung“. Through the Claude.ai connector: navigate, then `location.href` + a cookie in a later call with the handle (also across an approval); a second chat gets its own browser; the Booking smoke test (Nextcloud `Claude/stealth-browser-mcp/SMOKE-TEST.md`) green incl. UA without `HeadlessChrome` and time zone `Europe/Berlin`. Only `browser_find` / `browser_evaluate`, never `browser_snapshot`. |
 
 ## Run log
 
@@ -641,6 +673,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 51 | 2026-11-07 | TC-252…273 new (ADR-0040 session handles), TC-07 key list + `sessionParam`; unit 730 (api 693 + web 37), e2e 316 | 315 passed, **TC-135 failed, pre-existing**: it fails the same way on clean `main` (6ed62f3) with the changes stashed (53 rows expected after „Ältere laden“, 51 seen); not caused by this change, on the roadmap. Mutations (lead): no client check in `take` → TC-254 + TC-270 fail; parameter not split off → TC-267 + TC-268 fail. Against real Playwright MCP 0.0.83 (local, headless, temporary spec): handle keeps `https://httpbin.org/cookies` + cookie `probe=1`, also across an approval after 20 s idle; client B with A's handle → `about:blank` + „unbekannt oder beendet“; `browser_close` marked → „beendet“. Eyes at 390×844 (developer screenshots, lead looked): upstream sheet switch, Regeln „Beendet die Sitzung“. Not covered: the card's „Sitzung …“ line in a browser (API asserted in TC-268); MG-14. |
 | 50 | 2026-10-26 (release) | `v0.17.3`: Node 22.23.4+ in the image (ADR-0039 amendment) | Dockerfile + CI only (runtime base `distroless/cc-debian12` with the Node binary from `node:22-bookworm-slim`, ≥ 22.23.4 enforced in the build, CVE-2026-111497; CI smoke test boots the image before pushing). App code unchanged since the last full run. Verification is the new CI smoke step (first boot on an empty volume + restart with snapshot, `/api/health` both times) plus the post-deploy check. `0.17.2` is running in production (0 restarts, Trivy 1 Critical / 6 High). |
 | 49 | 2026-10-26 (release) | `v0.17.2`: hotfix for `v0.17.1`, which crashlooped in production (`ERR_MODULE_NOT_FOUND: undici`): the runtime image copied only `/app/node_modules`, but a clean `npm ci --omit=dev` puts undici 6.29.1 under `apps/api/node_modules`. Now the whole deps-stage `/app` is copied. | **Reproduced locally**: built the image's file layout in a temp dir (clean `npm ci --omit=dev` from the manifests + exactly what the Dockerfile copies) and ran the entrypoint with an empty environment: with `apps/api/node_modules` → health ok, „API listening“; without it → the same `ERR_MODULE_NOT_FOUND` as production. Code unchanged since run 48 (unit 707, e2e 308). **MG-13 after deploy open.** |
 | 48 | 2026-10-26 (release) | `v0.17.1`: distroless runtime image, `docker-entrypoint.mjs` (ADR-0039), undici 6.29.1, zod 4.6.7 | unit 707 (api 672 + web 35), e2e 308, all passed (lead); tsc + svelte-check clean. Entrypoint run with an empty environment (no PATH) against a copy of the dev DB: snapshot + retention to 5, first deploy (all migrations), recorded failed migration (no snapshot, P3009, exit 1), unwritable backup dir (fails closed, no migration), SIGTERM → clean exit 0. Image not buildable here; CI builds it. **MG-13 after deploy open.** |
