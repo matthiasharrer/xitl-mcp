@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'vitest';
 import { SESSION_PARAM, splitSessionArg, usesSessions, withSessionParam } from './sessionParam.js';
 
-const H = 'AAAAAAAAAAAAAAAAAAAAAA';
+const H = 'AAAAAA';
 
 describe('withSessionParam', () => {
   test('adds an optional string property, keeps the rest', () => {

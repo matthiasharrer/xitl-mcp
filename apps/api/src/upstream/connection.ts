@@ -297,16 +297,20 @@ function poolKey(userId: number, upstreamId: number, handle: string): string {
   return `${userId}:${upstreamId}:${handle}`;
 }
 
-/** ADR-0040: a session handle is 128 random bits, base64url (22 characters). */
-const HANDLE_RE = /^[A-Za-z0-9_-]{22}$/;
+/** ADR-0040 (amendment 2026-11-07): a session handle is 36 random bits,
+ * base64url (6 characters). Not a secret: it is only found together with the
+ * user, upstream and client that opened it; it only has to tell that
+ * client's sessions apart, and `freshHandle` rules out a collision. */
+const HANDLE_RE = /^[A-Za-z0-9_-]{6}$/;
 
 /** Could `v` be a handle xitl minted? Anything else is never looked up. */
 export function isHandleShaped(v: unknown): v is string {
   return typeof v === 'string' && HANDLE_RE.test(v);
 }
 
-function newHandle(): string {
-  return randomBytes(16).toString('base64url');
+/** 6 base64url characters are the first 36 bits of 5 random bytes. */
+export function newHandle(): string {
+  return randomBytes(5).toString('base64url').slice(0, 6);
 }
 
 /** ADR-0040: a call to an upstream with `sessionParam` (mcp/server.ts forward). */
@@ -351,13 +355,29 @@ class UpstreamSessionPool {
     return conn;
   }
 
+  /** A handle no open (or opening) session of this user + upstream has
+   * (ADR-0040 amendment 2026-11-07: 6 characters, so collisions are checked).
+   * `mint` is injectable for tests. */
+  freshHandle(userId: number, upstreamId: number, mint: () => string = newHandle): string {
+    for (;;) {
+      const handle = mint();
+      const key = poolKey(userId, upstreamId, handle);
+      if (!this.conns.has(key) && !this.opening.has(key)) return handle;
+    }
+  }
+
   /** Opens and keeps a connection under `key`; concurrent opens of one key
-   * (a restart seen by two calls) share one. */
+   * (a restart seen by two calls) share one. Never another client's: a
+   * session under the key owned by someone else is an error (fail closed). */
   async open(key: string, owner: { userId: number; upstreamId: number; mcpClientId: number; handle: string }, open: () => Promise<HttpConnection>, now: Date): Promise<PooledHttp> {
+    const mine = (c: PooledHttp) => {
+      if (c.mcpClientId !== owner.mcpClientId) throw new Error('upstream session handle collision');
+      return c;
+    };
     const existing = this.conns.get(key);
-    if (existing) return existing;
+    if (existing) return mine(existing);
     const pending = this.opening.get(key);
-    if (pending) return pending;
+    if (pending) return mine(await pending);
     const promise = (async () => {
       const conn = await open();
       const pooled: PooledHttp = { ...conn, key, ...owner, closed: false, identity: identityOf(conn.ctx.current), lastUsedAt: now.getTime(), inFlight: 0 };
@@ -528,7 +548,7 @@ export async function withUpstream<T>(
       );
     let conn = req.handle ? pool.take(poolKey(userId, upstreamId, req.handle), row, req.mcpClientId, clock.now()) : null;
     const kind: KeptSessionOutcome['kind'] = conn ? 'kept' : req.handle || req.given ? 'replaced' : 'new';
-    conn ??= await open(newHandle());
+    conn ??= await open(pool.freshHandle(userId, upstreamId));
     let result: T;
     try {
       result = await use(conn);

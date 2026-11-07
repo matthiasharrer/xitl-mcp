@@ -29,6 +29,9 @@
   MG-14 passed the same morning from this very session: the old tool list had
   no `xitl_session`, but Claude Code passed the extra argument anyway. Results
   in Nextcloud SMOKE-TEST.md / STATUS.md. Open: phone check of hint/counter.
+- Matthias: ids too long → 6 characters + collision check (ADR-0040
+  amendment). Found on the way: `open()` returned whatever sat under a pool
+  key, regardless of client; now it throws for another client's key.
 
 ## 2026-11-06/07 — Stateful upstreams: session handles (ADR-0040)
 

@@ -34,7 +34,7 @@ type Result = { content: { text: string }[]; isError?: boolean };
 const first = (r: Result) => r.content[0]!.text;
 const notice = (r: Result) => r.content.slice(1).map((c) => c.text).join('\n');
 /** The handle from a „[xitl] Sitzung: <h>.“ / „Neue Sitzung: <h>.“ notice. */
-const handleOf = (r: Result) => /Sitzung: ([A-Za-z0-9_-]{22})\./.exec(notice(r))?.[1] ?? null;
+const handleOf = (r: Result) => /Sitzung: ([A-Za-z0-9_-]{6})\./.exec(notice(r))?.[1] ?? null;
 const callSessions = async (request: APIRequestContext, tenant: string) => (await fakeState(request, tenant)).sessionCalls;
 
 test('TC-266 tools/list: `xitl_session` an jedem Tool, auf beiden Endpunkten; nicht ohne den Schalter', async ({ request }) => {
@@ -116,13 +116,16 @@ test('TC-270 ⚡ Handles sind je Client: fremder oder unbekannter Handle → neu
   const hB = handleOf(foreign);
   expect(hB).not.toBeNull();
   expect(hB).not.toBe(hA);
-  const unknown = await callTool(request, up.slug, tokens[1]!, 'recall', { xitl_session: 'AAAAAAAAAAAAAAAAAAAAAA' });
+  const unknown = await callTool(request, up.slug, tokens[1]!, 'recall', { xitl_session: 'AAAAAA' });
   const garbage = await callTool(request, up.slug, tokens[1]!, 'recall', { xitl_session: 'nope' });
+  // A 22-character handle from before the amendment (2026-11-07) is just malformed now.
+  const old = await callTool(request, up.slug, tokens[1]!, 'recall', { xitl_session: 'A8KlUVPGmJgsKwRlKxxanw' });
   // one text for foreign, unknown and malformed (only the new handle differs)
-  const shape = (r: Result) => notice(r).replace(/[A-Za-z0-9_-]{22}/g, '<h>');
+  const shape = (r: Result) => notice(r).replace(/(Sitzung|session): [A-Za-z0-9_-]{6}\./gi, '$1: <h>.');
   expect(shape(foreign)).toContain('unbekannt oder beendet');
   expect(shape(unknown)).toBe(shape(foreign));
   expect(shape(garbage)).toBe(shape(foreign));
+  expect(shape(old)).toBe(shape(foreign));
   expect(first(await callTool(request, up.slug, tokens[0]!, 'recall', { xitl_session: hA }))).toBe('value=a');
 });
 

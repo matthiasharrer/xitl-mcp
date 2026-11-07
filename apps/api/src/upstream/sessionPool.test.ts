@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi 
 const findFirst = vi.fn();
 const updateMany = vi.fn();
 vi.mock('../db.js', () => ({ prisma: { upstream: { findFirst, updateMany } } }));
-const { withUpstream, upstreamSessions, isHandleShaped, UpstreamPaused } = await import('./connection.js');
+const { withUpstream, upstreamSessions, isHandleShaped, newHandle, UpstreamPaused } = await import('./connection.js');
 const { UPSTREAM_SESSION_IDLE_MS } = await import('../lib/limits.js');
 
 // ---- the fake upstream ----------------------------------------------------------
@@ -260,9 +260,40 @@ describe('kept upstream sessions by handle (ADR-0040)', () => {
 });
 
 describe('isHandleShaped', () => {
-  test('only 22 base64url characters', () => {
-    expect(isHandleShaped('AAAAAAAAAAAAAAAAAAAAAA')).toBe(true);
-    expect(isHandleShaped('A-_aaaaaaaaaaaaaaaaaaa')).toBe(true);
-    for (const v of ['', 'short', 'AAAAAAAAAAAAAAAAAAAAAAA', 'AAAAAAAAAAAAAAAAAAAA=A', 42, null, undefined, {}, ['AAAAAAAAAAAAAAAAAAAAAA']]) expect(isHandleShaped(v)).toBe(false);
+  test('only 6 base64url characters (ADR-0040 amendment 2026-11-07)', () => {
+    expect(isHandleShaped('AAAAAA')).toBe(true);
+    expect(isHandleShaped('A-_a9z')).toBe(true);
+    for (const v of ['', 'short', 'AAAAAAA', 'AAAA=A', 'AAAAAAAAAAAAAAAAAAAAAA', 42, null, undefined, {}, ['AAAAAA']]) expect(isHandleShaped(v)).toBe(false);
+  });
+  test('newHandle mints handle-shaped, varying values', () => {
+    const many = new Set(Array.from({ length: 200 }, () => newHandle()));
+    for (const h of many) expect(isHandleShaped(h)).toBe(true);
+    expect(many.size).toBeGreaterThan(195);
+  });
+});
+
+describe('handle collisions (ADR-0040 amendment 2026-11-07)', () => {
+  test('TC-279: freshHandle skips handles of open sessions of this user + upstream, not of others', async () => {
+    const first = await call('set', { client: 3, value: 'a' });
+    const taken = first.outcome!.handle;
+    const seq = (...hs: string[]) => () => hs.shift()!;
+    expect(upstreamSessions.freshHandle(1, 7, seq(taken, taken, 'BBBBBB'))).toBe('BBBBBB');
+    // Another upstream or user: the same handle is free there (the key differs).
+    expect(upstreamSessions.freshHandle(1, 8, seq(taken))).toBe(taken);
+    expect(upstreamSessions.freshHandle(2, 7, seq(taken))).toBe(taken);
+  });
+
+  test('TC-280: open() never hands another client a session under the same key (fail closed)', async () => {
+    const first = await call('set', { client: 3, value: 'a' });
+    const key = `1:7:${first.outcome!.handle}`;
+    const opener = vi.fn();
+    await expect(
+      upstreamSessions.open(key, { userId: 1, upstreamId: 7, mcpClientId: 4, handle: first.outcome!.handle }, opener, now),
+    ).rejects.toThrow('collision');
+    expect(opener).not.toHaveBeenCalled();
+    // The owner still gets it.
+    const own = await upstreamSessions.open(key, { userId: 1, upstreamId: 7, mcpClientId: 3, handle: first.outcome!.handle }, opener, now);
+    expect(own.mcpClientId).toBe(3);
+    expect(opener).not.toHaveBeenCalled();
   });
 });

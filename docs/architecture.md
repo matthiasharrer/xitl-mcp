@@ -433,8 +433,10 @@ Sperren, audit, intent, review hint and freshness. Only the connection differs.
   shown on the card. `forward` calls `withUpstream` with `kept: {mcpClientId,
   handle, given}`: `contactKept` looks up `user:upstream:handle` in
   `upstreamSessions` (only for the same MCP client; a changed URL/auth kind
-  drops it without contact) or opens a new session under a new handle (128
-  random bits base64url); `onSession` reports `new | replaced | restarted |
+  drops it without contact) or opens a new session under a new handle (6
+  base64url characters, 36 random bits, `freshHandle` skips one already open
+  for this user + upstream; `open()` refuses a key owned by another client;
+  ADR-0040 amendment 2026-11-07); `onSession` reports `new | replaced | restarted |
   kept`, and forward appends `MSG.sessionNew/Replaced/Restarted` (kept: no
   notice). Kept connections: the row re-read per call goes into the
   connection's `FetchContext` (current credentials, timeout, 401 budget), no

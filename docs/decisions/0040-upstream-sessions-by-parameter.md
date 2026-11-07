@@ -52,7 +52,8 @@ For a marked upstream:
   leave it out for a new session. Added after tool sync and hashing (ADR-0031
   sees the upstream's own definition, so no false "changed" flags). An upstream
   property of the same name is never forwarded.
-- **Handle.** xitl mints it: 128 random bits, base64url. It is bound to user,
+- **Handle.** xitl mints it: 128 random bits, base64url (since the amendment
+  2026-11-07: 6 characters, see below). It is bound to user,
   MCP client and upstream, and only looked up within that scope. It is not a
   credential; the bearer token still decides.
 - **Call without `xitl_session`.** Once the call is allowed (after any
@@ -129,3 +130,29 @@ For a marked upstream:
   but every client and agent shares one context and `browser_close` breaks it
   for all. Fallback only.
 - **Key by trace id / `x-anthropic-client`:** per turn at best, and client-sent.
+
+## Amendment 2026-11-07: 6-character handles with a collision check
+
+Matthias, after MG-14: the 22-character ids are long to carry along. Decided:
+
+- **A handle is 6 base64url characters** (36 random bits: the first 6
+  characters of 5 random bytes), e.g. `A8KlUV`. It is not a secret. It is
+  only found together with the user, upstream and MCP client that opened it,
+  and it only has to tell apart that client's few sessions on one upstream.
+  Guessing one gives another client nothing: it gets „unbekannt“ and a new
+  session.
+- **Collision check:** `UpstreamSessionPool.freshHandle` draws again while
+  the handle is already used by an open or opening session of the same user
+  and upstream (that is the pool key). **Defence in depth:** `open()` throws
+  if a session already under the key belongs to another MCP client, instead
+  of handing it out. Before, it returned any session under the key. That was
+  harmless at 128 bits, but not at 36.
+- Shorter ids cost fewer tokens per call. More importantly, the model mistypes
+  them less often, and a mistyped id silently gives a new, empty session.
+- No migration. Sessions live only in memory, and the deploy restart drops
+  them. An old 22-character id is now malformed: one „unbekannt oder beendet“
+  notice and a new session, the same as any unknown id.
+- Display: card and Verlauf show the whole handle. Anything longer than 8
+  characters that an agent passed is still cut to 8 + „…“.
+- Not chosen: git-style prefixes of a longer id. A prefix can be ambiguous,
+  which needs a rule on the security path, and there is nothing to hash.

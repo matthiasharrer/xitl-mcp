@@ -643,6 +643,8 @@ HTTP; `apps/api/src/mcp/sessionParam.test.ts`) and e2e
 | TC-271 | ⚡ End tool (`PATCH …/tools/:id {endsSession:true}`): after success DELETE upstream, „beendet“ notice; the handle is then unknown. | e2e |
 | TC-272 | Upstream lost the session → reopened under the same handle, call repeated, notice „unter derselben ID neu aufgebaut“; audit FORWARDED with h; next call without notice. | e2e |
 | TC-273 | Switch off: unchanged (no handle, no notice, a session per request, no DELETE). | e2e |
+| TC-279 | ⚡ Handles are 6 base64url characters (`isHandleShaped`, `newHandle`); `freshHandle` draws again on a handle open for the same user + upstream, the same handle is free for another upstream / user. Mutation: without the check → fails. | unit |
+| TC-280 | ⚡ `open()` under a key held by another MCP client throws, never hands it out and never opens; the owner still gets it. Mutation: without the owner check → fails. TC-270 also sends a 22-character id from before the amendment: same notice as unknown. | unit + e2e |
 
 ### Zeitfreigabe only checked with a purpose (ADR-0029 amendment 2026-11-07)
 
@@ -687,6 +689,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 55 | 2026-11-07 | TC-279/280 new (ADR-0040 amendment: 6-character handles, collision check), TC-252/265/270 adapted; unit 736 (api 699 + web 37), e2e `upstream-sessions.spec.ts` 8 | all passed (lead); mutations (no collision check / no owner check in `open()`) caught by TC-279 / TC-280. Full e2e not rerun: only handle code changed, no other spec references handles. |
 | 54 | 2026-11-07 (deployed `v0.18.0`) | MG-14 (ADR-0040) in the cluster via the XITL connector | **passed** (lead): handle `A8Kl…` kept `httpbin.org/cookies` + `probe=1` across an approval; without handle `about:blank` + new handle; Booking direct URL green, 477 results, top 5 with prices, UA `Chrome/155`, `Europe/Berlin`, `de-DE`; `browser_close` → „beendet“, the handle then unknown → new session. 7 calls, no snapshot/find. Two Claude.ai chats at once not tried (covered by TC-270). |
 | 53 | 2026-11-07 (release) | `v0.18.0`: ADR-0040 (run 51) + ADR-0029 amendment „no purpose, no check“ (run 52) + `/data` owned by UID 1000 | same code as run 52 (only docs changed since): unit 733, e2e 318, all passed after the run-52 adaptations. |
 | 52 | 2026-11-07 | TC-274…278 new (ADR-0029 amendment: no purpose, no check; hint + counter at „Wofür?“). Grants in pause-check/pause-resume/builtin-xitl/auto/running now carry a purpose; approval/deny-pause/unified/grouping expect `snooze` instead of `snooze+ki` for purposeless pauses. Unit 733 (api 696 + web 37), e2e 318 | all passed after the adaptations (lead): full run had 5 failures, 4 of them expected `snooze+ki` (fixed), TC-105 flaky (timeout on a switch click; passed in two reruns). TC-135 passed this time (see roadmap -2a). Mutation: without the purpose guard in `PauseGate.evaluate` → both TC-274 unit cases fail. Eyes: TC-278 card screenshot at 390×844 (hint grey, wraps; counter red at 200/200). |
