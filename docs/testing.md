@@ -696,6 +696,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 59 | 2026-11-08 (deployed `v0.19.0`) | Matthias's phone/cluster checks | **passed** (Matthias, reported): „+ Zeitfreigabe“ works on the phone without problems (TC-282 manually); the „Wofür?“ hint + counter looked fine (ADR-0029 amendment); MG-12: MCP Apps work in Claude.ai; MG-14 leftover: three background agents researched in parallel through the Playwright upstream without conflicts (separate sessions). |
 | 58 | 2026-11-07 (release) | `v0.19.0`: „+ Zeitfreigabe“ (ADR-0041); full e2e 321, unit 736 | 320 passed, TC-135 failed (51 of 53 rows after „Ältere laden“, known flaky, roadmap -2a), `history-live.spec.ts` alone right after: 4 passed. |
 | 57 | 2026-11-07 | TC-281/282 new (ADR-0041 „+ Zeitfreigabe“); unit 736 (api 699 + web 37); e2e `new-pause` 3, `running` + `approval` + `ui` + `pause-check` 35 | all passed (lead). Screenshots of dialog and „Läuft gerade“ at 390×844 checked. |
 | 56 | 2026-11-07 (release) | `v0.18.1`: 6-character session handles + collision check (ADR-0040 amendment) | same code as run 55 (only docs changed since): unit 736, e2e `upstream-sessions` 8, all passed. |

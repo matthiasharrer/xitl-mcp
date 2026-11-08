@@ -1,6 +1,6 @@
 # 0041. Start a Zeitfreigabe from Freigaben without a held call
 
-- **Status:** Accepted (Matthias 2026-11-07, request), built 2026-11-07, released in `v0.19.0`
+- **Status:** Accepted (Matthias 2026-11-07, request), built 2026-11-07, released in `v0.19.0`; one access per grant and no „Wofür?“ confirmed by Matthias 2026-11-08, phone check passed
 - **Date:** 2026-11-07
 
 ## Context

@@ -17,15 +17,6 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
 
 **Open, in order:**
 
--3. **Stateful upstreams (ADR-0040): released in `v0.18.0`, MG-14 passed
-   2026-11-07** (cluster, Claude Code through the XITL connector): handle keeps
-   tab + cookie across an approval, no handle → fresh browser, `browser_close`
-   ends it, Booking green (477 results, UA `Chrome/155`, Europe/Berlin), 7
-   calls, written to Nextcloud SMOKE-TEST.md / STATUS.md. A client with a tool
-   list from before the switch still passes `xitl_session` (Claude Code does
-   not enforce `additionalProperties: false`). Open: two Claude.ai chats at
-   once (Matthias, when it comes up).
-
 -2a. **TC-135 fails on `main`** (found 2026-11-07, run 51): after „Ältere
    laden“ the Verlauf shows 51 rows instead of 53. Reproduces with the ADR-0040
    changes stashed, so older than them; maybe time-dependent. Passed in
@@ -33,40 +24,6 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
    (same 51/53), passed alone right after. Look before the next
    release.
 
--2. **MG-13 after the `v0.17.3` deploy** (distroless image, ADR-0039, with
-   Node 22.23.4+ against CVE-2026-111497): pod up, a connector call still
-   works. `0.17.2` already runs cleanly (Trivy 1 Critical / 6 High). The CI
-   smoke test is built (boots the image before every push). The deploy waits
-   on a Flux image-update PR that Matthias merges.
-
--1. **MCP Apps (ADR-0038, Accepted 2026-10-25).** Claude.ai shows an endless
-   "Verbindung … wird hergestellt" box when an upstream's tool carries
-   `_meta.ui.resourceUri`: xitl passes it through but serves no
-   `resources/read`. **Slice 1 released in `v0.16.1`** (strip `_meta.ui`,
-   drop view-only tools). Matthias checks Claude.ai + Grafana: no box, text
-   answer. **Slices 2–3 released in `v0.17.0`** (TC-243…251; the
-   amendment: no upstream default, the tap reads the page now, hash covers
-   `_meta.ui`): `UiResource` + `KnownTool.uiMeta/prevUiMeta/uiResourceUri/
-   uiEnabled` (migration `20261007060000_mcp_apps`), `_meta.ui` in change
-   detection, view-only tools recorded again, background page read on tool
-   sync, the switch „Oberfläche“ in Regeln, `resources` capability with URI
-   rewrite on `/mcp`, the checked `resources/read` with the hash check.
-   Next: slice 4 phone check in Claude.ai with **Grafana** (MG-12: view
-   renders, a view-initiated call is still held, which `_meta`/headers mark
-   it).
--0. **„+ Zeitfreigabe“ on Freigaben (ADR-0041): released in `v0.19.0`.** Button beside „Freigaben“, dialog Upstream / Zugang / Dauer,
-   always the whole upstream, no KI-Prüfung. TC-281/282. Next: Matthias tries
-   it on the phone.
-0. **Zeitfreigabe only checked with a purpose (ADR-0029 amendment
-   2026-11-07): released in `v0.18.0`.**
-   The Richtungswechsel cases (#362–#385) showed Clef cannot judge multi-step
-   tasks (0/11 real ok cases pass, see the amendment). Decided: without
-   „Wofür?“ the Zeitfreigabe is blind, with it unchanged; a hint under the
-   field (only when the check is on) and a counter „n/200“. TC-274…278.
-   After the deploy: on the phone, check the hint and the counter on a real
-   card (MG-09 now needs a purpose). Later, maybe: Qwen instead of Clef for
-   AUTO to save RAM (Matthias, mid-term); the parked „Für diese Sitzung“
-   approval on ADR-0040 handles (worklog 2026-11-07).
 1. **Phone checks of `v0.14.0`/`v0.15.0`** (released = deployed, Matthias
    2026-10-20): „Erlauben & fortsetzen“ / „Fortsetzen“ with real Clef, a deny
    with a reason chip from Claude.ai. Then the manual gates MG-09…11:

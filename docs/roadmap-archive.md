@@ -3,6 +3,25 @@
 Shipped roadmap entries, newest first. The reasoning is in `decisions/`, the
 test evidence in `testing.md`'s run log.
 
+## 2026-11-08 (`v0.18.0`…`v0.19.0`, confirmed by Matthias)
+
+- **„+ Zeitfreigabe“ on Freigaben (ADR-0041, `v0.19.0`).** Button beside
+  „Freigaben“, dialog Upstream / Zugang / Dauer, whole upstream, no
+  KI-Prüfung. Matthias confirmed one access per grant and no „Wofür?“, phone
+  check passed (run 59).
+- **Zeitfreigabe only checked with a purpose (ADR-0029 amendment,
+  `v0.18.0`).** Hint + counter under „Wofür?“ looked fine on the phone. Later,
+  maybe: Qwen instead of Clef for AUTO; the parked „Für diese Sitzung“
+  approval (worklog 2026-11-07).
+- **Stateful upstreams (ADR-0040, `v0.18.0`/`v0.18.1`).** MG-14 passed
+  (run 54); parallel use passed: three background agents researched at once
+  without conflicts (run 59).
+- **MCP Apps slice 4 (ADR-0038).** MG-12: views work in Claude.ai (run 59).
+  Which `_meta` keys / headers Claude.ai sends on a view-initiated call was not
+  recorded.
+- **MG-13 (distroless image, ADR-0039).** Implicitly passed: `v0.18.0`…`v0.19.0`
+  run on the distroless image in the cluster and serve connector calls daily.
+
 ## 2026-10-26 (`v0.17.1`)
 
 - **Distroless runtime image (ADR-0039).** Trivy flagged 1 Critical / 20

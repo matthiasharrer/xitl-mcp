@@ -3,6 +3,16 @@
 > One short entry **per working session**, newest first: where we left off, why,
 > dead-ends, gotchas. Git covers the fine-grained "what".
 
+## 2026-11-08 — Matthias's checks closed out
+
+- Matthias reported: „+ Zeitfreigabe“ works on the phone; one access per grant
+  and no „Wofür?“ confirmed („Wofür funktioniert ja sowieso nicht richtig“);
+  the „Wofür?“ hint/counter is fine; three background agents ran web research
+  through the Playwright upstream at once without conflicts; MCP Apps work.
+- Recorded as run 59; roadmap items for ADR-0038/0040/0041, the purpose-only
+  amendment and MG-13 moved to the archive. Left open: TC-135/TC-105 flaky,
+  the older phone checks (item 1), MG-12's `_meta` marker not recorded.
+
 ## 2026-11-07 — „+ Zeitfreigabe“ without a held call (ADR-0041)
 
 - Matthias: start a Zeitfreigabe from the start page, button + dialog, pick
