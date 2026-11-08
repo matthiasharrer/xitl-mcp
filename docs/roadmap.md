@@ -17,12 +17,10 @@ chips, "Läuft gerade" overview). Deployed: every release (released = deployed, 
 
 **Open, in order:**
 
--2a. **TC-135 fails on `main`** (found 2026-11-07, run 51): after „Ältere
-   laden“ the Verlauf shows 51 rows instead of 53. Reproduces with the ADR-0040
-   changes stashed, so older than them; maybe time-dependent. Passed in
-   run 52 (same day), so flaky rather than broken. Failed again in run 58
-   (same 51/53), passed alone right after. Look before the next
-   release.
+-2a. **TC-105 flaky once** (run 52: timeout on a switch click, passed in two
+   reruns). Not reproducible on 2026-11-08: 15/15 alone, 5/5 next to
+   pause/history-live/new-pause with 6 workers. The config keeps traces on
+   failure: when it fails again, read that trace before touching the test.
 
 1. **Phone checks of `v0.14.0`/`v0.15.0`** (released = deployed, Matthias
    2026-10-20): „Erlauben & fortsetzen“ / „Fortsetzen“ with real Clef, a deny

@@ -183,7 +183,10 @@ test.describe('im Browser', () => {
     await expect(rows).toHaveCount(51, { timeout: 8000 });
     await expect(loadMore).toBeVisible();
     await loadMore.click();
-    await expect(loadMore).toBeHidden();
+    // While loading the button reads „Lädt…“, so „Ältere laden“ is gone before
+    // the page arrives: wait for the rows, then for the button to be gone.
+    await expect(rows).toHaveCount(53);
+    await expect(page.getByRole('button', { name: /Ältere laden|Lädt/ })).toHaveCount(0);
     const ids = await page.locator('a.history-link').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.audit));
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toHaveLength(53);

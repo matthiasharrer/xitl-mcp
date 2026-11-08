@@ -10,8 +10,13 @@
   the „Wofür?“ hint/counter is fine; three background agents ran web research
   through the Playwright upstream at once without conflicts; MCP Apps work.
 - Recorded as run 59; roadmap items for ADR-0038/0040/0041, the purpose-only
-  amendment and MG-13 moved to the archive. Left open: TC-135/TC-105 flaky,
-  the older phone checks (item 1), MG-12's `_meta` marker not recorded.
+  amendment and MG-13 moved to the archive. Left open: the older phone
+  checks (item 1). MG-12's `_meta` marker: skipped (Matthias: the Grafana view
+  was not very useful anyway, maybe removed upstream).
+- TC-135 was a test race, not a product bug (run 60): „Ältere laden“ turns
+  into „Lädt…“ while loading, so waiting for it to be hidden returned before
+  the page arrived. Gotcha for any test that waits on a button whose label
+  changes while busy. TC-105 not reproducible; roadmap -2a watches it.
 
 ## 2026-11-07 — „+ Zeitfreigabe“ without a held call (ADR-0041)
 

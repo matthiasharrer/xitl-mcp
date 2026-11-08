@@ -696,6 +696,7 @@ app stopped the case proving anything.
 
 | # | Date | Scope | Result |
 | - | ---- | ----- | ------ |
+| 60 | 2026-11-08 | TC-135 flake fixed (test race), TC-105 stress | **TC-135**: reproduced 6/12 with `--repeat-each`; debug log showed the „Ältere laden“ page (2 rows) arriving after the ids were read: while loading the button reads „Lädt…“, so `toBeHidden()` on „Ältere laden“ passed early. The test now waits for 53 rows, then for no button. App behaviour was right. After the fix 15/15. **TC-105**: 15/15 alone, 5/5 with 6 workers next to pause/history-live/new-pause (the TC-103/104 failures in that run come from repeats sharing fixed users, not from the app). |
 | 59 | 2026-11-08 (deployed `v0.19.0`) | Matthias's phone/cluster checks | **passed** (Matthias, reported): „+ Zeitfreigabe“ works on the phone without problems (TC-282 manually); the „Wofür?“ hint + counter looked fine (ADR-0029 amendment); MG-12: MCP Apps work in Claude.ai; MG-14 leftover: three background agents researched in parallel through the Playwright upstream without conflicts (separate sessions). |
 | 58 | 2026-11-07 (release) | `v0.19.0`: „+ Zeitfreigabe“ (ADR-0041); full e2e 321, unit 736 | 320 passed, TC-135 failed (51 of 53 rows after „Ältere laden“, known flaky, roadmap -2a), `history-live.spec.ts` alone right after: 4 passed. |
 | 57 | 2026-11-07 | TC-281/282 new (ADR-0041 „+ Zeitfreigabe“); unit 736 (api 699 + web 37); e2e `new-pause` 3, `running` + `approval` + `ui` + `pause-check` 35 | all passed (lead). Screenshots of dialog and „Läuft gerade“ at 390×844 checked. |

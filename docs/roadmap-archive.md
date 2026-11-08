@@ -18,7 +18,7 @@ test evidence in `testing.md`'s run log.
   without conflicts (run 59).
 - **MCP Apps slice 4 (ADR-0038).** MG-12: views work in Claude.ai (run 59).
   Which `_meta` keys / headers Claude.ai sends on a view-initiated call was not
-  recorded.
+  recorded; skipped by Matthias 2026-11-08 (the view was not very useful).
 - **MG-13 (distroless image, ADR-0039).** Implicitly passed: `v0.18.0`…`v0.19.0`
   run on the distroless image in the cluster and serve connector calls daily.
 
